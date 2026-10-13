@@ -179,7 +179,7 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.name }}"
           SRC_APK="$(ls app/build/outputs/apk/release/*arm64-v8a*.apk | head -1)"
-          APK="photosphere-v${VERSION}.apk"
+          APK="photosphere_android_v${VERSION}.apk"
           cp "$SRC_APK" "$APK"
           echo "APK: $APK ($(du -h "$APK" | cut -f1))"
           if ! unzip -tqq "$APK"; then
