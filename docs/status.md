@@ -14,7 +14,7 @@ landed:
   only a few pixels across it.
 
 What is still outstanding is tracked in
-[the issue tracker](https://github.com/theclumsypirate/360-camera/issues). The
+[the issue tracker](https://github.com/theclumsypirate/photosphere-android/issues). The
 larger items at the time of writing: guided capture cannot be driven without
 sight, the result screen previews the sphere flat rather than as a pannable
 view, there are no instrumented UI tests, the strings are English-only, and the

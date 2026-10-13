@@ -59,7 +59,7 @@ page, unzip, and `adb install` it — no local toolchain needed.
 ## Test builds
 
 Debug APKs are published as
-[GitHub Release](https://github.com/theclumsypirate/360-camera/releases) assets
+[GitHub Release](https://github.com/theclumsypirate/photosphere-android/releases) assets
 rather than committed to the repository — a debug build of this app is ~43 MB,
 and committing one per rebuild grows the history by that much every time.
 

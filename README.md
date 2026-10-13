@@ -20,4 +20,4 @@ Original author: https://github.com/n30dyn4m1c/360-photo-app
 
 ## License
 
-[MIT](https://github.com/theclumsypirate/360-camera/blob/main/LICENSE)
+[MIT](https://github.com/theclumsypirate/photosphere-android/blob/main/LICENSE)
