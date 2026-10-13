@@ -1,4 +1,5 @@
 package com.n30dyn4m1c.photosphere.storage
+import com.n30dyn4m1c.photosphere.util.Logging
 
 import android.content.ContentValues
 import android.content.Context
@@ -17,7 +18,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private const val TAG = "MediaExporter"
+private const val TAG = Logging.TAG
 
 /**
  * Publishes a finished 360 photo to the device's public gallery.

@@ -1,4 +1,5 @@
 package com.n30dyn4m1c.photosphere.storage
+import com.n30dyn4m1c.photosphere.util.Logging
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -36,7 +37,7 @@ import java.util.Locale
  */
 object SphereImageStore {
 
-    private const val TAG = "SphereImageStore"
+    private const val TAG = Logging.TAG
     private const val ALBUM = "PhotoSphere"
     private const val MIME_TYPE = "image/jpeg"
 

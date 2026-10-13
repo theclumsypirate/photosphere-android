@@ -27,16 +27,9 @@ import sys
 
 PKG = "com.n30dyn4m1c.photosphere.debug"
 APP_TAGS = [
+    # Every log in the app goes through Logging.TAG ("PhotoSphere"), so one
+    # filter shows everything: adb logcat -d -s PhotoSphere:*.
     "PhotoSphere",
-    "PhotoSphereCamera",
-    "PhotoSphereStitcher",
-    "SphereImageStore",
-    "OrientationTracker",
-    "CameraOptics",
-    "PanoramaView",
-    "PanoramaResult",
-    "ImageBufferManager",
-    "MediaExporter",
 ]
 EXIF_ORIENTATION_TAG = 0x0112
 

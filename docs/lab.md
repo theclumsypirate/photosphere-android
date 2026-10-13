@@ -1,7 +1,14 @@
 # Device lab
 
-`tools/photosphere_lab.py` (stdlib only, needs `adb` + the debug build) for
-bugs that only reproduce on hardware:
+Every log in the app uses the single tag `PhotoSphere`, so one filter shows
+everything — nothing is hidden behind per-file tags:
+
+```bash
+adb logcat -d -s PhotoSphere:* | tail -50
+```
+
+`tools/photosphere_lab.py` (stdlib only, needs `adb` + the debug build) wraps
+that plus frame forensics:
 
 ```bash
 # Filtered logcat: every app TAG + AndroidRuntime crashes.

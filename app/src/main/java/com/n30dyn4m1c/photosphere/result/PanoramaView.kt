@@ -1,4 +1,5 @@
 package com.n30dyn4m1c.photosphere.result
+import com.n30dyn4m1c.photosphere.util.Logging
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -27,7 +28,7 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.math.tan
 
-private const val TAG = "PanoramaView"
+private const val TAG = Logging.TAG
 
 /** Vertical field of view the sphere opens at, degrees. Wide enough to feel immersive. */
 private const val DEFAULT_FOV_DEGREES = 70f

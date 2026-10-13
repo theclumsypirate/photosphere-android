@@ -1,4 +1,5 @@
 package com.n30dyn4m1c.photosphere.storage
+import com.n30dyn4m1c.photosphere.util.Logging
 
 import android.content.Context
 import android.content.ContextWrapper
@@ -28,7 +29,7 @@ import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
-private const val TAG = "ImageBufferManager"
+private const val TAG = Logging.TAG
 
 /** Quality used when a caller hands over a [Bitmap] instead of a file. */
 private const val DEFAULT_JPEG_QUALITY = 95

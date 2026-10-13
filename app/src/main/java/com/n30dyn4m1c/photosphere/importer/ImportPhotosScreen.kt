@@ -1,4 +1,5 @@
 package com.n30dyn4m1c.photosphere.importer
+import com.n30dyn4m1c.photosphere.util.Logging
 
 import android.content.Context
 import android.net.Uri
@@ -59,7 +60,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 
-private const val TAG = "ImportPhotos"
+private const val TAG = Logging.TAG
 
 /** How many photos the system picker may return at once. */
 private const val MAX_PICK = 30
@@ -138,6 +139,7 @@ fun ImportPhotosScreen(
             try {
                 val stamped = files.map { readStampedPose(it) }
                 val useStamped = stamped.all { it != null }
+                Log.i(TAG, "Import poses: ${if (useStamped) "stamped EXIF" else "even ring"}")
                 val poses = if (useStamped) {
                     stamped.requireNoNulls()
                 } else {

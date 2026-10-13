@@ -1,4 +1,5 @@
 package com.n30dyn4m1c.photosphere.camera
+import com.n30dyn4m1c.photosphere.util.Logging
 
 import android.content.Context
 import android.hardware.camera2.CameraCharacteristics
@@ -18,7 +19,7 @@ import kotlin.math.atan
 import kotlin.math.sqrt
 import kotlin.math.tan
 
-private const val TAG = "CameraOptics"
+private const val TAG = Logging.TAG
 
 /**
  * Field of view of a mid-range phone's main camera, in the sensor's own

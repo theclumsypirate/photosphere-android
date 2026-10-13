@@ -1,4 +1,5 @@
 package com.n30dyn4m1c.photosphere.camera
+import com.n30dyn4m1c.photosphere.util.Logging
 
 import android.content.Context
 import android.media.AudioManager
@@ -16,7 +17,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.n30dyn4m1c.photosphere.sensor.OrientationData
 import java.util.Locale
 
-private const val TAG = "GuidanceFeedback"
+private const val TAG = Logging.TAG
 
 /**
  * How far off the aim the beeps fall silent.

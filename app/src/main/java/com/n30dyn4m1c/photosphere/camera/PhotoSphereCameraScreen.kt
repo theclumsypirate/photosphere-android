@@ -2,6 +2,7 @@
 @file:SuppressLint("UnsafeOptInUsageError")
 
 package com.n30dyn4m1c.photosphere.camera
+import com.n30dyn4m1c.photosphere.util.Logging
 
 import android.annotation.SuppressLint
 import android.content.Context
@@ -169,7 +170,7 @@ import kotlin.coroutines.resumeWithException
 import kotlin.math.acos
 import kotlin.math.roundToInt
 
-private const val TAG = "PhotoSphereCamera"
+private const val TAG = Logging.TAG
 
 /**
  * How long the hint keeps saying "hold" after the raw hold state drops.
