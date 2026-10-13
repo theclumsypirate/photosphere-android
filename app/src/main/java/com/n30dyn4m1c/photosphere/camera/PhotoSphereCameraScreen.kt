@@ -131,6 +131,7 @@ import com.n30dyn4m1c.photosphere.sensor.currentDisplayRotation
 import com.n30dyn4m1c.photosphere.sensor.rememberOrientationTracker
 import com.n30dyn4m1c.photosphere.stitching.CameraPose
 import com.n30dyn4m1c.photosphere.stitching.PhotoSphereStitcher
+import com.n30dyn4m1c.photosphere.stitching.SeamMode
 import com.n30dyn4m1c.photosphere.stitching.SphereFrame
 import com.n30dyn4m1c.photosphere.stitching.StitchException
 import com.n30dyn4m1c.photosphere.stitching.StitchProgress
@@ -387,9 +388,10 @@ fun PhotoSphereCameraScreen(
     // back on to compare.
     var distortionEnabled by remember { mutableStateOf(false) }
     var refinementEnabled by remember { mutableStateOf(false) }
-    // Debug: seam-carve the overlaps instead of the wide cross-fade — the
-    // sharpness comparison for the same frames.
-    var seamEnabled by remember { mutableStateOf(false) }
+    // Debug: how overlaps resolve — the wide cross-fade, the graph-cut
+    // carving, or winner-takes-all by optical-centre closeness. Cycles
+    // off -> carve -> winner, the sharpness comparison for the same frames.
+    var seamMode by remember { mutableStateOf(SeamMode.Blend) }
     // Debug: paint each frame a solid colour so the pano shows where each one
     // was placed — distinguishes a placement bug from a content bug.
     var colorFrames by remember { mutableStateOf(false) }
@@ -1061,7 +1063,7 @@ fun PhotoSphereCameraScreen(
                     // a frame back upright when that tag was lost.
                     portraitRotationDegrees = optics.portraitRotationDegrees,
                     useRefinement = refinementEnabled,
-                    useSeams = seamEnabled,
+                    seamMode = seamMode,
                     debugColorFrames = colorFrames,
                     // The canvas region: a full 360° of longitude either way,
                     // and either the whole 180° of latitude (sphere) or the band
@@ -1103,7 +1105,7 @@ fun PhotoSphereCameraScreen(
                                             optics,
                                             distortionEnabled,
                                             refinementEnabled,
-                                            seamEnabled,
+                                            seamMode,
                                             debugColors = colorFrames,
                                         ),
                                         debugColors = colorFrames,
@@ -1304,8 +1306,14 @@ fun PhotoSphereCameraScreen(
                 onToggleDistortion = { distortionEnabled = !distortionEnabled },
                 refinementEnabled = refinementEnabled,
                 onToggleRefinement = { refinementEnabled = !refinementEnabled },
-                seamEnabled = seamEnabled,
-                onToggleSeams = { seamEnabled = !seamEnabled },
+                seamMode = seamMode,
+                onCycleSeamMode = {
+                    seamMode = when (seamMode) {
+                        SeamMode.Blend -> SeamMode.Carve
+                        SeamMode.Carve -> SeamMode.WinnerTakeAll
+                        SeamMode.WinnerTakeAll -> SeamMode.Blend
+                    }
+                },
                 colorFrames = colorFrames,
                 onToggleColorFrames = { colorFrames = !colorFrames },
                 evIndex = exposureIndex,
@@ -1436,8 +1444,8 @@ private fun CaptureHud(
     onToggleDistortion: () -> Unit,
     refinementEnabled: Boolean,
     onToggleRefinement: () -> Unit,
-    seamEnabled: Boolean,
-    onToggleSeams: () -> Unit,
+    seamMode: SeamMode,
+    onCycleSeamMode: () -> Unit,
     colorFrames: Boolean,
     onToggleColorFrames: () -> Unit,
     evIndex: Int,
@@ -1611,9 +1619,13 @@ private fun CaptureHud(
                             style = MaterialTheme.typography.labelMedium,
                         )
                     }
-                    TextButton(onClick = onToggleSeams) {
+                    TextButton(onClick = onCycleSeamMode) {
                         Text(
-                            text = "Seam: ${if (seamEnabled) "on" else "off"}",
+                            text = "Seam: ${when (seamMode) {
+                                SeamMode.Blend -> "off"
+                                SeamMode.Carve -> "carve"
+                                SeamMode.WinnerTakeAll -> "winner"
+                            }}",
                             color = GlassContentDim,
                             style = MaterialTheme.typography.labelMedium,
                         )
@@ -2406,7 +2418,7 @@ private fun stitchDiagnostics(
     optics: SphereOptics,
     distortionApplied: Boolean,
     refinementApplied: Boolean,
-    seamsApplied: Boolean,
+    seamMode: SeamMode,
     debugColors: Boolean = false,
 ): String {
     val poses = frames.mapIndexed { index, frame ->
@@ -2434,7 +2446,11 @@ private fun stitchDiagnostics(
         "rotation=${optics.portraitRotationDegrees}°\n" +
         "Distortion k: $distortion ${if (distortionApplied) "applied" else "OFF (pinhole)"}\n" +
         "Refinement: ${if (refinementApplied) "on" else "off (sensor poses)"}\n" +
-        "Seams: ${if (seamsApplied) "on (carved)" else "off (blend)"}\n" +
+        "Seams: ${when (seamMode) {
+            SeamMode.Blend -> "off (blend)"
+            SeamMode.Carve -> "on (carved)"
+            SeamMode.WinnerTakeAll -> "on (winner)"
+        }}\n" +
         (if (debugColors) "Colors: SOLID DEBUG FRAMES (placement check, not a photo)\n" else "") +
         "Frames (capture order):\n$poses"}
 

@@ -117,7 +117,9 @@ pixel only one frame reached still comes out at full strength, because its
 mask divides back out.
 
 **Seam carving** is the alternative to the wide cross-fade, toggled by the
-debug **Seam** button next to Dist/Refine. [`SeamFinder`](../app/src/main/java/com/n30dyn4m1c/photosphere/stitching/SeamFinder.kt)
+debug **Seam** button next to Dist/Refine (off → carve → winner). The winner
+mode assigns each pixel to the frame whose optical centre is nearest — the
+prototype's scheme, ported 1:1. [`SeamFinder`](../app/src/main/java/com/n30dyn4m1c/photosphere/stitching/SeamFinder.kt)
 asks which single frame should paint each pixel, instead of letting every
 overlapping frame contribute, and the renderer then paints near-hard selections
 that fade only a few pixels across each cut — the sharpness a cross-fade

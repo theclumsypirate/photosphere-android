@@ -148,6 +148,21 @@ data class SphereFrame(
 )
 
 /**
+ * Which overlap strategy the render uses.
+ *
+ * [Blend] is the wide multi-band cross-fade of every overlap. [Carve] and
+ * [WinnerTakeAll] both paint each pixel from one frame with only a few pixels
+ * of crossfade across each cut — the former assigns frames by graph-cut
+ * agreement ([SeamFinder.computeSeams]), the latter by optical-centre
+ * closeness ([SeamFinder.computeWinnerSeams], the prototype's scheme).
+ */
+enum class SeamMode {
+    Blend,
+    Carve,
+    WinnerTakeAll,
+}
+
+/**
  * Turns a session's frames into one equirectangular sphere.
  *
  * **Why this is not OpenCV's `Stitcher`.** It cannot be: the stitching module is
@@ -305,11 +320,11 @@ object PhotoSphereStitcher {
      * model the refinement assumes. Pass true to let image content correct the
      * measured poses where the features agree.
      *
-     * [useSeams] opts into seam carving: instead of the wide cross-fade, every
-     * pixel is painted by the single frame the graph-cut [SeamFinder] assigns
-     * it, and only a few pixels across each cut blend the loser in — sharper
-     * overlaps at the price of a little compute and a seam that is only as
-     * good as the frames agree.
+     * [seamMode] selects the overlap strategy (see [SeamMode]): [SeamMode.Carve]
+     * assigns every pixel to the frame the graph-cut agrees on best,
+     * [SeamMode.WinnerTakeAll] to the frame whose optical centre is nearest —
+     * both sharper across overlaps than the wide cross-fade, at the price of a
+     * little compute and a seam that is only as good as the frames agree.
      *
      * [onProgress] is called from the stitching thread, not the main one — hand
      * the value to a `StateFlow` or post it rather than writing Compose state
@@ -328,7 +343,7 @@ object PhotoSphereStitcher {
         pivot: PivotModel = PivotModel.None,
         portraitRotationDegrees: Int = 90,
         useRefinement: Boolean = false,
-        useSeams: Boolean = false,
+        seamMode: SeamMode = SeamMode.Blend,
         debugColorFrames: Boolean = false,
         longitudeSpanDegrees: Float = 360f,
         centerLongitudeDegrees: Float = 0f,
@@ -586,34 +601,52 @@ object PhotoSphereStitcher {
             // context has to be carried in.
             val context = currentCoroutineContext()
 
-            // Seam carving: decide which frame paints each pixel, then render
-            // with the wide cross-fade replaced by a near-hard cut that fades
-            // only a few pixels across it. Without it the render falls back to
-            // the multi-band blend.
-            val seams = if (useSeams) {
-                onProgress(StitchProgress(StitchStage.Seaming))
-                SeamFinder.computeSeams(
-                    frames = prepared,
-                    canvasWidth = canvasWidth,
-                    canvasHeight = canvasHeight,
-                    gains = refinement.gains,
-                    pivotRatio = pivot.ratio,
-                    longitudeSpanDegrees = longitudeSpanDegrees,
-                    centerLongitudeDegrees = centerLongitudeDegrees,
-                    latitudeSpanDegrees = latitudeSpanDegrees,
-                    centerLatitudeDegrees = centerLatitudeDegrees,
-                    onProgress = { completed, total ->
-                        onProgress(StitchProgress(StitchStage.Seaming, completed, total))
-                    },
-                    checkCancelled = { context.ensureActive() },
-                )
-            } else {
-                null
+            // Seams: decide which frame paints each pixel, then render with the
+            // wide cross-fade replaced by a near-hard cut that fades only a
+            // few pixels across it. Without them the render falls back to the
+            // multi-band blend.
+            val seams = when (seamMode) {
+                SeamMode.Blend -> null
+                SeamMode.Carve, SeamMode.WinnerTakeAll -> {
+                    onProgress(StitchProgress(StitchStage.Seaming))
+                    if (seamMode == SeamMode.WinnerTakeAll) {
+                        SeamFinder.computeWinnerSeams(
+                            frames = prepared,
+                            canvasWidth = canvasWidth,
+                            canvasHeight = canvasHeight,
+                            pivotRatio = pivot.ratio,
+                            longitudeSpanDegrees = longitudeSpanDegrees,
+                            centerLongitudeDegrees = centerLongitudeDegrees,
+                            latitudeSpanDegrees = latitudeSpanDegrees,
+                            centerLatitudeDegrees = centerLatitudeDegrees,
+                            onProgress = { completed, total ->
+                                onProgress(StitchProgress(StitchStage.Seaming, completed, total))
+                            },
+                            checkCancelled = { context.ensureActive() },
+                        )
+                    } else {
+                        SeamFinder.computeSeams(
+                            frames = prepared,
+                            canvasWidth = canvasWidth,
+                            canvasHeight = canvasHeight,
+                            gains = refinement.gains,
+                            pivotRatio = pivot.ratio,
+                            longitudeSpanDegrees = longitudeSpanDegrees,
+                            centerLongitudeDegrees = centerLongitudeDegrees,
+                            latitudeSpanDegrees = latitudeSpanDegrees,
+                            centerLatitudeDegrees = centerLatitudeDegrees,
+                            onProgress = { completed, total ->
+                                onProgress(StitchProgress(StitchStage.Seaming, completed, total))
+                            },
+                            checkCancelled = { context.ensureActive() },
+                        )
+                    }
+                }
             }
             if (BuildConfig.DEBUG && seams != null) {
                 Log.i(
                     TAG,
-                    "Seam carving: ${seams.gridWidth}x${seams.gridHeight} grid at scale " +
+                    "Seams ($seamMode): ${seams.gridWidth}x${seams.gridHeight} grid at scale " +
                         "${seams.scale} over ${prepared.size} frames",
                 )
             }

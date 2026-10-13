@@ -281,6 +281,122 @@ internal object SeamFinder {
     }
 
     /**
+     * Winner-takes-all seams: the prototype's scheme, ported 1:1.
+     *
+     * Each grid node goes to the covering frame whose sample sits closest to
+     * its own optical centre (the [borderPenalty] minimum) — the pixel nearest
+     * a frame's middle, where distortion, vignetting and parallax are
+     * smallest. No averaging anywhere, so nothing can ghost; the narrow
+     * crossfade comes from the same [SeamFeather.derive] the carved path uses.
+     * Returns [SeamWeights] shaped exactly like [computeSeams], for the same
+     * renderer lookup (-1 where no frame reaches).
+     */
+    fun computeWinnerSeams(
+        frames: List<PreparedFrame>,
+        canvasWidth: Int,
+        canvasHeight: Int,
+        pivotRatio: Double,
+        longitudeSpanDegrees: Float,
+        centerLongitudeDegrees: Float,
+        latitudeSpanDegrees: Float,
+        centerLatitudeDegrees: Float,
+        onProgress: (completed: Int, total: Int) -> Unit = { _, _ -> },
+        checkCancelled: () -> Unit = {},
+    ): SeamWeights {
+        require(canvasWidth > 0 && canvasHeight > 0) { "canvas must have extent" }
+        val scale = max(1, (canvasWidth + LABEL_GRID_WIDTH - 1) / LABEL_GRID_WIDTH)
+        val gridWidth = (canvasWidth + scale - 1) / scale
+        val gridHeight = (canvasHeight + scale - 1) / scale
+        val nodeCount = gridWidth * gridHeight
+
+        val sampled = frames.map { downsampleAndRead(it.image) }
+        val labels = IntArray(nodeCount) { -1 }
+        val coverLabels = IntArray(frames.size)
+        val coverPenalties = DoubleArray(frames.size)
+        val scratch = DoubleArray(5)
+
+        for (gridRow in 0 until gridHeight) {
+            checkCancelled()
+            val centerRow = min(gridRow * scale + scale / 2, canvasHeight - 1)
+            val latitude = Math.toRadians(
+                Equirectangular.latitudeDegrees(
+                    centerRow, canvasHeight, latitudeSpanDegrees, centerLatitudeDegrees,
+                )
+            )
+            val cosLatitude = cos(latitude)
+            val sinLatitude = sin(latitude)
+            for (gridCol in 0 until gridWidth) {
+                val centerCol = min(gridCol * scale + scale / 2, canvasWidth - 1)
+                val longitude = Math.toRadians(
+                    Equirectangular.longitudeDegrees(
+                        centerCol, canvasWidth, longitudeSpanDegrees, centerLongitudeDegrees,
+                    )
+                )
+                val dirX = sin(longitude) * cosLatitude
+                val dirY = cos(longitude) * cosLatitude
+                val dirZ = sinLatitude
+
+                var count = 0
+                for (fi in frames.indices) {
+                    val working = sampled[fi]
+                    if (!sampleInto(
+                            frame = frames[fi],
+                            bytes = working.pixels,
+                            width = working.width,
+                            height = working.height,
+                            scale = working.scale,
+                            x = dirX,
+                            y = dirY,
+                            z = dirZ,
+                            pivotRatio = pivotRatio,
+                            out = scratch,
+                        )
+                    ) {
+                        continue
+                    }
+                    coverLabels[count] = fi
+                    coverPenalties[count] =
+                        borderPenalty(frames[fi].intrinsics, scratch[3], scratch[4])
+                    count++
+                }
+                labels[gridRow * gridWidth + gridCol] =
+                    nearestCenter(coverLabels, coverPenalties, count)
+            }
+            onProgress(gridRow + 1, gridHeight)
+        }
+
+        val halfWidth = max(1, FEATHER_FULL_RES_PIXELS / scale)
+        val (loserLabel, loserWeight) = SeamFeather.derive(
+            labels, gridWidth, gridHeight, halfWidth,
+            wrapLongitude = longitudeSpanDegrees >= 360f,
+        )
+        return SeamWeights(gridWidth, gridHeight, scale, labels, loserLabel, loserWeight)
+    }
+
+    /**
+     * Which covering frame owns a node: the minimum-penalty one, or -1 when
+     * nothing covers it.
+     *
+     * Pure so the rule is pinnable by a JVM test; the grid loop above only
+     * gathers the inputs.
+     */
+    internal fun nearestCenter(
+        labels: IntArray,
+        penalties: DoubleArray,
+        count: Int,
+    ): Int {
+        var best = -1
+        var bestValue = Double.MAX_VALUE
+        for (k in 0 until count) {
+            if (penalties[k] < bestValue) {
+                bestValue = penalties[k]
+                best = labels[k]
+            }
+        }
+        return best
+    }
+
+    /**
      * A frame's pixels, downsampled to a small working size for the seam costs.
      *
      * [scale] divides a full-resolution frame pixel to reach this copy, and
