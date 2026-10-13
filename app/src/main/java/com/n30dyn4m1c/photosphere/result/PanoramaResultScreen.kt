@@ -259,6 +259,26 @@ fun PanoramaResultScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
+                // Solid-colour placement checks are not photographs; say so on
+                // the screen itself, not just in the debug diagnostics.
+                if (sphere.debugColors) {
+                    Surface(
+                        shape = MaterialTheme.shapes.small,
+                        color = MaterialTheme.colorScheme.tertiaryContainer,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.result_debug_colors),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(10.dp),
+                        )
+                    }
+                }
+
                 if (BuildConfig.DEBUG && sphere.diagnostics != null) {
                     Surface(
                         shape = MaterialTheme.shapes.small,

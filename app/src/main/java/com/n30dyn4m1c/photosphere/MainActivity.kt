@@ -26,9 +26,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
@@ -55,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.n30dyn4m1c.photosphere.camera.PhotoSphereCameraScreen
+import com.n30dyn4m1c.photosphere.importer.ImportPhotosScreen
 import com.n30dyn4m1c.photosphere.result.PanoramaResultScreen
 import com.n30dyn4m1c.photosphere.sensor.OrientationDebugScreen
 import com.n30dyn4m1c.photosphere.storage.SphereImageStore
@@ -145,6 +149,17 @@ class MainActivity : ComponentActivity() {
 }
 
 /**
+ * Where a run starts: live capture, or photos already on the device.
+ *
+ * Import needs no camera permission (the system picker grants per-photo
+ * access), so it sits beside the permission gate rather than behind it.
+ */
+private enum class Entry {
+    Capture,
+    Import,
+}
+
+/**
  * The whole app: capture, then what to do with what came out.
  *
  * There are only two destinations, so this is a `when` over one piece of state
@@ -153,9 +168,9 @@ class MainActivity : ComponentActivity() {
  * result screen up, and clearing it deletes the cached JPEG and returns to
  * capture with a fresh buffer.
  *
- * The camera screen is behind the permission gate; the result screen is not
- * separately gated, since the only way to reach it is through a capture that
- * already passed.
+ * The camera screen is behind the permission gate; the result screen and the
+ * import screen are not separately gated, since the only way to reach them is
+ * through a capture that already passed or through photos the user picked.
  */
 @Composable
 private fun PhotoSphereApp(modifier: Modifier = Modifier) {
@@ -164,6 +179,9 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
     // The orientation readout needs no permissions, so it sits beside the
     // permission gate rather than behind it.
     var showOrientationDebug by rememberSaveable { mutableStateOf(false) }
+
+    // Capture or import: chosen on the entry screen, before any permission.
+    var entry by rememberSaveable { mutableStateOf<Entry?>(null) }
 
     // Deliberately not `rememberSaveable`: on a configuration change the file is
     // still in the cache, but a File is not something to smuggle through a
@@ -183,21 +201,29 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
     }
 
     Box(modifier = modifier.fillMaxSize()) {
+        val finished = sphere
         when {
             showOrientationDebug -> OrientationDebugScreen()
+
+            finished != null -> PanoramaResultScreen(
+                sphere = finished,
+                onTakeAnother = { discardSphere() },
+            )
+
+            entry == null -> EntryChooser(
+                onCapture = { entry = Entry.Capture },
+                onImport = { entry = Entry.Import },
+            )
+
+            entry == Entry.Import -> ImportPhotosScreen(
+                onSphereReady = { sphere = it },
+                onBack = { entry = null },
+            )
 
             else -> RequirePermissions(
                 permissions = MainActivity.REQUIRED_PERMISSIONS,
             ) {
-                val finished = sphere
-                if (finished == null) {
-                    PhotoSphereCameraScreen(onSphereReady = { sphere = it })
-                } else {
-                    PanoramaResultScreen(
-                        sphere = finished,
-                        onTakeAnother = { discardSphere() },
-                    )
-                }
+                PhotoSphereCameraScreen(onSphereReady = { sphere = it })
             }
         }
 
@@ -221,6 +247,69 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
                     )
                 )
             }
+        }
+    }
+}
+
+/**
+ * The first screen: capture with the camera, or stitch photos already on the
+ * device. Two full-width buttons, no permission needed to choose.
+ */
+@Composable
+private fun EntryChooser(
+    onCapture: () -> Unit,
+    onImport: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            text = stringResource(R.string.entry_title),
+            style = MaterialTheme.typography.headlineSmall,
+            textAlign = TextAlign.Center,
+        )
+        Button(
+            onClick = onCapture,
+            shape = PillShape,
+            modifier = Modifier
+                .padding(top = 28.dp)
+                .fillMaxWidth()
+                .height(54.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.PhotoCamera,
+                contentDescription = null,
+                modifier = Modifier.size(22.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = stringResource(R.string.entry_capture),
+                style = MaterialTheme.typography.titleMedium,
+            )
+        }
+        FilledTonalButton(
+            onClick = onImport,
+            shape = PillShape,
+            modifier = Modifier
+                .padding(top = 12.dp)
+                .fillMaxWidth()
+                .height(54.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Image,
+                contentDescription = null,
+                modifier = Modifier.size(22.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = stringResource(R.string.entry_import),
+                style = MaterialTheme.typography.titleMedium,
+            )
         }
     }
 }

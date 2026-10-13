@@ -47,6 +47,24 @@
     <string name="capture_save_frames_cancel">Cancel</string>
     <string name="capture_frames_saved">Saved %1$d frames to the gallery</string>
     <string name="capture_frames_save_failed">Couldn\'t save frames: %1$s</string>
+
+    <!-- Entry choice: capture with the camera or stitch imported photos. -->
+    <string name="entry_title">Make a 360° photo</string>
+    <string name="entry_capture">Capture with camera</string>
+    <string name="entry_import">Import photos</string>
+
+    <!-- Photo import: stitch pictures already on the device. -->
+    <string name="import_title">Import photos</string>
+    <string name="import_body">Choose photos from your gallery — an ordered left-to-right series works best. Photos this app saved reuse the exact angles they were shot at.</string>
+    <string name="import_choose">Choose photos</string>
+    <string name="import_change">Choose different</string>
+    <string name="import_ready">%1$d photos ready (%2$s)</string>
+    <string name="import_poses_stamped">shot angles reused</string>
+    <string name="import_poses_ring">evenly spaced</string>
+    <string name="import_stitch">Stitch %1$d photos</string>
+    <string name="import_back">Back</string>
+    <string name="import_failed">Import failed: %1$s</string>
+    <string name="import_need_more">Pick at least two photos.</string>
     <string name="capture_hint_search">Move the reticle onto the marker</string>
     <string name="capture_hint_hold">Hold still…</string>
     <string name="capture_hint_ring_done">Band %1$d of %2$d covered — stitch now, or keep going</string>
@@ -104,6 +122,7 @@
     <string name="result_title">Your 360° photo</string>
     <string name="result_badge">360°</string>
     <string name="result_dimensions">%1$d × %2$d · equirectangular</string>
+    <string name="result_debug_colors">DEBUG COLORS — placement check only, not a photo</string>
     <string name="result_preview_description">Preview of the stitched 360° photo, flattened</string>
     <string name="result_view_flat">Flat</string>
     <string name="result_view_panorama">Panorama</string>

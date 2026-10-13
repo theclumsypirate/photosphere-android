@@ -86,6 +86,8 @@ object SphereImageStore {
         val height: Int,
         /** Debug-only text describing the frames and geometry that made it. */
         val diagnostics: String? = null,
+        /** True when stitched with solid debug colours instead of pixels. */
+        val debugColors: Boolean = false,
     )
 
     /** Identifier for one run of guided capture. Sorts chronologically. */

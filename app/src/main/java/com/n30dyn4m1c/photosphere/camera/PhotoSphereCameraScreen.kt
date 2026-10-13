@@ -1092,7 +1092,9 @@ fun PhotoSphereCameraScreen(
                                             distortionEnabled,
                                             refinementEnabled,
                                             seamEnabled,
-                                        )
+                                            debugColors = colorFrames,
+                                        ),
+                                        debugColors = colorFrames,
                                     )
                             }
                         } catch (e: CancellationException) {
@@ -2389,6 +2391,7 @@ private fun stitchDiagnostics(
     distortionApplied: Boolean,
     refinementApplied: Boolean,
     seamsApplied: Boolean,
+    debugColors: Boolean = false,
 ): String {
     val poses = frames.mapIndexed { index, frame ->
         val exif = runCatching {
@@ -2416,6 +2419,7 @@ private fun stitchDiagnostics(
         "Distortion k: $distortion ${if (distortionApplied) "applied" else "OFF (pinhole)"}\n" +
         "Refinement: ${if (refinementApplied) "on" else "off (sensor poses)"}\n" +
         "Seams: ${if (seamsApplied) "on (carved)" else "off (blend)"}\n" +
+        (if (debugColors) "Colors: SOLID DEBUG FRAMES (placement check, not a photo)\n" else "") +
         "Frames (capture order):\n$poses"}
 
 /** Writes one frame to the session's cache directory and buffers it.
