@@ -12,9 +12,14 @@ Do NOT run `./gradlew assembleDebug`, `assembleRelease`, `installDebug`, or
   source of truth.
 
 Get test builds instead from the `build-debug` GitHub workflow
-(`.github/workflows/android.yml`), which runs **only** on manual dispatch or
-pull requests — never on push — and uploads `photosphere-debug-apks` as
+(`.github/workflows/android.yml`), which runs only on manual dispatch or
+pull requests. It never runs on push. It uploads `photosphere-debug-apks` as
 artifacts. Download, unzip, `adb install` the APK matching the device ABI.
+
+## Writing style
+
+Never use the em dash character anywhere: not in docs, not in strings, not
+in comments, not in commit messages. Write simply, in short sentences.
 
 ## CI scope
 

@@ -2,6 +2,15 @@
 
 **Android app for guided capture and stitching of 360° photo spheres.**
 
+## What it does
+
+It has a built in camera that guides you frame by frame and takes each photo
+for you when you hold still. It stitches the photos into one 360 photo that
+you can pan around and view fullscreen. You can also import photos from your
+gallery and stitch those. You can export the result to your gallery, share it,
+or save every frame as its own photo. You can change brightness live and tap
+to focus.
+
 ## Docs
 
 - [Build](docs/build.md) — requirements, building, dependencies, project layout
