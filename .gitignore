@@ -31,3 +31,6 @@ local.properties
 
 # Local bug screenshots shared with the agent, never committed.
 /image_bugs/
+
+# Python bytecode cache from the lab tool.
+/tools/__pycache__/
