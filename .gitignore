@@ -32,6 +32,9 @@ local.properties
 # Local bug screenshots shared with the agent, never committed.
 /image_bugs/
 
+# UI mockup proofs (generated PNGs, see kotlin_proof/render_ui.py).
+/kotlin_proof/
+
 # Pano prototype corpus + outputs (sourced on demand, see tools/pano_proto/).
 /tools/pano_proto/ref/
 /tools/pano_proto/out/
