@@ -53,6 +53,21 @@ or pull device frames with `tools/photosphere_lab.py frames`) and outputs
   (locally clean, ~8/10 as a patch). Blind chaining without poses cannot do
   this job; the score to beat was set by our own v3 instead.
 
+## Scored loop (user's data_set: 56 walking frames, no poses)
+
+- **Blind ring** — 2/10 confetti: the set is not a rotational sweep at all.
+- **SIFT chain** — rejected at pair 0→1 (true 4.6° jump): no smooth pan.
+- **Overlap graph** (`graph_overlaps.py`, all 1540 ORB pairs): the truth —
+  consecutive frames match with 100–780 inliers at rot≈0 and ~130px pure
+  translation. A forward walk, not a look-around. 51/56 frames connect.
+- **Translation mosaics** (`translation_mosaic.py`, direction-consistency
+  filter): 5 coherent strips (6,6,6,3,2 frames), 7–7.5/10 as maps —
+  courtyard, generator yard, readable as single photos with mild ghosts on
+  wires/poles.
+- Verdict: no sphere exists in this data (nothing looks all around from one
+  spot). The honest products are the 5 strip mosaics; forcing 360 geometry
+  onto translation data is what made every earlier attempt garbage.
+
 ## What this proved for the app
 
 Every validated trick already has a Kotlin counterpart: sanity-gated edges
