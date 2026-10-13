@@ -63,11 +63,10 @@ block with your own keystore before using it for anything installable.
 
 ### Without a local SDK
 
-`.github/workflows/android.yml` runs the unit tests and assembles the debug
-APKs on every push, and uploads them as a workflow artifact
-(`photosphere-debug-apks`). Download it from the run's summary page, unzip, and
-`adb install` the APK for your device's ABI — no local toolchain needed. The
-workflow also runs on demand from the Actions tab.
+`.github/workflows/android.yml` runs on demand from the Actions tab and on
+every pull request, assembles the debug APK, and uploads it as a workflow
+artifact (`photosphere-debug-apk-arm64`). Download it from the run's summary
+page, unzip, and `adb install` it — no local toolchain needed.
 
 ## Test
 

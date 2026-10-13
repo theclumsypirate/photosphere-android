@@ -354,7 +354,8 @@ private fun DrawScope.drawActiveTarget(
     val view = camera.project(target)
     val position = view.screenOffset(center, focalPx)
 
-    if (position == null || !position.isInside(size, margin)) {
+    // Behind the camera there is no screen position at all: point the way.
+    if (position == null || !view.isInFront) {
         drawEdgeChevron(
             direction = view.screenDirection(),
             color = colors.active.copy(alpha = 0.55f + 0.45f * focus),
@@ -363,18 +364,41 @@ private fun DrawScope.drawActiveTarget(
         return
     }
 
+    // Near-edge hysteresis: a target sitting right on the margin would flip
+    // between dot and chevron every sensor sample (±0.5° of noise moves the
+    // projection by tens of px out there). Inside the margin it is a dot; just
+    // outside it stays a dot clamped to the edge so it slides instead of
+    // vanishing; only clearly off-screen does it become a chevron.
+    val overshoot = maxOf(
+        margin - position.x,
+        position.x - (size.width - margin),
+        margin - position.y,
+        position.y - (size.height - margin),
+    )
+    if (overshoot > EDGE_HYSTERESIS.toPx()) {
+        drawEdgeChevron(
+            direction = view.screenDirection(),
+            color = colors.active.copy(alpha = 0.55f + 0.45f * focus),
+            margin = margin,
+        )
+        return
+    }
+    val pinned = Offset(
+        position.x.coerceIn(margin, size.width - margin),
+        position.y.coerceIn(margin, size.height - margin),
+    )
     val strokeWidth = 2.5.dp.toPx()
 
     // A dashed line from the reticle to the marker: at a glance it reads as
     // "move this way", and it disappears once the two are on top of each other.
     // The cutoff tracks the reticle's size, so the line never draws inside the
     // ring while the target is already (nearly) centred.
-    val separation = (position - center).getDistance()
+    val separation = (pinned - center).getDistance()
     if (separation > min(size.width, size.height) * RETICLE_RADIUS_FRACTION + 24.dp.toPx()) {
         drawLine(
             color = colors.guide.copy(alpha = colors.guide.alpha * focus),
             start = center,
-            end = position,
+            end = pinned,
             strokeWidth = 1.dp.toPx(),
             pathEffect = PathEffect.dashPathEffect(
                 floatArrayOf(6.dp.toPx(), 8.dp.toPx()),
@@ -388,13 +412,13 @@ private fun DrawScope.drawActiveTarget(
     drawCircle(
         color = colors.active.copy(alpha = (1f - pulse) * 0.6f * focus),
         radius = ringRadius,
-        center = position,
+        center = pinned,
         style = Stroke(width = strokeWidth),
     )
     drawCircle(
         color = colors.active.copy(alpha = focus),
         radius = ACTIVE_CORE_RADIUS_DP.toPx(),
-        center = position,
+        center = pinned,
     )
 }
 
@@ -526,6 +550,13 @@ private fun Offset.isInside(size: Size, margin: Float): Boolean =
     x >= margin && x <= size.width - margin && y >= margin && y <= size.height - margin
 
 private val EDGE_MARGIN = 28.dp
+
+/**
+ * How far outside the margin the live marker slides along the edge before it
+ * collapses to a chevron. Stateless hysteresis against sensor noise: without
+ * it a target sitting exactly on the margin flips dot↔chevron every sample.
+ */
+private val EDGE_HYSTERESIS = 48.dp
 
 /** How far the reticle ring's radius reaches out from the centre of the preview. */
 private const val RETICLE_RADIUS_FRACTION = 0.16f

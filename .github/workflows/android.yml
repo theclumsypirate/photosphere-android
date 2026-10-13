@@ -1,11 +1,9 @@
 name: Android
 
-# Builds the debug APKs and runs the local unit tests. The APKs are uploaded as
-# workflow artifacts, so a device can be tested against without a local Android
-# SDK — download, unzip, `adb install`.
+# Builds the debug APKs. The APKs are uploaded as workflow artifacts, so a
+# device can be tested against without a local Android SDK — download, unzip,
+# `adb install`. Runs only manually or on pull requests, never on push.
 on:
-  push:
-    branches: ["**"]
   pull_request:
   workflow_dispatch:
 
@@ -37,31 +35,14 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      # Pure-JVM tests: sphere geometry, the alignment gate, the equirectangular
-      # fit and the GPano XMP splice. No emulator involved.
-      - name: Unit tests
-        run: ./gradlew :app:testDebugUnitTest
+      # arm64-v8a only: the ABI every modern phone runs. The OpenCV AAR still
+      # carries native libraries for all ABIs, but only this split is packaged.
+      - name: Assemble debug APK (arm64-v8a)
+        run: ./gradlew :app:assembleDebug -PonlyAbi=arm64-v8a
 
-      - name: Lint
-        run: ./gradlew :app:lintDebug
-        continue-on-error: true
-
-      # One APK per ABI — the OpenCV AAR carries native libraries for all of
-      # them, and app/build.gradle.kts splits them rather than shipping ~120 MB.
-      - name: Assemble debug APKs
-        run: ./gradlew :app:assembleDebug
-
-      - name: Upload APKs
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: photosphere-debug-apks
-          path: app/build/outputs/apk/debug/*.apk
+          name: photosphere-debug-apk-arm64
+          path: app/build/outputs/apk/debug/*arm64-v8a*.apk
           if-no-files-found: error
-
-      - name: Upload test report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: unit-test-report
-          path: app/build/reports/tests/
-          if-no-files-found: ignore

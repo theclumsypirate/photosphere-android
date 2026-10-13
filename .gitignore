@@ -16,8 +16,14 @@ local.properties
 # Built APKs. A debug build is ~43 MB because OpenCV ships native libraries for
 # every ABI, so committing one per rebuild grows the history by that much each
 # time. Test builds are published as GitHub Release assets instead — see the
-# "Test builds" section of the README.
+# "Test builds" section of the README. NEVER build APKs locally; use the
+# `Android` CI workflow (manual dispatch or pull request) and its artifacts.
 *.apk
+*.aab
+
+# Release signing keys must never be committed.
+*.jks
+*.keystore
 
 # Local tool state: the Kotlin compiler cache and the opencode agent workspace.
 /.kotlin/

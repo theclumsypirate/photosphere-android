@@ -43,7 +43,11 @@ android {
         abi {
             isEnable = true
             reset()
-            include("arm64-v8a", "armeabi-v7a", "x86_64")
+            // `-PonlyAbi=arm64-v8a` narrows the split (used by CI, which only
+            // needs the ABI modern phones run). By default all ABIs are built.
+            val onlyAbi = project.findProperty("onlyAbi")?.toString()
+                ?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
+            include(*(onlyAbi?.toTypedArray() ?: arrayOf("arm64-v8a", "armeabi-v7a", "x86_64")))
             isUniversalApk = false
         }
     }

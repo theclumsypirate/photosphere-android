@@ -28,6 +28,16 @@ object TargetSelection {
     const val CLAIM_DEGREES: Float = 6f
 
     /**
+     * How much nearer the aim must be to a different target than to the active
+     * one before the claim wins.
+     *
+     * Without this, sensor noise (±0.5° at 50 Hz) flips the active index back
+     * and forth when the aim sits between two dots — every flip restarts the
+     * overlay's focus animation and the dwell, which reads as flicker.
+     */
+    const val CLAIM_HYSTERESIS_DEGREES: Float = 1.5f
+
+    /**
      * The head start the plan's own next target gets when a shot hands over.
      *
      * After a shot the two neighbours on the ring are about equally far away,
@@ -66,10 +76,12 @@ object TargetSelection {
             }
         }
         if (claimed < 0) return active
-        // Only a target the aim is nearer to than the active one: a user who is
-        // already on the active target is never pulled off it.
+        // Only a target the aim is clearly nearer to than the active one: a
+        // user who is already on the active target is never pulled off it, and
+        // the hysteresis gap stops sensor noise flipping the two when the aim
+        // sits halfway between them.
         val activeDistance = SphereProjection.angularDistanceDegrees(orientation, plan[active])
-        return if (claimedDistance < activeDistance) claimed else active
+        return if (claimedDistance + CLAIM_HYSTERESIS_DEGREES < activeDistance) claimed else active
     }
 
     /**

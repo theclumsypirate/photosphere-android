@@ -787,9 +787,19 @@ object PhotoSphereStitcher {
     private fun readFrame(file: File, maxDimension: Int): ReadFrame {
         // Read the tag's presence before decoding: ExifInterface.getAttributeInt
         // cannot distinguish a present NORMAL tag from a missing one, and the
-        // rotation fallback depends on that distinction.
+        // rotation fallback depends on that distinction. A tag reading
+        // UNDEFINED (0, what some Motorola/HALs write instead of a real
+        // orientation) counts as missing too: it carries no rotation, and
+        // treating it as present would skip the portrait-rotation fallback and
+        // leave a sensor-native landscape frame sideways against its pose.
         val hasExifOrientation = runCatching {
-            ExifInterface(file).getAttribute(ExifInterface.TAG_ORIENTATION) != null
+            val raw = ExifInterface(file).getAttribute(ExifInterface.TAG_ORIENTATION)
+            val parsed = raw?.toIntOrNull()
+                ?: ExifInterface(file).getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_UNDEFINED,
+                )
+            raw != null && parsed != ExifInterface.ORIENTATION_UNDEFINED
         }.getOrDefault(false)
 
         val bitmap = decodeUpright(file, maxDimension)
