@@ -10,7 +10,4 @@
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowBackground">@color/sphere_background</item>
     </style>
-    <style name="Theme.PhotoSphere.Splash" parent="Theme.PhotoSphere">
-        <item name="android:windowBackground">@drawable/splash_background</item>
-    </style>
 </resources>
