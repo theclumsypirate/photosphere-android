@@ -44,6 +44,7 @@ import com.n30dyn4m1c.photosphere.camera.SphereDeviceProfile
 import com.n30dyn4m1c.photosphere.camera.rememberSphereOptics
 import com.n30dyn4m1c.photosphere.stitching.CameraPose
 import com.n30dyn4m1c.photosphere.stitching.PhotoSphereStitcher
+import com.n30dyn4m1c.photosphere.stitching.SeamMode
 import com.n30dyn4m1c.photosphere.stitching.SphereFrame
 import com.n30dyn4m1c.photosphere.stitching.StitchProgress
 import com.n30dyn4m1c.photosphere.stitching.StitchStage
@@ -101,6 +102,9 @@ fun ImportPhotosScreen(
     var importDir by remember { mutableStateOf<File?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var stitchJob by remember { mutableStateOf<Job?>(null) }
+    // Overlap strategy: the prototype's winner-takes-all lives here too, so
+    // an import can be re-run with each strategy on the same photos.
+    var seamMode by remember { mutableStateOf(SeamMode.Blend) }
     // Progress travels as a flow: the stitcher reports from a worker thread,
     // and Compose state must not be written from there.
     val stitchProgress = remember { MutableStateFlow<StitchProgress?>(null) }
@@ -111,7 +115,7 @@ fun ImportPhotosScreen(
     ) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
         scope.launch(Dispatchers.IO) {
-            Log.i(TAG, "Picked ${uris.size} photos")
+            Logging.i( "Picked ${uris.size} photos")
             val dir = File(File(context.cacheDir, "imports"), "import_${System.currentTimeMillis()}")
             dir.mkdirs()
             importDir?.let { old -> if (old != dir) old.deleteRecursively() }
@@ -135,11 +139,11 @@ fun ImportPhotosScreen(
         stitchProgress.value = StitchProgress.Preparing
         val job = scope.launch(start = CoroutineStart.LAZY) {
             val fieldOfView = optics.fieldOfView
-            Log.i(TAG, "Import stitch started with ${files.size} photos")
+            Logging.i("Import stitch started with ${files.size} photos (seams: $seamMode)")
             try {
                 val stamped = files.map { readStampedPose(it) }
                 val useStamped = stamped.all { it != null }
-                Log.i(TAG, "Import poses: ${if (useStamped) "stamped EXIF" else "even ring"}")
+                Logging.i( "Import poses: ${if (useStamped) "stamped EXIF" else "even ring"}")
                 val poses = if (useStamped) {
                     stamped.requireNoNulls()
                 } else {
@@ -165,6 +169,7 @@ fun ImportPhotosScreen(
                     maxOutputWidth = deviceProfile.stitchMaxOutputWidth,
                     unsharpAmount = deviceProfile.unsharpAmount,
                     portraitRotationDegrees = optics.portraitRotationDegrees,
+                    seamMode = seamMode,
                     onProgress = { stitchProgress.value = it },
                 ).onSuccess { bitmap ->
                     val stitched = try {
@@ -175,6 +180,7 @@ fun ImportPhotosScreen(
                             ).copy(
                                 diagnostics = "Import: ${files.size} photos\n" +
                                     "Poses: ${if (useStamped) "stamped EXIF" else "even ring"}\n" +
+                                    "Seams: $seamMode\n" +
                                     "FOV: ${fieldOfView.horizontalDegrees}° x " +
                                     "${fieldOfView.verticalDegrees}° (screen)",
                             )
@@ -182,7 +188,7 @@ fun ImportPhotosScreen(
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        Log.e(TAG, "Could not write the imported sphere", e)
+                        Logging.e( "Could not write the imported sphere", e)
                         null
                     } finally {
                         bitmap.recycle()
@@ -194,10 +200,10 @@ fun ImportPhotosScreen(
                         )
                         return@onSuccess
                     }
-                    Log.i(TAG, "Import stitch done")
+                    Logging.i( "Import stitch done")
                     onSphereReady(stitched)
                 }.onFailure { failure ->
-                    Log.e(TAG, "Import stitch failed", failure)
+                    Logging.e( "Import stitch failed", failure)
                     error = context.getString(
                         R.string.import_failed,
                         failure.message.orEmpty(),
@@ -329,6 +335,26 @@ fun ImportPhotosScreen(
                             style = MaterialTheme.typography.titleMedium,
                         )
                     }
+                    // Same three strategies as capture's debug toggle, so one
+                    // import can be re-run with each on the same photos.
+                    TextButton(
+                        onClick = {
+                            seamMode = when (seamMode) {
+                                SeamMode.Blend -> SeamMode.Carve
+                                SeamMode.Carve -> SeamMode.WinnerTakeAll
+                                SeamMode.WinnerTakeAll -> SeamMode.Blend
+                            }
+                        },
+                        modifier = Modifier.padding(top = 8.dp),
+                    ) {
+                        Text(
+                            text = "Seams: ${when (seamMode) {
+                                SeamMode.Blend -> "blend"
+                                SeamMode.Carve -> "carve"
+                                SeamMode.WinnerTakeAll -> "winner"
+                            }}",
+                        )
+                    }
                     TextButton(
                         onClick = {
                             picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
@@ -364,7 +390,7 @@ private fun copyUri(context: Context, uri: Uri, dest: File): File? = runCatching
     } ?: throw IOException("Could not open $uri")
     dest
 }.onFailure { error ->
-    Log.w(TAG, "Could not copy $uri", error)
+    Logging.w( "Could not copy $uri", error)
 }.getOrNull()
 
 /** This app's stamped attitude from a frame it saved, or null for foreign photos. */
