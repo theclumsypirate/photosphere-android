@@ -653,7 +653,10 @@ object PhotoSphereStitcher {
                 ensureActive()
                 onProgress(StitchProgress(StitchStage.Projecting))
                 applyUnsharpMask(rendered.canvas, unsharpAmount)
-                Result.success(toBitmap(rendered.canvas))
+                val bitmap = toBitmap(rendered.canvas)
+                Log.i(TAG, "Stitch done: ${bitmap.width}x${bitmap.height} " +
+                    "(${(rendered.coverage * 100).roundToInt()}% covered)")
+                Result.success(bitmap)
             } finally {
                 rendered.canvas.release()
             }

@@ -36,6 +36,7 @@ APP_TAGS = [
     "PanoramaView",
     "PanoramaResult",
     "ImageBufferManager",
+    "MediaExporter",
 ]
 EXIF_ORIENTATION_TAG = 0x0112
 

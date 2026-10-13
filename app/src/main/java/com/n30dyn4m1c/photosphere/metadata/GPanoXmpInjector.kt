@@ -1,5 +1,7 @@
 package com.n30dyn4m1c.photosphere.metadata
 
+import android.util.Log
+import com.n30dyn4m1c.photosphere.util.Logging
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.EOFException
@@ -234,10 +236,13 @@ object GPanoXmpInjector {
                     throw IOException("Could not move ${temp.name} onto ${file.name}", e)
                 }
             }
+            Log.i(Logging.TAG, "GPano injected into ${file.name} (${metadata.projectionType})")
             file
         } finally {
             if (temp.exists()) temp.delete()
         }
+    }.onFailure { error ->
+        Log.e(Logging.TAG, "GPano inject failed for ${file.name}", error)
     }
 
     /**

@@ -923,7 +923,8 @@ fun PhotoSphereCameraScreen(
                                 "Frame ${decision.index} captured " +
                                     "yaw=${decision.pose.yawDegrees.roundToInt()}° " +
                                     "pitch=${decision.pose.pitchDegrees.roundToInt()}° " +
-                                    "roll=${decision.pose.rollDegrees.roundToInt()}°"
+                                    "roll=${decision.pose.rollDegrees.roundToInt()}° " +
+                                    "basis=${decision.pose.cameraBasis?.joinToString(prefix = "[", postfix = "]") { "%.3f".format(it) } ?: "none"}"
                             )
                             val advanced = coordinator.onCaptured(
                                 token = decision.token,

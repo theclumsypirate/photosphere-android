@@ -338,6 +338,7 @@ class ImageBufferManager(
         val dropped = mutex.withLock {
             _frames.value.also { _frames.value = emptyList() }
         }
+        if (dropped.isNotEmpty()) Log.d(TAG, "Buffer cleared (${dropped.size} frames)")
         if (!deleteFiles || dropped.isEmpty()) return
 
         withContext(NonCancellable + ioDispatcher) {

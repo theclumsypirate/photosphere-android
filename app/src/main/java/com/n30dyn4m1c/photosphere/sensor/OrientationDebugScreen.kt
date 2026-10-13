@@ -17,6 +17,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
@@ -36,6 +37,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.n30dyn4m1c.photosphere.R
+import com.n30dyn4m1c.photosphere.util.Logging
 import com.n30dyn4m1c.photosphere.ui.theme.PhotoSphereTheme
 import kotlin.math.abs
 
@@ -57,6 +59,13 @@ fun OrientationDebugScreen(modifier: Modifier = Modifier) {
     // is effectively the event rate.)
     val sampleCount by produceState(initialValue = 0L, tracker) {
         tracker.orientation.collect { value += 1 }
+    }
+
+    LaunchedEffect(tracker.isSensorAvailable) {
+        android.util.Log.i(
+            Logging.TAG,
+            "OrientationDebugScreen shown (sensor available: ${tracker.isSensorAvailable})",
+        )
     }
 
     OrientationDebugContent(

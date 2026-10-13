@@ -9,7 +9,9 @@ import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
 import android.os.Build
+import android.util.Log
 import androidx.camera.camera2.interop.Camera2Interop
+import com.n30dyn4m1c.photosphere.util.Logging
 
 /**
  * How one sphere is captured, decided once per device.
@@ -141,7 +143,14 @@ internal fun resolveSphereCaptureProfile(
         opticalStabilizationSupported = resolveOpticalStabilization(
             characteristics?.get(CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION)
         ),
-    )
+    ).also { profile ->
+        Log.i(
+            Logging.TAG,
+            "Capture profile for ${cameraId ?: "default lens"}: focus=${profile.focusMode} " +
+                "aeLock=${profile.aeLockSupported} awbLock=${profile.awbLockSupported} " +
+                "ois=${profile.opticalStabilizationSupported}",
+        )
+    }
 }
 
 /**

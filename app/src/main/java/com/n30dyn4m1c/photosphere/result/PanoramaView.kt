@@ -149,6 +149,9 @@ private class SphereRenderer : GLSurfaceView.Renderer {
 
     private var vertexBuffer: FloatBuffer? = null
 
+    /** GL thread only; logs the first presented sphere frame once. */
+    private var loggedFirstFrame = false
+
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         GLES20.glClearColor(0f, 0f, 0f, 1f)
         program = buildProgram()
@@ -201,12 +204,18 @@ private class SphereRenderer : GLSurfaceView.Renderer {
         GLES20.glVertexAttribPointer(aPosition, 2, GLES20.GL_FLOAT, false, 0, buffer)
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
         GLES20.glDisableVertexAttribArray(aPosition)
+        if (!loggedFirstFrame) {
+            loggedFirstFrame = true
+            Log.i(TAG, "First sphere frame rendered")
+        }
     }
 
     fun setBitmap(bitmap: Bitmap) {
         pendingBitmap = bitmap
         spanLatRadians = (2.0 * Math.PI * bitmap.height / bitmap.width)
             .toFloat().coerceIn(0.05f, Math.PI.toFloat())
+        Log.i(TAG, "Sphere texture ${bitmap.width}x${bitmap.height} (span %.0f°)"
+            .format(spanLatRadians * 180f / Math.PI))
     }
 
     fun setView(yawDegrees: Float, pitchDegrees: Float, fovDegrees: Float) {

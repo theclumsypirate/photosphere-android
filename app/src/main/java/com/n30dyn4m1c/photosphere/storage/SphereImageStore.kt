@@ -308,6 +308,7 @@ object SphereImageStore {
             }
         }
 
+        Log.i(TAG, "Sphere written: ${file.name} ${bitmap.width}x${bitmap.height}")
         return StitchedSphere(file = file, width = bitmap.width, height = bitmap.height)
     }
 

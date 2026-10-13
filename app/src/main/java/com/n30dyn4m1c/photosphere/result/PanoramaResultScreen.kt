@@ -200,6 +200,7 @@ fun PanoramaResultScreen(
         scope.launch {
             MediaExporter.exportFrames(context, frameFiles)
                 .onSuccess { count ->
+                    Log.i(TAG, "Exported $count frames")
                     snackbarHostState.showSnackbar(
                         context.getString(R.string.capture_frames_saved, count)
                     )
@@ -382,7 +383,10 @@ fun PanoramaResultScreen(
             // Fullscreen is offered from the pannable mode, which is the only
             // one that decodes the GL texture this dialog shows.
             if (previewMode == PreviewMode.Panorama && panoBitmap != null) {
-                TextButton(onClick = { showFullscreenSphere = true }) {
+                TextButton(onClick = {
+                    Log.i(Logging.TAG, "PanoramaResultScreen: fullscreen opened")
+                    showFullscreenSphere = true
+                }) {
                     Text(text = stringResource(R.string.result_fullscreen))
                 }
             }

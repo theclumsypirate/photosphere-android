@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.Uri
 import android.os.Build
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
@@ -76,6 +77,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Log.i(Logging.TAG, "MainActivity.onCreate")
+        Log.i(
+            Logging.TAG,
+            "PhotoSphereApp v${BuildConfig.VERSION_NAME} (${BuildConfig.BUILD_TYPE}) " +
+                "on ${Build.MANUFACTURER} ${Build.MODEL} API ${Build.VERSION.SDK_INT}"
+        )
         // Both bars stay transparent over the viewfinder, and both are forced to
         // *light* icons. The default follows the system's day/night setting,
         // which on a phone in light mode paints dark status-bar icons — over a

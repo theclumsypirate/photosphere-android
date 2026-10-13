@@ -13,3 +13,7 @@
 
 Test builds come from the `build-debug` CI workflow — see
 [Build](docs/build.md). MIT licensed.
+
+## Credits
+
+Original author: https://github.com/n30dyn4m1c/360-photo-app

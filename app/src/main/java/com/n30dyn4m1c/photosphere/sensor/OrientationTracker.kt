@@ -7,6 +7,7 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.SystemClock
 import android.util.Log
 import android.view.Surface
 import com.n30dyn4m1c.photosphere.util.Logging
@@ -18,6 +19,7 @@ import kotlin.math.asin
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
+import java.util.Locale
 
 private const val TAG = "OrientationTracker"
 
@@ -258,6 +260,13 @@ class OrientationTracker(
     @Volatile
     private var accuracy = OrientationAccuracy.Unknown
 
+    /**
+     * Last 1 Hz attitude summary, uptime millis. The full 50 Hz stream goes to
+     * VERBOSE (deep dives); INFO carries one line a second so a live `adb
+     * logcat` shows where the phone points without drowning.
+     */
+    private var lastAttitudeLogMillis = 0L
+
     private val lock = Any()
 
     /** Both guarded by [lock]. */
@@ -367,15 +376,32 @@ class OrientationTracker(
         // -Z/X/Y axes; the camera frame is read straight off the matrix instead.
         // Yaw and roll come from atan2 and are normalised defensively; pitch
         // comes from an asin and is already bounded to ±90°.
+        val publishedAccuracy = accuracyOf(event)
         _orientation.value = OrientationData(
             yawDegrees = angles[0],
             pitchDegrees = angles[1],
             rollDegrees = angles[2],
-            accuracy = accuracyOf(event),
+            accuracy = publishedAccuracy,
             timestampNanos = event.timestamp,
             // A copy: the scratch buffer is reused by the next event.
             cameraBasis = basis.copyOf(),
         )
+        Log.v(
+            Logging.TAG,
+            "attitude yaw=%.1f pitch=%.1f roll=%.1f acc=%s".format(
+                Locale.US, angles[0], angles[1], angles[2], publishedAccuracy,
+            ),
+        )
+        val nowMillis = SystemClock.elapsedRealtime()
+        if (nowMillis - lastAttitudeLogMillis >= 1000L) {
+            lastAttitudeLogMillis = nowMillis
+            Log.i(
+                Logging.TAG,
+                "attitude yaw=%.1f pitch=%.1f roll=%.1f acc=%s".format(
+                    Locale.US, angles[0], angles[1], angles[2], publishedAccuracy,
+                ),
+            )
+        }
     }
 
     /**
