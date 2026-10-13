@@ -4,4 +4,12 @@
 -keepclassmembers class org.opencv.** { *; }
 -dontwarn org.opencv.**
 
+# Any other JNI entry point reached by name.
+-keepclasseswithmembernames class * {
+    native <methods>;
+}
+
+# Keep file/line info so release crashes stay readable in logcat.
+-keepattributes SourceFile,LineNumberTable
+
 # CameraX ships its own consumer rules; nothing extra is required here.

@@ -156,6 +156,19 @@ jobs:
             -PkeyAlias="$KEY_ALIAS" \
             -PkeyPassword="$KEY_PASSWORD"
 
+      - name: Verify R8 minification ran
+        shell: bash
+        run: |
+          MAPPING="app/build/outputs/mapping/release/mapping.txt"
+          if [ ! -f "$MAPPING" ]; then
+            echo "::error::mapping.txt missing — R8 minification did not run."
+            exit 1
+          fi
+          echo "mapping.txt: $(du -h "$MAPPING" | cut -f1)"
+          for apk in app/build/outputs/apk/release/*arm64-v8a*.apk; do
+            echo "release APK: $apk ($(du -h "$apk" | cut -f1))"
+          done
+
       - name: Create GitHub Release with signed APK
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PAT }}
