@@ -1,0 +1,130 @@
+name: release-apk
+
+# Manual releases with auto-incremented versions, starting at 0.0.1-beta.
+# Pick beta (next vX.Y.Z-beta, prerelease) or stable (promotes the highest
+# beta to vX.Y.Z, or bumps the highest stable). Bumps versionCode/versionName,
+# commits, tags, builds the arm64 debug APK and attaches it to the release.
+# Runs only on manual dispatch, never on push. Needs the RELEASE_PAT secret
+# (a PAT with contents:write) because the version-bump commit is pushed back.
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: "Beta prerelease or stable release"
+        type: choice
+        options: [beta, stable]
+        default: beta
+      notes:
+        description: "Release notes (optional)"
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-apk
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.RELEASE_PAT }}
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-35 build-tools;35.0.0 platform-tools"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Compute next version
+        id: version
+        env:
+          RELEASE_TYPE: ${{ inputs.release_type }}
+        run: |
+          greater() {
+            printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n 1
+          }
+          bump() {
+            echo "$1" | awk -F. '{printf "%d.%d.%d", $1, $2, $3 + 1}'
+          }
+          max_beta=""
+          max_stable=""
+          for t in $(git tag --list 'v*'); do
+            if [[ "$t" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)-beta$ ]]; then
+              v="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+              if [ -z "$max_beta" ]; then max_beta="$v"; else max_beta=$(greater "$max_beta" "$v"); fi
+            elif [[ "$t" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+              v="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+              if [ -z "$max_stable" ]; then max_stable="$v"; else max_stable=$(greater "$max_stable" "$v"); fi
+            fi
+          done
+          if [ "$RELEASE_TYPE" = beta ]; then
+            if [ -z "$max_beta" ]; then next="0.0.1"; else next=$(bump "$max_beta"); fi
+            tag="v$next-beta"
+            name="$next-beta"
+            prerelease=true
+          else
+            if [ -n "$max_beta" ] && [ "$max_beta" != "$max_stable" ]; then
+              next="$max_beta"
+            elif [ -n "$max_stable" ]; then
+              next=$(bump "$max_stable")
+            else
+              next="0.0.1"
+            fi
+            tag="v$next"
+            name="$next"
+            prerelease=false
+          fi
+          code=$(grep -oP 'versionCode = \K[0-9]+' app/build.gradle.kts)
+          code=$((code + 1))
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "Releasing $tag (versionCode $code, prerelease $prerelease)"
+
+      - name: Bump version files, commit and tag
+        run: |
+          sed -i "s/versionCode = .*/versionCode = ${{ steps.version.outputs.code }}/" app/build.gradle.kts
+          sed -i 's/versionName = ".*"/versionName = "${{ steps.version.outputs.name }}"/' app/build.gradle.kts
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add app/build.gradle.kts
+          git commit -m "Release ${{ steps.version.outputs.tag }}"
+          git tag "${{ steps.version.outputs.tag }}"
+          git push origin main "${{ steps.version.outputs.tag }}"
+
+      - name: Assemble debug APK (arm64-v8a)
+        run: ./gradlew :app:assembleDebug -PonlyAbi=arm64-v8a
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          NOTES: ${{ inputs.notes }}
+        run: |
+          flags=""
+          if [ "${{ steps.version.outputs.prerelease }}" = "true" ]; then
+            flags="$flags --prerelease"
+          fi
+          if [ -z "$NOTES" ]; then
+            NOTES="Automated ${{ inputs.release_type }} release ${{ steps.version.outputs.tag }}."
+          fi
+          # shellcheck disable=SC2086
+          gh release create "${{ steps.version.outputs.tag }}" \
+            app/build/outputs/apk/debug/*arm64-v8a*.apk \
+            --title "${{ steps.version.outputs.tag }}" \
+            --notes "$NOTES" $flags
