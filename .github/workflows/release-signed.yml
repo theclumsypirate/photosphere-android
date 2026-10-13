@@ -19,6 +19,10 @@ on:
         description: "Release notes (optional)"
         type: string
         default: ""
+      beta_as_release:
+        description: "Publish beta tags as full releases instead of prereleases"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -95,6 +99,7 @@ jobs:
         env:
           RELEASE_TYPE: ${{ inputs.release_type }}
           INPUT_NOTES: ${{ inputs.notes }}
+          BETA_AS_RELEASE: ${{ inputs.beta_as_release }}
         run: |
           greater() {
             printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n 1
@@ -117,7 +122,11 @@ jobs:
             if [ -z "$max_beta" ]; then next="0.0.1"; else next=$(bump "$max_beta"); fi
             tag="v$next-beta"
             name="$next-beta"
-            prerelease=true
+            if [ "$BETA_AS_RELEASE" = "true" ]; then
+              prerelease=false
+            else
+              prerelease=true
+            fi
           else
             if [ -n "$max_beta" ] && [ "$max_beta" != "$max_stable" ]; then
               next="$max_beta"
