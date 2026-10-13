@@ -40,6 +40,13 @@ or pull device frames with `tools/photosphere_lab.py frames`) and outputs
 - **all36_v5** — steep frames contribute only their sharp center (one owner
   per pole pixel). **9/10**: clean zenith, readable nadir, continuous horizon;
   only faint corner wedges left. Loop target met.
+- **other_v1 (new file, Gemini's idea)** — winner-takes-all + pure rotation
+  (lever 0). 8/10: zero transparency anywhere, but disagreement moved into
+  seam smears (door, bed edge, lamp). Sharper where agreed, worse at seams.
+- **other_v2 (same, lever 0.35/3.5)** — 8.5/10: door smear gone, so the lever
+  earns its keep even under WTA; nadir streaks remain. Verdict: neither WTA
+  nor feather dominates — content-aware seam placement (graph-cut, i.e. the
+  app's SeamFinder) is the principled union of both.
 - **Reference: stock `cv2.Stitcher`** (same engine xpano is built on):
   crashed outright on 7 texture-poor frames (FLANN assert); on the remaining
   30 it built a single-viewpoint mosaic, not a sphere — 2/10 *as a 360 photo*
