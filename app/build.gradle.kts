@@ -9,7 +9,7 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.n30dyn4m1c.photosphere"
+        applicationId = "theclumsypirate.com.photosphere.github"
         // 26 keeps adaptive launcher icons, ART, and the modern camera2 pipeline
         // available without legacy fallbacks. CameraX itself supports 21+.
         minSdk = 26

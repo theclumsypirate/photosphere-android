@@ -62,7 +62,7 @@ fun OrientationDebugScreen(modifier: Modifier = Modifier) {
     }
 
     LaunchedEffect(tracker.isSensorAvailable) {
-        android.util.Logging.i(
+        Logging.i(
             "OrientationDebugScreen shown (sensor available: ${tracker.isSensorAvailable})",
         )
     }
