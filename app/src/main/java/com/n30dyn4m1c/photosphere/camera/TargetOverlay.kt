@@ -120,8 +120,14 @@ fun TargetOverlay(
         }
     }
 
+    // The sensor stream carries sample noise and hand tremor (~50 Hz), which
+    // drawn raw makes every marker tremble. The overlay projects a steadied
+    // pose instead; capture decisions upstream keep the raw samples. A plain
+    // holder (not State): draw-phase reads must not schedule recomposition.
+    val smoother = remember { OrientationSmoother() }
+
     Canvas(modifier = modifier.fillMaxSize()) {
-        val currentOrientation = orientation()
+        val currentOrientation = smoother.update(orientation())
         val currentAlignment = alignment()
         val focalPx = SphereProjection.focalLengthPx(size.width, size.height, fieldOfView)
         val targets = plan?.targets.orEmpty()
@@ -140,7 +146,13 @@ fun TargetOverlay(
             pulse = pulse.value,
         )
 
-        drawReticle(alignment = currentAlignment, colors = colors)
+        drawReticle(
+            alignment = currentAlignment.withVisualDistance(
+                orientation = currentOrientation,
+                target = plan?.targets?.getOrNull(activeIndex)?.takeIf { activeIndex !in captured },
+            ),
+            colors = colors,
+        )
 
         if (currentAlignment.isCapturing && flash.value > 0f) {
             drawRect(color = Color.White.copy(alpha = 0.18f * flash.value))
@@ -521,6 +533,23 @@ private fun DrawScope.edgePosition(direction: Offset, margin: Float): Offset {
     val scaleX = if (abs(direction.x) < 1e-4f) Float.MAX_VALUE else halfWidth / abs(direction.x)
     val scaleY = if (abs(direction.y) < 1e-4f) Float.MAX_VALUE else halfHeight / abs(direction.y)
     return center + direction * min(scaleX, scaleY)
+}
+
+/**
+ * The reticle's warm-up distance, measured from the steadied pose the markers
+ * are drawn from rather than from the raw sample.
+ *
+ * The colour would otherwise shimmer with sensor noise while the markers sit
+ * still (or the reverse): the two have to agree about where the aim is. Only
+ * the distance is replaced — dwell progress and the capturing flag stay raw,
+ * because those are capture truth, not feedback.
+ */
+private fun AlignmentState.withVisualDistance(
+    orientation: OrientationData,
+    target: SphereTarget?,
+): AlignmentState {
+    if (!orientation.hasFix || target == null || !hasDistance) return this
+    return copy(distanceDegrees = SphereProjection.angularDistanceDegrees(orientation, target))
 }
 
 /**

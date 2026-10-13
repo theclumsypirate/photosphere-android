@@ -168,6 +168,14 @@ import kotlin.math.roundToInt
 private const val TAG = "PhotoSphereCamera"
 
 /**
+ * How long the hint keeps saying "hold" after the raw hold state drops.
+ *
+ * Display-only debouncing against gate flapping at the 2° threshold; capture
+ * and audio guidance are unaffected.
+ */
+private const val HINT_HOLD_RELEASE_MILLIS = 400L
+
+/**
  * How long to wait for the 3A to report a converged exposure before locking
  * AE/AWB anyway.
  *
@@ -329,6 +337,20 @@ fun PhotoSphereCameraScreen(
     var captureProfile by remember { mutableStateOf<SphereCaptureProfile?>(null) }
     var boundCamera by remember { mutableStateOf<Camera?>(null) }
     var isHolding by remember { mutableStateOf(false) }
+
+    // Display-only debouncing of the hold state: hand tremor at the 2° gate
+    // flaps isHolding, which would strobe the hint text through its crossfade.
+    // Capture and guidance keep the raw value; only the hint waits 400 ms
+    // before admitting the aim was lost.
+    var hintHolding by remember { mutableStateOf(false) }
+    LaunchedEffect(isHolding) {
+        if (isHolding) {
+            hintHolding = true
+        } else {
+            delay(HINT_HOLD_RELEASE_MILLIS)
+            hintHolding = false
+        }
+    }
     var accuracy by remember { mutableStateOf(OrientationAccuracy.Unknown) }
 
     // Why the camera did not start, and the counter that asks it to try again.
@@ -1083,7 +1105,7 @@ fun PhotoSphereCameraScreen(
                     isCameraReady = imageCapture != null,
                     hasPlan = run.plan != null,
                     isComplete = run.isComplete,
-                    isHolding = isHolding,
+                    isHolding = hintHolding,
                     accuracy = accuracy,
                     completedRings = run.completedRings,
                     ringCount = run.ringCount,

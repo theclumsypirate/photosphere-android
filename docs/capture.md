@@ -200,7 +200,10 @@ the active target and fills a dwell arc around its rim while the aim is held
 inside it. Targets are circles rather than footprints: a hollow one is "still to
 cover", a filled green one is "done", and the live target pulses with a dashed
 guide line back to the reticle — collapsing to a chevron on the border when it
-is off-screen, so the user always knows which way to turn.
+is off-screen, so the user always knows which way to turn. Marker positions are
+projected from a snap-limited smoothing of the sensor stream
+(`OrientationSmoother`), so hand tremor doesn't make them tremble; capture
+decisions and stamped poses always use the raw samples.
 
 **Who decides.** The rule that turns attitude into a shutter lives in
 [`SphereCaptureCoordinator`](../app/src/main/java/com/n30dyn4m1c/photosphere/camera/SphereCaptureCoordinator.kt),
