@@ -200,7 +200,7 @@ class ImageBufferManager(
                 Files.move(best.toPath(), canonical.toPath(), StandardCopyOption.REPLACE_EXISTING)
                 winner = canonical
             } catch (e: IOException) {
-                Logging.w( "Could not promote ${best.name} to ${canonical.name}", e)
+                Logging.w("Could not promote ${best.name} to ${canonical.name}", e)
             }
         }
 
@@ -211,7 +211,7 @@ class ImageBufferManager(
             if (sibling != winner &&
                 sibling.name.startsWith(SphereImageStore.burstPrefix(index))
             ) {
-                if (!sibling.delete()) Logging.w( "Could not delete burst sibling ${sibling.name}")
+                if (!sibling.delete()) Logging.w("Could not delete burst sibling ${sibling.name}")
             }
         }
 
@@ -241,7 +241,7 @@ class ImageBufferManager(
         // buffered entry whose file has just been deleted.
         mutex.withLock {
             if (file.parentFile?.name != _sessionId.value) {
-                Logging.w( "Dropping ${file.name} from superseded session")
+                Logging.w("Dropping ${file.name} from superseded session")
                 withContext(NonCancellable + ioDispatcher) { file.delete() }
                 return null
             }
@@ -318,7 +318,7 @@ class ImageBufferManager(
         }
         withContext(NonCancellable + ioDispatcher) {
             if (dropped.file.exists() && !dropped.file.delete()) {
-                Logging.w( "Could not delete undone frame ${dropped.file.name}")
+                Logging.w("Could not delete undone frame ${dropped.file.name}")
             }
         }
         return dropped
@@ -339,13 +339,13 @@ class ImageBufferManager(
         val dropped = mutex.withLock {
             _frames.value.also { _frames.value = emptyList() }
         }
-        if (dropped.isNotEmpty()) Logging.d( "Buffer cleared (${dropped.size} frames)")
+        if (dropped.isNotEmpty()) Logging.d("Buffer cleared (${dropped.size} frames)")
         if (!deleteFiles || dropped.isEmpty()) return
 
         withContext(NonCancellable + ioDispatcher) {
             dropped.forEach { frame ->
                 if (frame.file.exists() && !frame.file.delete()) {
-                    Logging.w( "Could not delete ${frame.file.name}")
+                    Logging.w("Could not delete ${frame.file.name}")
                 }
             }
         }
@@ -365,7 +365,7 @@ class ImageBufferManager(
     suspend fun cancelSession(): String {
         val previous = _sessionId.value
         mutex.withLock { _frames.value = emptyList() }
-        Logging.i( "Session restarted: $previous")
+        Logging.i("Session restarted: $previous")
 
         withContext(NonCancellable + ioDispatcher) {
             SphereImageStore.deleteSession(appContext, previous)

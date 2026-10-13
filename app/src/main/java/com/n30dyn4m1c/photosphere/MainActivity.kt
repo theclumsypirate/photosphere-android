@@ -31,11 +31,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -62,6 +64,7 @@ import com.n30dyn4m1c.photosphere.importer.ImportPhotosScreen
 import com.n30dyn4m1c.photosphere.storage.rememberImageBufferManager
 import com.n30dyn4m1c.photosphere.result.PanoramaResultScreen
 import com.n30dyn4m1c.photosphere.sensor.OrientationDebugScreen
+import com.n30dyn4m1c.photosphere.settings.SettingsScreen
 import com.n30dyn4m1c.photosphere.storage.SphereImageStore
 import com.n30dyn4m1c.photosphere.storage.SphereImageStore.StitchedSphere
 import com.n30dyn4m1c.photosphere.ui.theme.PhotoSphereTheme
@@ -75,7 +78,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Logging.i( "MainActivity.onCreate")
+        Logging.i("MainActivity.onCreate")
         Logging.i(
             "PhotoSphereApp v${BuildConfig.VERSION_NAME} (${BuildConfig.BUILD_TYPE}) " +
                 "on ${Build.MANUFACTURER} ${Build.MODEL} API ${Build.VERSION.SDK_INT}"
@@ -105,32 +108,32 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        Logging.d( "MainActivity.onStart")
+        Logging.d("MainActivity.onStart")
     }
 
     override fun onResume() {
         super.onResume()
-        Logging.d( "MainActivity.onResume")
+        Logging.d("MainActivity.onResume")
     }
 
     override fun onPause() {
-        Logging.d( "MainActivity.onPause")
+        Logging.d("MainActivity.onPause")
         super.onPause()
     }
 
     override fun onStop() {
-        Logging.d( "MainActivity.onStop")
+        Logging.d("MainActivity.onStop")
         super.onStop()
     }
 
     override fun onDestroy() {
-        Logging.d( "MainActivity.onDestroy")
+        Logging.d("MainActivity.onDestroy")
         super.onDestroy()
     }
 
     override fun onLowMemory() {
         super.onLowMemory()
-        Logging.w( "MainActivity.onLowMemory: memorie redusa")
+        Logging.w("MainActivity.onLowMemory: memorie redusa")
     }
 
     companion object {
@@ -185,8 +188,9 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
     // permission gate rather than behind it.
     var showOrientationDebug by rememberSaveable { mutableStateOf(false) }
 
-    // Capture or import: chosen on the entry screen, before any permission.
+    // Capture, import or settings: chosen before any permission.
     var entry by rememberSaveable { mutableStateOf<Entry?>(null) }
+    var showSettings by rememberSaveable { mutableStateOf(false) }
 
     // Deliberately not `rememberSaveable`: on a configuration change the file is
     // still in the cache, but a File is not something to smuggle through a
@@ -203,7 +207,7 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
     fun discardSphere() {
         val finished = sphere ?: return
         sphere = null
-        Logging.i( "Discarding sphere ${finished.file.name}")
+        Logging.i("Discarding sphere ${finished.file.name}")
         // NonCancellable: this runs as the result screen is being torn down, and
         // a several-megabyte JPEG left in the cache is exactly what the next
         // stitch would have to clean up. The buffered frames go too: a fresh
@@ -219,6 +223,8 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
         when {
             showOrientationDebug -> OrientationDebugScreen()
 
+            showSettings -> SettingsScreen(onBack = { showSettings = false })
+
             finished != null -> PanoramaResultScreen(
                 sphere = finished,
                 frameFiles = frameFiles,
@@ -227,18 +233,19 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
 
             entry == null -> EntryChooser(
                 onCapture = {
-                    Logging.i( "Entry: Capture")
+                    Logging.i("Entry: Capture")
                     entry = Entry.Capture
                 },
                 onImport = {
-                    Logging.i( "Entry: Import")
+                    Logging.i("Entry: Import")
                     entry = Entry.Import
                 },
+                onOpenSettings = { showSettings = true },
             )
 
             entry == Entry.Import -> ImportPhotosScreen(
                 onSphereReady = {
-                    Logging.i( "Sphere ready: ${it.file.name} (import)")
+                    Logging.i("Sphere ready: ${it.file.name} (import)")
                     sphere = it
                 },
                 onBack = { entry = null },
@@ -249,7 +256,7 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
             ) {
                 PhotoSphereCameraScreen(
                     onSphereReady = {
-                        Logging.i( "Sphere ready: ${it.file.name} (capture)")
+                        Logging.i("Sphere ready: ${it.file.name} (capture)")
                         sphere = it
                     }
                 )
@@ -282,21 +289,24 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
 
 /**
  * The first screen: capture with the camera, or stitch photos already on the
- * device. Two full-width buttons, no permission needed to choose.
+ * device. Two full-width buttons, no permission needed to choose, plus the
+ * settings entry top-left.
  */
 @Composable
 private fun EntryChooser(
     onCapture: () -> Unit,
     onImport: () -> Unit,
+    onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
+    Box(modifier = modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
         Text(
             text = stringResource(R.string.entry_title),
             style = MaterialTheme.typography.headlineSmall,
@@ -338,6 +348,18 @@ private fun EntryChooser(
             Text(
                 text = stringResource(R.string.entry_import),
                 style = MaterialTheme.typography.titleMedium,
+            )
+        }
+        }
+        IconButton(
+            onClick = onOpenSettings,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(12.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Settings,
+                contentDescription = stringResource(R.string.settings_open),
             )
         }
     }

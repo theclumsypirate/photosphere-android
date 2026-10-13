@@ -97,6 +97,20 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
+        <!--
+            Lets the settings screen share a diagnostics report out of the
+            cache. Only the reports folder is exposed, nothing else beside it.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.reports"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/report_paths" />
+        </provider>
     </application>
 
 </manifest>

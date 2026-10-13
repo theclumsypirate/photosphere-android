@@ -29,3 +29,11 @@ What it deliberately does **not** do: drive the capture UI (guided capture
 needs a hand turning a real phone — no script can aim it), or re-run the
 stitch in Python. Frame placement forensics come from the EXIF audit plus the
 stitch diagnostics line on the result screen (debug builds).
+
+## Bug reports from the Settings screen
+
+Settings (top-left on the entry screen) builds one `.txt` with the app and
+device line, how the app last ended, saved crashes, the last four hours of
+JSON logs and a live logcat tail — emails, tokens and account names redacted.
+Save it through the system picker or send it through the share sheet. Nothing
+leaves the device unless you tap.

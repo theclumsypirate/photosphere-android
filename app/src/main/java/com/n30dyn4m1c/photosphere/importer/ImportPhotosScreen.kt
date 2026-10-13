@@ -115,7 +115,7 @@ fun ImportPhotosScreen(
     ) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
         scope.launch(Dispatchers.IO) {
-            Logging.i( "Picked ${uris.size} photos")
+            Logging.i("Picked ${uris.size} photos")
             val dir = File(File(context.cacheDir, "imports"), "import_${System.currentTimeMillis()}")
             dir.mkdirs()
             importDir?.let { old -> if (old != dir) old.deleteRecursively() }
@@ -143,7 +143,7 @@ fun ImportPhotosScreen(
             try {
                 val stamped = files.map { readStampedPose(it) }
                 val useStamped = stamped.all { it != null }
-                Logging.i( "Import poses: ${if (useStamped) "stamped EXIF" else "even ring"}")
+                Logging.i("Import poses: ${if (useStamped) "stamped EXIF" else "even ring"}")
                 val poses = if (useStamped) {
                     stamped.requireNoNulls()
                 } else {
@@ -188,7 +188,7 @@ fun ImportPhotosScreen(
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        Logging.e( "Could not write the imported sphere", e)
+                        Logging.e("Could not write the imported sphere", e)
                         null
                     } finally {
                         bitmap.recycle()
@@ -200,10 +200,10 @@ fun ImportPhotosScreen(
                         )
                         return@onSuccess
                     }
-                    Logging.i( "Import stitch done")
+                    Logging.i("Import stitch done")
                     onSphereReady(stitched)
                 }.onFailure { failure ->
-                    Logging.e( "Import stitch failed", failure)
+                    Logging.e("Import stitch failed", failure)
                     error = context.getString(
                         R.string.import_failed,
                         failure.message.orEmpty(),
@@ -390,7 +390,7 @@ private fun copyUri(context: Context, uri: Uri, dest: File): File? = runCatching
     } ?: throw IOException("Could not open $uri")
     dest
 }.onFailure { error ->
-    Logging.w( "Could not copy $uri", error)
+    Logging.w("Could not copy $uri", error)
 }.getOrNull()
 
 /** This app's stamped attitude from a frame it saved, or null for foreign photos. */

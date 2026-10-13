@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_title">Settings</string>
+    <string name="settings_open">Open settings</string>
+    <string name="save_report">Save report</string>
+    <string name="report_saved">Report saved</string>
+    <string name="send_report">Send report</string>
+    <string name="report_preparing">Preparing the report…</string>
+    <string name="report_failed">The report could not be prepared.</string>
+    <string name="send_report_note">What the app recorded: recent activity, crashes and how they ended. Emails and tokens taken out. Nothing is sent unless you send it.</string>
+    <string name="report_back">Back</string>
+</resources>

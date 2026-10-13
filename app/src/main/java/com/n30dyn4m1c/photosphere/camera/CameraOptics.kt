@@ -244,7 +244,7 @@ internal fun estimateSphereOptics(
         } catch (e: Exception) {
             // A camera that will not describe itself still previews fine; the
             // markers just ride on the default optics.
-            Logging.w( "Falling back to default field of view", e)
+            Logging.w("Falling back to default field of view", e)
         }
     }
 

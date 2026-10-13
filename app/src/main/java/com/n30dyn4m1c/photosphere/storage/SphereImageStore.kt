@@ -154,7 +154,7 @@ object SphereImageStore {
     fun deleteSession(context: Context, sessionId: String) {
         val session = File(File(context.cacheDir, SESSIONS_DIRECTORY), sessionId)
         if (session.exists() && !session.deleteRecursively()) {
-            Logging.w( "Could not clear session $sessionId")
+            Logging.w("Could not clear session $sessionId")
         }
     }
 
@@ -174,7 +174,7 @@ object SphereImageStore {
         sessions.forEach { session ->
             if (session.name != keepSessionId) {
                 if (!session.deleteRecursively()) {
-                    Logging.w( "Could not clear stale session ${session.name}")
+                    Logging.w("Could not clear stale session ${session.name}")
                 }
             }
         }
@@ -224,7 +224,7 @@ object SphereImageStore {
             }
         } catch (e: Exception) {
             // Metadata is a nice-to-have; never lose the frame over it.
-            Logging.w( "Could not write EXIF for ${file.name}", e)
+            Logging.w("Could not write EXIF for ${file.name}", e)
         }
     }
 
@@ -279,7 +279,7 @@ object SphereImageStore {
                 .onFailure { error ->
                     // Recoverable: the file is a valid 2:1 JPEG either way, it
                     // will simply open flat instead of as a sphere.
-                    Logging.w( "Could not write GPano metadata for ${file.name}", error)
+                    Logging.w("Could not write GPano metadata for ${file.name}", error)
                 }
             // The new sphere is complete; move it into place (atomically — the
             // name is fresh, but REPLACE_EXISTING also absorbs a same-second
@@ -287,7 +287,7 @@ object SphereImageStore {
             try {
                 Files.move(temp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
             } catch (e: IOException) {
-                Logging.w( "Could not finalise ${file.name}", e)
+                Logging.w("Could not finalise ${file.name}", e)
                 throw e
             }
         } catch (e: Exception) {
@@ -305,11 +305,11 @@ object SphereImageStore {
                 stale.name.endsWith(".jpg") &&
                 !stale.delete()
             ) {
-                Logging.w( "Could not clear stale sphere ${stale.name}")
+                Logging.w("Could not clear stale sphere ${stale.name}")
             }
         }
 
-        Logging.i( "Sphere written: ${file.name} ${bitmap.width}x${bitmap.height}")
+        Logging.i("Sphere written: ${file.name} ${bitmap.width}x${bitmap.height}")
         return StitchedSphere(file = file, width = bitmap.width, height = bitmap.height)
     }
 
@@ -332,7 +332,7 @@ object SphereImageStore {
     /** Discards a cached sphere the user has finished with. */
     fun deleteCachedSphere(file: File) {
         if (file.exists() && !file.delete()) {
-            Logging.w( "Could not delete cached sphere ${file.name}")
+            Logging.w("Could not delete cached sphere ${file.name}")
         }
     }
 
@@ -356,7 +356,7 @@ object SphereImageStore {
             }
         } catch (e: Exception) {
             // Metadata is a nice-to-have; never lose the sphere over it.
-            Logging.w( "Could not write EXIF for ${file.name}", e)
+            Logging.w("Could not write EXIF for ${file.name}", e)
         }
     }
 }

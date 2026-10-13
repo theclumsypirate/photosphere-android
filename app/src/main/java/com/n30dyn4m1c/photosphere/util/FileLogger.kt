@@ -20,7 +20,7 @@ import java.io.File
 object FileLogger {
 
     /** Entries older than this are pruned. */
-    const val RETENTION_MILLIS = 3_600_000L
+    const val RETENTION_MILLIS = 4 * 3_600_000L
 
     /** Prune check cadence, in appends. */
     private const val PRUNE_EVERY = 100
@@ -98,6 +98,26 @@ object FileLogger {
                 if (!tmp.renameTo(file)) tmp.delete()
             }
         } catch (_: Exception) {
+        }
+    }
+
+    /** The JSON log file for report builders, or null before init. */
+    internal fun logFile(): File? = synchronized(lock) {
+        directory?.let { File(it, FILE_NAME) }?.takeIf { it.isFile }
+    }
+
+    /** Tail of the log for reports, capped so one file cannot bloat them. */
+    internal fun readRecent(maxBytes: Long = 1_048_576L): String {
+        val file = logFile() ?: return ""
+        return try {
+            val bytes = file.readBytes()
+            val cut = if (bytes.size > maxBytes) bytes.size - maxBytes.toInt() else 0
+            var text = bytes.copyOfRange(cut, bytes.size).toString(Charsets.UTF_8)
+            // Drop a partial first line when cut mid-line.
+            if (cut > 0) text = text.substringAfter("\n", "")
+            text
+        } catch (_: Exception) {
+            ""
         }
     }
 

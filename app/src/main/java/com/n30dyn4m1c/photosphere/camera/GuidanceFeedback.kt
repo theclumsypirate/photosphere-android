@@ -128,7 +128,7 @@ class GuidanceFeedback(context: Context) {
     private val toneGenerator: ToneGenerator? = runCatching {
         ToneGenerator(AudioManager.STREAM_MUSIC, TONE_VOLUME_PERCENT)
     }.getOrNull().also {
-        if (it == null) Logging.w( "ToneGenerator unavailable; aim beeps disabled")
+        if (it == null) Logging.w("ToneGenerator unavailable; aim beeps disabled")
     }
 
     private val vibrator: Vibrator? = context.vibrator()
@@ -157,7 +157,7 @@ class GuidanceFeedback(context: Context) {
     /** One short beep. */
     fun beep() {
         runCatching { toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, BEEP_TONE_MILLIS) }
-            .onFailure { Logging.w( "Aim beep failed", it) }
+            .onFailure { Logging.w("Aim beep failed", it) }
     }
 
     /** One short haptic tick. */
@@ -170,7 +170,7 @@ class GuidanceFeedback(context: Context) {
             VibrationEffect.createOneShot(20L, VibrationEffect.DEFAULT_AMPLITUDE)
         }
         runCatching { vibrator.vibrate(effect) }
-            .onFailure { Logging.w( "Dwell tick failed", it) }
+            .onFailure { Logging.w("Dwell tick failed", it) }
     }
 
     /** Speaks [text], replacing anything still being said. */
@@ -187,7 +187,7 @@ class GuidanceFeedback(context: Context) {
 
     private fun speak(text: String) {
         runCatching { textToSpeech?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "guidance") }
-            .onFailure { Logging.w( "Announcement failed", it) }
+            .onFailure { Logging.w("Announcement failed", it) }
     }
 
     fun release() {

@@ -300,9 +300,9 @@ class OrientationTracker(
             if (registered) {
                 sensorThread = thread
                 isListening = true
-                Logging.i( "OrientationTracker: listening (sensor=$sensorType)")
+                Logging.i("OrientationTracker: listening (sensor=$sensorType)")
             } else {
-                Logging.w( "Rotation vector registration refused")
+                Logging.w("Rotation vector registration refused")
                 thread.quitSafely()
             }
             return registered
@@ -321,7 +321,7 @@ class OrientationTracker(
 
             sensorManager?.unregisterListener(this)
             isListening = false
-            Logging.d( "OrientationTracker: stopped")
+            Logging.d("OrientationTracker: stopped")
             // quitSafely, not quit: lets an event already queued finish its
             // matrix conversion instead of tearing the looper out from under it.
             sensorThread?.quitSafely()
@@ -355,7 +355,7 @@ class OrientationTracker(
         try {
             SensorManager.getRotationMatrixFromVector(rotationMatrix, values)
         } catch (e: IllegalArgumentException) {
-            Logging.w( "Rejected a malformed rotation vector", e)
+            Logging.w("Rejected a malformed rotation vector", e)
             return
         }
 
@@ -449,7 +449,7 @@ class OrientationTracker(
     private fun screenAnglesDegrees(source: FloatArray): FloatArray? {
         val axes = DisplayAxes.forDisplayRotation(displayRotation)
         if (!SensorManager.remapCoordinateSystem(source, axes.axisX, axes.axisY, displayMatrix)) {
-            Logging.w( "Display remap rejected for rotation $displayRotation")
+            Logging.w("Display remap rejected for rotation $displayRotation")
             return null
         }
         SensorManager.getOrientation(displayMatrix, anglesRadians)
@@ -464,6 +464,7 @@ class OrientationTracker(
         val mapped = OrientationAccuracy.fromSensorAccuracy(accuracy)
         this.accuracy = mapped
         // Surface a calibration warning immediately rather than at the next event.
+        Logging.i("Sensor accuracy: $mapped")
         _orientation.update { it.copy(accuracy = mapped) }
     }
 }

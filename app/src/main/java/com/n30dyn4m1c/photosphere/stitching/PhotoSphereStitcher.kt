@@ -275,7 +275,7 @@ object PhotoSphereStitcher {
     fun ensureOpenCv(): Boolean {
         if (isOpenCvReady) return true
         isOpenCvReady = PhotoSphereApplication.isOpenCvAvailable || OpenCVLoader.initLocal()
-        if (!isOpenCvReady) Logging.e( "OpenCV native library unavailable; cannot stitch")
+        if (!isOpenCvReady) Logging.e("OpenCV native library unavailable; cannot stitch")
         return isOpenCvReady
     }
 
@@ -369,6 +369,7 @@ object PhotoSphereStitcher {
         val decoded = ArrayList<DecodedFrame>(frames.size)
         try {
             onProgress(StitchProgress.Preparing)
+            Logging.i("Stitch preparing: ${frames.size} frames")
 
             if (!ensureOpenCv()) {
                 throw StitchException(
@@ -525,6 +526,7 @@ object PhotoSphereStitcher {
             // The *corrected* angles go in: the pose graph is built by asking
             // which frames overlap, and a transposed field of view answers that
             // question about the wrong axis on every pair.
+            Logging.i("Stitch refinement: ${if (useRefinement) "on" else "off (sensor poses)"}")
             val refinement = if (useRefinement) {
                 PoseRefiner.refine(
                     frames = decoded,
@@ -600,6 +602,7 @@ object PhotoSphereStitcher {
             // wide cross-fade replaced by a near-hard cut that fades only a
             // few pixels across it. Without them the render falls back to the
             // multi-band blend.
+            Logging.i("Stitch seaming: $seamMode")
             val seams = when (seamMode) {
                 SeamMode.Blend -> null
                 SeamMode.Carve, SeamMode.WinnerTakeAll -> {
@@ -646,6 +649,7 @@ object PhotoSphereStitcher {
             }
 
             onProgress(StitchProgress(StitchStage.Stitching))
+            Logging.i("Stitch rendering ${canvasWidth}x$canvasHeight")
             val rendered = EquirectangularRenderer.render(
                 frames = prepared,
                 canvasWidth = canvasWidth,
@@ -681,7 +685,7 @@ object PhotoSphereStitcher {
                 onProgress(StitchProgress(StitchStage.Projecting))
                 applyUnsharpMask(rendered.canvas, unsharpAmount)
                 val bitmap = toBitmap(rendered.canvas)
-                Logging.i( "Stitch done: ${bitmap.width}x${bitmap.height} " +
+                Logging.i("Stitch done: ${bitmap.width}x${bitmap.height} " +
                     "(${(rendered.coverage * 100).roundToInt()}% covered)")
                 Result.success(bitmap)
             } finally {
@@ -690,18 +694,18 @@ object PhotoSphereStitcher {
         } catch (e: CancellationException) {
             throw e
         } catch (e: StitchException) {
-            Logging.w( "Stitch failed: ${e.status} (${e.status.code})", e)
+            Logging.w("Stitch failed: ${e.status} (${e.status.code})", e)
             Result.failure<Bitmap>(e)
         } catch (e: OutOfMemoryError) {
             // Recoverable here: the frames are released in the finally below, and
             // the user can retry at a lower input resolution.
-            Logging.e( "Out of memory stitching ${frames.size} frames", e)
+            Logging.e("Out of memory stitching ${frames.size} frames", e)
             Result.failure<Bitmap>(
                 StitchException(StitchStatus.OutOfMemory, "Not enough memory to stitch", e)
             )
         } catch (e: Exception) {
             // Native OpenCV failures arrive as CvException, a RuntimeException.
-            Logging.e( "Stitch failed", e)
+            Logging.e("Stitch failed", e)
             Result.failure<Bitmap>(
                 StitchException(StitchStatus.Unknown, e.message ?: "Stitch failed", e)
             )

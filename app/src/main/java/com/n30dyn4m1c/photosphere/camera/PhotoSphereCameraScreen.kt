@@ -333,6 +333,19 @@ fun PhotoSphereCameraScreen(
 
     val currentFieldOfView by rememberUpdatedState(fieldOfView)
 
+    // One line per handover so the log shows which marker the run is on.
+    // Handover rate is capture rate (a few per minute), never sensor rate.
+    LaunchedEffect(run.activeIndex, run.plan) {
+        val target = run.plan?.getOrNull(run.activeIndex)
+        if (target != null) {
+            Logging.i(
+                "Active target ${run.activeIndex} " +
+                    "yaw=${target.yawDegrees.roundToInt()}° " +
+                    "pitch=${target.pitchDegrees.roundToInt()}°"
+            )
+        }
+    }
+
     // Where focus is aimed and whether the lens has locked there. Set by the
     // initial centre lock once the camera binds, then re-aimed by every tap on
     // the viewfinder.
@@ -429,7 +442,7 @@ fun PhotoSphereCameraScreen(
     fun setAeLocked(locked: Boolean) {
         val control = camera2ControlState
         if (control == null) {
-            Logging.w( "No camera control yet for AE ${if (locked) "lock" else "unlock"}")
+            Logging.w("No camera control yet for AE ${if (locked) "lock" else "unlock"}")
             return
         }
         runCatching {
@@ -439,7 +452,7 @@ fun PhotoSphereCameraScreen(
                     .build()
             )
         }.onSuccess { isThreeALocked = locked }
-            .onFailure { error -> Logging.w( "Could not change AE lock", error) }
+            .onFailure { error -> Logging.w("Could not change AE lock", error) }
     }
 
     /**
@@ -459,11 +472,11 @@ fun PhotoSphereCameraScreen(
         runCatching {
             camera.cameraControl.setExposureCompensationIndex(clamped)
                 .addListener(
-                    { Logging.i( "Exposure compensation -> $clamped") },
+                    { Logging.i("Exposure compensation -> $clamped") },
                     ContextCompat.getMainExecutor(context),
                 )
         }.onFailure { error ->
-            Logging.w( "Could not set exposure compensation", error)
+            Logging.w("Could not set exposure compensation", error)
             scope.launch {
                 snackbarHostState.showSnackbar(
                     context.getString(R.string.capture_failed, error.message.orEmpty())
@@ -569,7 +582,7 @@ fun PhotoSphereCameraScreen(
         val cameraProvider = try {
             context.awaitCameraProvider()
         } catch (e: Exception) {
-            Logging.e( "Camera provider unavailable", e)
+            Logging.e("Camera provider unavailable", e)
             cameraError = context.getString(R.string.capture_failed, e.message.orEmpty())
             return@LaunchedEffect
         }
@@ -633,11 +646,11 @@ fun PhotoSphereCameraScreen(
                     .onSuccess {
                         isThreeALocked = true
                         hasLockedOnce = true
-                        Logging.i( "AE/AWB locked")
+                        Logging.i("AE/AWB locked")
                     }
                     .onFailure { error ->
                         threeALocked.set(false)
-                        Logging.w( "Could not lock 3A", error)
+                        Logging.w("Could not lock 3A", error)
                     }
             }
         }
@@ -720,7 +733,7 @@ fun PhotoSphereCameraScreen(
             val camera = try {
                 cameraProvider.bindToLifecycle(lifecycleOwner, cameraSelector, preview, capture)
             } catch (e: Exception) {
-                Logging.w( "Widest camera unavailable, binding the default", e)
+                Logging.w("Widest camera unavailable, binding the default", e)
                 cameraProvider.bindToLifecycle(
                     lifecycleOwner,
                     CameraSelector.DEFAULT_BACK_CAMERA,
@@ -762,7 +775,7 @@ fun PhotoSphereCameraScreen(
                 ?.takeIf { it.width > 0 && it.height > 0 }
                 ?.let { it.width.toFloat() / it.height }
                 ?: 0f
-            Logging.i( "Bound camera $boundCameraId, stills $streamAspectRatio:1")
+            Logging.i("Bound camera $boundCameraId, stills $streamAspectRatio:1")
 
             // Watch for the camera being taken away mid-run — another camera
             // app grabbing the lens, the camera service dying, a thermal
@@ -776,7 +789,7 @@ fun PhotoSphereCameraScreen(
             // with the screen.
             camera.cameraInfo.cameraState.observe(lifecycleOwner) { state ->
                 state.error?.let { error ->
-                    Logging.e( "Camera error ${error.code}, capture disabled", error.cause)
+                    Logging.e("Camera error ${error.code}, capture disabled", error.cause)
                     imageCapture = null
                     boundCamera = null
                     cameraError = context.getString(R.string.capture_camera_lost)
@@ -792,7 +805,7 @@ fun PhotoSphereCameraScreen(
                 lockThreeA()
             }
         } catch (e: Exception) {
-            Logging.e( "Camera binding failed", e)
+            Logging.e("Camera binding failed", e)
             // Nothing is bound, so there is no viewfinder to put a transient
             // snackbar over — the failure stays on screen with a way out of it.
             imageCapture = null
@@ -816,7 +829,7 @@ fun PhotoSphereCameraScreen(
             val future = ProcessCameraProvider.getInstance(context)
             if (future.isDone) {
                 runCatching { future.get().unbindAll() }
-                    .onFailure { Logging.w( "Could not release the camera", it) }
+                    .onFailure { Logging.w("Could not release the camera", it) }
             }
         }
     }
@@ -887,7 +900,7 @@ fun PhotoSphereCameraScreen(
                         fieldOfView = currentFieldOfView,
                         scope = captureScope,
                     ).also { plan ->
-                        Logging.i( "Plan laid: startYaw=${startYaw.roundToInt()}° targets=${plan.size}")
+                        Logging.i("Plan laid: startYaw=${startYaw.roundToInt()}° targets=${plan.size}")
                     }
                 },
             )
@@ -945,10 +958,10 @@ fun PhotoSphereCameraScreen(
                                 // The user restarted the run while the shutter
                                 // was in flight; the frame disappearing is the
                                 // expected outcome, not a failure to report.
-                                Logging.i( "Frame ${decision.index} dropped with its superseded session")
+                                Logging.i("Frame ${decision.index} dropped with its superseded session")
                                 return@onFailure
                             }
-                            Logging.e( "Frame ${decision.index} failed", error)
+                            Logging.e("Frame ${decision.index} failed", error)
                             scope.launch {
                                 snackbarHostState.showSnackbar(
                                     context.getString(
@@ -988,7 +1001,7 @@ fun PhotoSphereCameraScreen(
     fun exportFrames() {
         val files = buffer.frames.value.map { it.file }
         if (files.isEmpty()) return
-        Logging.i( "Exporting ${files.size} frames")
+        Logging.i("Exporting ${files.size} frames")
         scope.launch {
             MediaExporter.exportFrames(context, files)
                 .onSuccess { count ->
@@ -997,7 +1010,7 @@ fun PhotoSphereCameraScreen(
                     )
                 }
                 .onFailure { error ->
-                    Logging.e( "Frame export failed", error)
+                    Logging.e("Frame export failed", error)
                     snackbarHostState.showSnackbar(
                         context.getString(R.string.capture_frames_save_failed, error.message.orEmpty())
                     )
@@ -1013,7 +1026,7 @@ fun PhotoSphereCameraScreen(
      */
     fun startStitch() {
         if (stitchJob != null) return
-        Logging.i( "Stitch started with ${buffer.frames.value.size} frames")
+        Logging.i("Stitch started with ${buffer.frames.value.size} frames")
         val job = scope.launch(start = CoroutineStart.LAZY) {
             // A shutter can be mid-flight when Finish is tapped: the frame it
             // is writing would land in the buffer after the snapshot below,
@@ -1116,7 +1129,7 @@ fun PhotoSphereCameraScreen(
                             // A full sphere that will not fit on disk. The
                             // frames survive, so a retry after clearing space
                             // costs nothing more than the stitch.
-                            Logging.e( "Could not write the stitched sphere", e)
+                            Logging.e("Could not write the stitched sphere", e)
                             null
                         } finally {
                             sphere.recycle()
@@ -1138,11 +1151,11 @@ fun PhotoSphereCameraScreen(
                         // guidance still resets — this screen is leaving
                         // composition either way.
                         resetGuidance()
-                        Logging.i( "Sphere ready ${stitched.width}x${stitched.height}")
+                        Logging.i("Sphere ready ${stitched.width}x${stitched.height}")
                         onSphereReady(stitched)
                     }
                     .onFailure { error ->
-                        Logging.e( "Stitch failed", error)
+                        Logging.e("Stitch failed", error)
                         // Frames are deliberately kept: the usual fix is to
                         // capture a few more and try again.
                         snackbarHostState.showSnackbar(context.stitchFailureMessage(error))
@@ -1272,7 +1285,7 @@ fun PhotoSphereCameraScreen(
                 onFinish = { startStitch() },
                 onRestart = {
                     scope.launch {
-                        Logging.i( "Run restarted")
+                        Logging.i("Run restarted")
                         resetGuidance()
                         buffer.cancelSession()
                     }
@@ -1294,7 +1307,7 @@ fun PhotoSphereCameraScreen(
                     scope.launch {
                         val undone = coordinator.undo { buffer.undoLastFrame()?.index }
                         if (undone) {
-                            Logging.i( "Undone frame")
+                            Logging.i("Undone frame")
                             isHolding = false
                             alignment = AlignmentState()
                         }
@@ -2540,7 +2553,7 @@ private suspend fun ImageCapture.saveFrame(
 private suspend fun deleteReserved(requests: List<SphereImageStore.TempFrameRequest>) {
     requests.forEach { request ->
         if (request.file.exists() && !request.file.delete()) {
-            Logging.w( "Could not delete failed burst file ${request.file.name}")
+            Logging.w("Could not delete failed burst file ${request.file.name}")
         }
     }
 }

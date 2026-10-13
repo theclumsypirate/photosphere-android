@@ -106,10 +106,10 @@ object MediaExporter {
                 exportLegacy(context, source, displayName, width, height)
             }
         }.onFailure { error ->
-            Logging.e( "Could not export ${source.name} to $RELATIVE_PATH", error)
+            Logging.e("Could not export ${source.name} to $RELATIVE_PATH", error)
         }
         .onSuccess { exported ->
-            Logging.i( "Exported ${exported.displayName} to $RELATIVE_PATH")
+            Logging.i("Exported ${exported.displayName} to $RELATIVE_PATH")
         }
     }
 
@@ -135,7 +135,7 @@ object MediaExporter {
             }
             saved
         }.onFailure { error ->
-            Logging.e( "Could not export ${sources.size} frames to $RELATIVE_PATH", error)
+            Logging.e("Could not export ${sources.size} frames to $RELATIVE_PATH", error)
         }
     }
 
