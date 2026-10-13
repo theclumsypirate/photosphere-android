@@ -36,5 +36,5 @@ local.properties
 /tools/pano_proto/ref/
 /tools/pano_proto/out/
 
-# Python bytecode cache from the lab tool.
-/tools/__pycache__/
+# Python bytecode cache from the lab/prototype tools.
+**/__pycache__/
