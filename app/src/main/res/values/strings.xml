@@ -127,6 +127,8 @@
     <string name="result_view_flat">Flat</string>
     <string name="result_view_panorama">Panorama</string>
     <string name="result_view_panorama_description">Pannable preview of the stitched 360° photo — drag to look around, pinch to zoom</string>
+    <string name="result_fullscreen">View fullscreen</string>
+    <string name="result_close">Close</string>
     <string name="result_export_in_progress">Still saving — wait for it to finish</string>
     <string name="result_preview_failed">The preview couldn\'t be shown, but the photo is intact — export or share it to check.</string>
     <string name="result_export">Export to gallery</string>

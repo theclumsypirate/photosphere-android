@@ -58,6 +58,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
@@ -183,6 +185,8 @@ fun PanoramaResultScreen(
     val isSaved = exportState is ExportState.Done
     val isWorking = exportState is ExportState.Working
     var showSaveFramesDialog by remember(sphere.file) { mutableStateOf(false) }
+    // Immersive 360: the pannable view alone, like a web 360 viewer.
+    var showFullscreenSphere by remember(sphere.file) { mutableStateOf(false) }
 
     /**
      * Saves every buffered frame as its own gallery photo, after asking.
@@ -253,6 +257,36 @@ fun PanoramaResultScreen(
                 exportFrames()
             },
         )
+    }
+
+    // The immersive view: just the pannable sphere and a way out. A Dialog
+    // so the system back button closes it instead of discarding the sphere.
+    val fullscreenBitmap = panoBitmap
+    if (showFullscreenSphere && fullscreenBitmap != null) {
+        Dialog(
+            onDismissRequest = { showFullscreenSphere = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black),
+            ) {
+                PanoramaSphereView(
+                    bitmap = fullscreenBitmap,
+                    modifier = Modifier.fillMaxSize(),
+                    contentDescription = stringResource(R.string.result_view_panorama_description),
+                )
+                TextButton(
+                    onClick = { showFullscreenSphere = false },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(12.dp),
+                ) {
+                    Text(text = stringResource(R.string.result_close))
+                }
+            }
+        }
     }
 
     Scaffold(
@@ -345,6 +379,14 @@ fun PanoramaResultScreen(
                 modifier = Modifier.align(Alignment.CenterHorizontally),
             )
 
+            // Fullscreen is offered from the pannable mode, which is the only
+            // one that decodes the GL texture this dialog shows.
+            if (previewMode == PreviewMode.Panorama && panoBitmap != null) {
+                TextButton(onClick = { showFullscreenSphere = true }) {
+                    Text(text = stringResource(R.string.result_fullscreen))
+                }
+            }
+
             SpherePreview(
                 preview = preview,
                 panoBitmap = panoBitmap,
@@ -391,6 +433,7 @@ fun PanoramaResultScreen(
                     }
                 },
                 onShare = {
+                    Log.i(Logging.TAG, "PanoramaResultScreen: sharing ${sphere.file.name}")
                     if (!context.shareSphere(sphere.file)) {
                         scope.launch {
                             snackbarHostState.showSnackbar(

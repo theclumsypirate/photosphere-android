@@ -107,6 +107,9 @@ object MediaExporter {
         }.onFailure { error ->
             Log.e(TAG, "Could not export ${source.name} to $RELATIVE_PATH", error)
         }
+        .onSuccess { exported ->
+            Log.i(TAG, "Exported ${exported.displayName} to $RELATIVE_PATH")
+        }
     }
 
     /**

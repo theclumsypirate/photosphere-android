@@ -25,7 +25,8 @@ cleared when the screen is left). Nothing has been
 published at this point, which is deliberate: a run that came out badly should
 not have to be deleted out of the camera roll afterwards. "New photo" discards
 the cached JPEG and returns to capture with an empty buffer; the system back
-gesture does the same thing.
+gesture does the same thing. The pannable preview opens immersive fullscreen
+from its View fullscreen action — drag to look, pinch to zoom, back to return.
 
 Because that cached JPEG is the only copy until an export lands, both routes out
 **confirm first** while the sphere is unsaved — "New photo" sits directly beside

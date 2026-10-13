@@ -363,6 +363,7 @@ class ImageBufferManager(
     suspend fun cancelSession(): String {
         val previous = _sessionId.value
         mutex.withLock { _frames.value = emptyList() }
+        Log.i(TAG, "Session restarted: $previous")
 
         withContext(NonCancellable + ioDispatcher) {
             SphereImageStore.deleteSession(appContext, previous)

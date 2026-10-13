@@ -881,7 +881,9 @@ fun PhotoSphereCameraScreen(
                         startYawDegrees = startYaw,
                         fieldOfView = currentFieldOfView,
                         scope = captureScope,
-                    )
+                    ).also { plan ->
+                        Log.i(TAG, "Plan laid: startYaw=${startYaw.roundToInt()}° targets=${plan.size}")
+                    }
                 },
             )
 
@@ -916,7 +918,13 @@ fun PhotoSphereCameraScreen(
                             // past a target nothing was shot at. The tick is
                             // confirmation the frame counted, so it follows the
                             // same answer.
-                            Log.i(TAG, "Frame ${decision.index} captured")
+                            Log.i(
+                                TAG,
+                                "Frame ${decision.index} captured " +
+                                    "yaw=${decision.pose.yawDegrees.roundToInt()}° " +
+                                    "pitch=${decision.pose.pitchDegrees.roundToInt()}° " +
+                                    "roll=${decision.pose.rollDegrees.roundToInt()}°"
+                            )
                             val advanced = coordinator.onCaptured(
                                 token = decision.token,
                                 captured = buffer.frames.value.mapTo(HashSet()) { it.index },
@@ -1125,6 +1133,7 @@ fun PhotoSphereCameraScreen(
                         // guidance still resets — this screen is leaving
                         // composition either way.
                         resetGuidance()
+                        Log.i(TAG, "Sphere ready ${stitched.width}x${stitched.height}")
                         onSphereReady(stitched)
                     }
                     .onFailure { error ->
@@ -1258,6 +1267,7 @@ fun PhotoSphereCameraScreen(
                 onFinish = { startStitch() },
                 onRestart = {
                     scope.launch {
+                        Log.i(TAG, "Run restarted")
                         resetGuidance()
                         buffer.cancelSession()
                     }
@@ -1279,6 +1289,7 @@ fun PhotoSphereCameraScreen(
                     scope.launch {
                         val undone = coordinator.undo { buffer.undoLastFrame()?.index }
                         if (undone) {
+                            Log.i(TAG, "Undone frame")
                             isHolding = false
                             alignment = AlignmentState()
                         }

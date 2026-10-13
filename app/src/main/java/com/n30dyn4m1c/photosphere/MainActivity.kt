@@ -199,6 +199,7 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
     fun discardSphere() {
         val finished = sphere ?: return
         sphere = null
+        Log.i(Logging.TAG, "Discarding sphere ${finished.file.name}")
         // NonCancellable: this runs as the result screen is being torn down, and
         // a several-megabyte JPEG left in the cache is exactly what the next
         // stitch would have to clean up. The buffered frames go too: a fresh
@@ -221,19 +222,33 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
             )
 
             entry == null -> EntryChooser(
-                onCapture = { entry = Entry.Capture },
-                onImport = { entry = Entry.Import },
+                onCapture = {
+                    Log.i(Logging.TAG, "Entry: Capture")
+                    entry = Entry.Capture
+                },
+                onImport = {
+                    Log.i(Logging.TAG, "Entry: Import")
+                    entry = Entry.Import
+                },
             )
 
             entry == Entry.Import -> ImportPhotosScreen(
-                onSphereReady = { sphere = it },
+                onSphereReady = {
+                    Log.i(Logging.TAG, "Sphere ready: ${it.file.name} (import)")
+                    sphere = it
+                },
                 onBack = { entry = null },
             )
 
             else -> RequirePermissions(
                 permissions = MainActivity.REQUIRED_PERMISSIONS,
             ) {
-                PhotoSphereCameraScreen(onSphereReady = { sphere = it })
+                PhotoSphereCameraScreen(
+                    onSphereReady = {
+                        Log.i(Logging.TAG, "Sphere ready: ${it.file.name} (capture)")
+                        sphere = it
+                    }
+                )
             }
         }
 
