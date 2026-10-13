@@ -18,18 +18,32 @@ import cv2
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from stitch_all36 import (read_pose, camera_frame, H_FOV, V_FOV, FEATHER_PX,  # noqa
-                          WRAP_SEAM_PX)
+from stitch_all36 import read_pose, camera_frame, FEATHER_PX, WRAP_SEAM_PX  # noqa
 
 BLUR_PX = 7
 
 
-def main(d, out, W, lever, scene):
+def main(d, out, W, lever, scene, hfov, pattern="*.jpg"):
     H = W // 2
-    files = sorted(glob.glob(os.path.join(d, "*.jpg")))
-    fw, fh = 2448, 3264
-    fx = (fw / 2) / np.tan(np.radians(H_FOV / 2))
-    fy = (fh / 2) / np.tan(np.radians(V_FOV / 2))
+    files = sorted(glob.glob(os.path.join(d, pattern)))
+    assert files, f"no {pattern} in {d}"
+    # frame geometry from the files themselves (square pixels assumed)
+    probe = cv2.imread(files[0])
+    fh, fw = probe.shape[:2]
+    aspect = fw / fh
+    vfov = float(np.degrees(2 * np.arctan(np.tan(np.radians(hfov / 2)) / aspect)))
+    # poses: stamped EXIF when every file has one, else an even horizon ring
+    # in pick order (same fallback as the app's photo import)
+    stamped = [read_pose(path) for path in files]
+    if all(p is not None for p in stamped):
+        poses = stamped
+        print("poses: stamped EXIF", flush=True)
+    else:
+        step = hfov * 0.65
+        poses = [((i - (len(files) - 1) / 2) * step, 0.0, 0.0) for i in range(len(files))]
+        print(f"poses: even ring ({len(files)} x {step:.1f} deg, hfov={hfov})", flush=True)
+    fx = (fw / 2) / np.tan(np.radians(hfov / 2))
+    fy = (fh / 2) / np.tan(np.radians(vfov / 2))
     cx, cy = fw / 2.0, fh / 2.0
 
     us = (np.arange(W, dtype=np.float64) / W - 0.5) * 2 * np.pi
@@ -47,10 +61,7 @@ def main(d, out, W, lever, scene):
     feather[-r:, :] *= np.linspace(1, 0, r, dtype=np.float32)[:, None]
 
     warped, weights = [], []
-    for path in files:
-        pose = read_pose(path)
-        if pose is None:
-            continue
+    for path, pose in zip(files, poses):
         fwd, right, up = camera_frame(*pose)
         adj = scene * dirs - lever * fwd[None, None, :]
         adj /= np.linalg.norm(adj, axis=2, keepdims=True)
@@ -103,7 +114,14 @@ if __name__ == "__main__":
     ap.add_argument("--w", type=int, default=2048)
     ap.add_argument("--lever", type=float, default=0.0)
     ap.add_argument("--scene", type=float, default=3.5)
+    ap.add_argument("--dir", default=None,
+                    help="input dir (default: ref/all36); absolute or relative to tools/pano_proto")
+    ap.add_argument("--pattern", default="*.jpg")
+    ap.add_argument("--hfov", type=float, default=65.0,
+                    help="horizontal FOV for the even-ring fallback (no EXIF poses)")
     a = ap.parse_args()
     os.makedirs(os.path.join(here, "out"), exist_ok=True)
-    sys.exit(main(os.path.join(here, "ref", "all36"),
-                  os.path.join(here, "out", a.out + ".jpg"), a.w, a.lever, a.scene))
+    d = a.dir if (a.dir and os.path.isabs(a.dir)) else os.path.join(
+        here, a.dir or os.path.join("ref", "all36"))
+    sys.exit(main(d, os.path.join(here, "out", a.out + ".jpg"),
+                  a.w, a.lever, a.scene, a.hfov, a.pattern))

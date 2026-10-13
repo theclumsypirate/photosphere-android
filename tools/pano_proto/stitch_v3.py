@@ -17,9 +17,8 @@ from stitch_proto import cylindrical, pair_transform, overlap_gains, FOCAL  # no
 SEAM_HALF = 12
 
 
-def main(names, out):
+def main(names, out, d):
     here = os.path.dirname(os.path.abspath(__file__))
-    d = os.path.join(here, "ref", "Xue")
     imgs = [cylindrical(cv2.imread(f"{d}/{n}"), FOCAL) for n in names]
     assert all(im is not None for im in imgs)
     n = len(imgs)
@@ -119,16 +118,28 @@ if __name__ == "__main__":
     parser.add_argument("--images", nargs="*", default=None,
                         help="image files in stitch order; default: image_list.txt")
     parser.add_argument("--focal", type=float, default=FOCAL)
+    parser.add_argument("--dir", default=None,
+                        help="input dir (default: ref/Xue)")
+    parser.add_argument("--pattern", default="*.jpg",
+                        help="glob when no image_list.txt and no --images")
     args = parser.parse_args()
+    d = args.dir if (args.dir and os.path.isabs(args.dir)) else os.path.join(
+        here, args.dir or os.path.join("ref", "Xue"))
     if args.images:
         names = args.images
     else:
         names = []
-        with open(os.path.join(here, "ref", "Xue", "image_list.txt")) as fh:
-            for line in fh:
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    names.append(line.split()[0])
+        lst = os.path.join(d, "image_list.txt")
+        if os.path.exists(lst):
+            with open(lst) as fh:
+                for line in fh:
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        names.append(line.split()[0])
+        else:
+            import glob as _glob
+            names = sorted(os.path.basename(p)
+                           for p in _glob.glob(os.path.join(d, args.pattern)))
     print(f"stitching {len(names)} images: {names[0]} .. {names[-1]}", flush=True)
     FOCAL = args.focal
-    sys.exit(main(names, os.path.join(here, "out", args.out + ".jpg")))
+    sys.exit(main(names, os.path.join(here, "out", args.out + ".jpg"), d))
