@@ -18,6 +18,9 @@ artifacts. Download, unzip, `adb install` the APK matching the device ABI.
 
 ## CI scope
 
-The workflow builds debug APKs only. Unit tests (`:app:testDebugUnitTest`)
+The `build-debug` workflow builds debug APKs only. `release-apk` attaches a
+debug APK to an auto-versioned GitHub Release; `release-signed` attaches a
+keystore-signed release APK the same way (keystore from CI secrets, never the
+repo). Unit tests (`:app:testDebugUnitTest`)
 and lint (`:app:lintDebug`) were deliberately removed from CI — do NOT
 re-add them without asking first.

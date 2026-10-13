@@ -20,12 +20,30 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // Release signing comes from CI secrets, never from the repo:
+    // -PkeystorePath/-PkeystorePassword/-PkeyAlias/-PkeyPassword. Without them
+    // the release stays unsigned (installable only for inspection).
+    val keystorePath = project.findProperty("keystorePath")?.toString().orEmpty()
+    signingConfigs {
+        create("release") {
+            if (keystorePath.isNotEmpty()) {
+                storeFile = file(keystorePath)
+                storePassword = project.findProperty("keystorePassword")?.toString()
+                keyAlias = project.findProperty("keyAlias")?.toString()
+                keyPassword = project.findProperty("keyPassword")?.toString()
+            }
+        }
+    }
+
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
             isMinifyEnabled = false
         }
         release {
+            if (keystorePath.isNotEmpty()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
