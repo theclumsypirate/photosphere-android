@@ -81,6 +81,13 @@ def main(d, out, W):
     feather[:, -r:] *= np.linspace(1, 0, r, dtype=np.float32)
     feather[:r, :] *= np.linspace(0, 1, r, dtype=np.float32)[:, None]
     feather[-r:, :] *= np.linspace(1, 0, r, dtype=np.float32)[:, None]
+    # core window: steep near-pole frames contribute only their sharp center,
+    # so one frame owns each pole pixel instead of three smeared copies
+    core = np.zeros_like(feather)
+    ch0, ch1 = int(fh // 2 * 0.20), int(fh // 2 * 0.80)
+    cw0, cw1 = int(fw // 2 * 0.20), int(fw // 2 * 0.80)
+    core[ch0:ch1, cw0:cw1] = 1.0
+    core = cv2.GaussianBlur(core, (0, 0), 25)
     poses = []
     for path in files:
         pose = read_pose(path)
@@ -90,8 +97,8 @@ def main(d, out, W):
         poses.append((path, pose))
     print(f"{len(poses)} frames with poses", flush=True)
 
-    def warp_one(path, pose):
-        """Project one frame to canvas: warped image, feather weight, mask."""
+    def warp_one(path, pose, mask):
+        """Project one frame to canvas: warped image, warped weight, mask."""
         fwd, right, up = camera_frame(*pose)
         # pivot referral: the lens sits ahead of the pivot, so the ray the
         # camera saw is the scene point minus the lever arm
@@ -111,7 +118,7 @@ def main(d, out, W):
         s = 0.5
         sampled = cv2.remap(im, (px * s).astype(np.float32), (py * s).astype(np.float32),
                             cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
-        w = cv2.remap(feather, (px * s).astype(np.float32), (py * s).astype(np.float32),
+        w = cv2.remap(mask, (px * s).astype(np.float32), (py * s).astype(np.float32),
                       cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
         w[~inside] = 0
         return sampled.astype(np.float64), w.astype(np.float64)
@@ -121,7 +128,7 @@ def main(d, out, W):
         cnt += w
 
     # base canvas from the well-behaved frames; steep near-pole frames (|pitch|
-    # over 60, where Euler rolls collapse) are content-refined below
+    # over 60, where Euler rolls collapse) contribute only their sharp center
     acc = np.zeros((H, W, 3), np.float64)
     cnt = np.zeros((H, W), np.float64)
     steep = []
@@ -129,44 +136,18 @@ def main(d, out, W):
         if abs(pose[1]) > 60:
             steep.append((path, pose))
             continue
-        r = warp_one(path, pose)
+        r = warp_one(path, pose, feather)
         if r is None:
             continue
         add(acc, cnt, *r)
         print(f"ok {os.path.basename(path)} yaw={pose[0]:.0f} pitch={pose[1]:.0f}", flush=True)
 
-    with np.errstate(invalid="ignore", divide="ignore"):
-        base = np.where(cnt[..., None] > 1e-6, acc / np.maximum(cnt, 1e-6)[..., None], 0)
-    base_gray = cv2.cvtColor(np.clip(base, 0, 255).astype(np.uint8),
-                             cv2.COLOR_BGR2GRAY).astype(np.float32)
-    criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 60, 1e-4)
     for path, pose in steep:
-        r = warp_one(path, pose)
+        r = warp_one(path, pose, core)
         if r is None:
             continue
-        img, w = r
-        name = os.path.basename(path)
-        try:
-            moving = cv2.cvtColor(np.clip(img, 0, 255).astype(np.uint8),
-                                  cv2.COLOR_BGR2GRAY).astype(np.float32)
-            warp = np.eye(2, 3, dtype=np.float32)
-            cc, warp = cv2.findTransformECC(
-                base_gray, moving, warp, cv2.MOTION_EUCLIDEAN, criteria,
-                (w > 0.05).astype(np.uint8), 5)
-        except cv2.error as e:
-            print(f"ecc {name}: failed ({str(e)[:60]}), keeping pose", flush=True)
-            add(acc, cnt, img, w)
-            continue
-        if cc < 0.55:
-            print(f"ecc {name}: rho={cc:.2f} too low, keeping pose", flush=True)
-            add(acc, cnt, img, w)
-            continue
-        img2 = cv2.warpAffine(img, warp, (W, H),
-                              flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
-        w2 = cv2.warpAffine(w, warp, (W, H),
-                            flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
-        add(acc, cnt, img2, w2)
-        print(f"ecc {name}: rho={cc:.2f} corrected", flush=True)
+        add(acc, cnt, *r)
+        print(f"core {os.path.basename(path)} yaw={pose[0]:.0f} pitch={pose[1]:.0f}", flush=True)
 
     pano = np.where(cnt[..., None] > 1e-6, acc / np.maximum(cnt, 1e-6)[..., None], 0)
     # wrap seam: canvas columns 0 and W-1 are adjacent in yaw but far apart in

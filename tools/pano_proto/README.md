@@ -34,6 +34,12 @@ or pull device frames with `tools/photosphere_lab.py frames`) and outputs
   weights. 7.5/10: horizon band reads clean.
 - **all36_v3** — + room-scale scene + wrap-seam blend. 8.5/10: no strip,
   tight ceiling; nadir streaks remain (close-range floor + wild pole rolls).
+- **all36_v4** — ECC content-refinement of near-pole frames. 8.5/10: one
+  frame genuinely corrected (rho 0.80), the rest refused — but a warped mask
+  left a black wedge. Lesson: canvas-space warps need care.
+- **all36_v5** — steep frames contribute only their sharp center (one owner
+  per pole pixel). **9/10**: clean zenith, readable nadir, continuous horizon;
+  only faint corner wedges left. Loop target met.
 - **Reference: stock `cv2.Stitcher`** (same engine xpano is built on):
   crashed outright on 7 texture-poor frames (FLANN assert); on the remaining
   30 it built a single-viewpoint mosaic, not a sphere — 2/10 *as a 360 photo*
