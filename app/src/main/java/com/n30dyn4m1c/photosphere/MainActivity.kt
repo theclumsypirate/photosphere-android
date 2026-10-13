@@ -59,6 +59,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.n30dyn4m1c.photosphere.camera.PhotoSphereCameraScreen
 import com.n30dyn4m1c.photosphere.importer.ImportPhotosScreen
+import com.n30dyn4m1c.photosphere.storage.rememberImageBufferManager
 import com.n30dyn4m1c.photosphere.result.PanoramaResultScreen
 import com.n30dyn4m1c.photosphere.sensor.OrientationDebugScreen
 import com.n30dyn4m1c.photosphere.storage.SphereImageStore
@@ -188,15 +189,23 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
     // Bundle, and re-showing a stale result would be worse than starting over.
     var sphere by remember { mutableStateOf<StitchedSphere?>(null) }
 
+    // The capture buffer outlives the camera screen (ViewModel store), so the
+    // result screen can still offer the frames after a stitch. Snapshot at
+    // handover: nothing captures while the result is up.
+    val buffer = rememberImageBufferManager()
+    val frameFiles = remember(sphere) { buffer.files() }
+
     /** Throws away the finished sphere and goes back to capture. */
     fun discardSphere() {
         val finished = sphere ?: return
         sphere = null
         // NonCancellable: this runs as the result screen is being torn down, and
         // a several-megabyte JPEG left in the cache is exactly what the next
-        // stitch would have to clean up.
+        // stitch would have to clean up. The buffered frames go too: a fresh
+        // run must not inherit another run's coverage.
         scope.launch(Dispatchers.IO + NonCancellable) {
             SphereImageStore.deleteCachedSphere(finished.file)
+            buffer.clear()
         }
     }
 
@@ -207,6 +216,7 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
 
             finished != null -> PanoramaResultScreen(
                 sphere = finished,
+                frameFiles = frameFiles,
                 onTakeAnother = { discardSphere() },
             )
 

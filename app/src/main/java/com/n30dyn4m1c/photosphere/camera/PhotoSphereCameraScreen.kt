@@ -1119,10 +1119,11 @@ fun PhotoSphereCameraScreen(
                             return@onSuccess
                         }
 
-                        // The frames have done their job. Clearing before the
-                        // handover matters: this coroutine is cancelled the
-                        // moment the result screen replaces this one.
-                        buffer.clear()
+                        // The frames stay buffered: the result screen offers
+                        // them as separate gallery photos on request, and they
+                        // are cleared when it is left (see discardSphere). The
+                        // guidance still resets — this screen is leaving
+                        // composition either way.
                         resetGuidance()
                         onSphereReady(stitched)
                     }

@@ -118,11 +118,15 @@ private enum class PreviewMode { Flat, Panorama }
  * inspecting seams and the horizon where they actually matter.
  *
  * @param sphere the finished photo, as [SphereImageStore.writeStitchedSphere] left it
+ * @param frameFiles the buffered frames the sphere was built from, for the
+ *   optional "save them as separate photos" export; empty when there is
+ *   nothing to offer (e.g. an imported sphere)
  * @param onTakeAnother discards this sphere and returns to capture
  */
 @Composable
 fun PanoramaResultScreen(
     sphere: StitchedSphere,
+    frameFiles: List<File>,
     onTakeAnother: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -178,6 +182,32 @@ fun PanoramaResultScreen(
     var isConfirmingDiscard by remember(sphere.file) { mutableStateOf(false) }
     val isSaved = exportState is ExportState.Done
     val isWorking = exportState is ExportState.Working
+    var showSaveFramesDialog by remember(sphere.file) { mutableStateOf(false) }
+
+    /**
+     * Saves every buffered frame as its own gallery photo, after asking.
+     *
+     * Same escape hatch as the capture screen's: dozens of full-resolution
+     * JPEGs at once, so the call site confirms first.
+     */
+    fun exportFrames() {
+        if (frameFiles.isEmpty()) return
+        Log.i(TAG, "Exporting ${frameFiles.size} frames")
+        scope.launch {
+            MediaExporter.exportFrames(context, frameFiles)
+                .onSuccess { count ->
+                    snackbarHostState.showSnackbar(
+                        context.getString(R.string.capture_frames_saved, count)
+                    )
+                }
+                .onFailure { error ->
+                    Log.e(TAG, "Frame export failed", error)
+                    snackbarHostState.showSnackbar(
+                        context.getString(R.string.capture_frames_save_failed, error.message.orEmpty())
+                    )
+                }
+        }
+    }
 
     /**
      * Leaves the screen, pausing to confirm if the photo would be lost.
@@ -210,6 +240,17 @@ fun PanoramaResultScreen(
             onDiscard = {
                 isConfirmingDiscard = false
                 onTakeAnother()
+            },
+        )
+    }
+
+    if (showSaveFramesDialog) {
+        SaveFramesConfirmation(
+            frameCount = frameFiles.size,
+            onDismiss = { showSaveFramesDialog = false },
+            onConfirm = {
+                showSaveFramesDialog = false
+                exportFrames()
             },
         )
     }
@@ -359,9 +400,49 @@ fun PanoramaResultScreen(
                     }
                 },
                 onTakeAnother = ::leave,
+                frameCount = frameFiles.size,
+                canSaveFrames = frameFiles.isNotEmpty() && !isWorking,
+                onSaveFrames = { showSaveFramesDialog = true },
             )
         }
     }
+}
+
+/**
+ * Confirms exporting every buffered frame as its own gallery photo.
+ *
+ * Dozens of full-resolution JPEGs landing in the gallery at once is storage
+ * and clutter worth a caution icon and an exact count — not a silent dump.
+ */
+@Composable
+private fun SaveFramesConfirmation(
+    frameCount: Int,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                imageVector = Icons.Outlined.WarningAmber,
+                contentDescription = null,
+            )
+        },
+        title = { Text(text = stringResource(R.string.capture_save_frames_title)) },
+        text = {
+            Text(text = stringResource(R.string.capture_save_frames_message, frameCount))
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(text = stringResource(R.string.capture_save_frames_confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(text = stringResource(R.string.capture_save_frames_cancel))
+            }
+        },
+    )
 }
 
 /**
@@ -511,13 +592,16 @@ private fun SpherePreview(
     }
 }
 
-/** Export, share, and start again. */
+/** Export, share, start again — and optionally keep the frames. */
 @Composable
 private fun ResultActions(
     exportState: ExportState,
     onExport: () -> Unit,
     onShare: () -> Unit,
     onTakeAnother: () -> Unit,
+    frameCount: Int,
+    canSaveFrames: Boolean,
+    onSaveFrames: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val isExported = exportState is ExportState.Done
@@ -575,6 +659,25 @@ private fun ResultActions(
                     else -> stringResource(R.string.result_export)
                 },
             )
+        }
+
+        // The frames the sphere was built from, as separate photos — asked
+        // for, never assumed: dozens of full-resolution JPEGs at once.
+        if (canSaveFrames) {
+            TextButton(
+                onClick = onSaveFrames,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.WarningAmber,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text(
+                    modifier = Modifier.padding(start = 8.dp),
+                    text = stringResource(R.string.capture_save_frames, frameCount),
+                )
+            }
         }
 
         Row(

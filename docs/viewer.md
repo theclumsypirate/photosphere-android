@@ -18,7 +18,10 @@ the image data comes out byte-identical.
 **The result screen.** [`PanoramaResultScreen`](../app/src/main/java/com/n30dyn4m1c/photosphere/result/PanoramaResultScreen.kt)
 shows the sphere flat — the black wedges at the poles are the parts the run
 never reached, and they are worth seeing before deciding to keep it — over three
-actions: **Export to gallery**, **Share**, and **New photo**. Nothing has been
+actions: **Export to gallery**, **Share**, and **New photo**, plus an opt-in
+**Save frames** that exports the buffered frames as separate photos after a
+count confirm dialog (the frames survive the stitch for exactly this and are
+cleared when the screen is left). Nothing has been
 published at this point, which is deliberate: a run that came out badly should
 not have to be deleted out of the camera roll afterwards. "New photo" discards
 the cached JPEG and returns to capture with an empty buffer; the system back
