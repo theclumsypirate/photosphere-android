@@ -223,14 +223,15 @@ fun ImportPhotosScreen(
                 .padding(horizontal = 32.dp),
             contentAlignment = Alignment.Center,
         ) {
+            val currentProgress = progress
             when {
-                stitchJob != null && progress != null -> Column(
+                stitchJob != null && currentProgress != null -> Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                     Text(
-                        text = progress.stageLabel(),
+                        text = currentProgress.stageLabel(),
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onBackground,
                         textAlign = TextAlign.Center,

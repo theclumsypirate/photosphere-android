@@ -137,6 +137,7 @@ import com.n30dyn4m1c.photosphere.stitching.StitchProgress
 import com.n30dyn4m1c.photosphere.stitching.StitchStage
 import com.n30dyn4m1c.photosphere.stitching.StitchStatus
 import com.n30dyn4m1c.photosphere.storage.ImageBufferManager
+import com.n30dyn4m1c.photosphere.storage.MediaExporter
 import com.n30dyn4m1c.photosphere.storage.SessionSupersededException
 import com.n30dyn4m1c.photosphere.storage.SphereImageStore
 import com.n30dyn4m1c.photosphere.storage.SphereImageStore.StitchedSphere
@@ -148,6 +149,7 @@ import com.n30dyn4m1c.photosphere.ui.theme.GlassSurface
 import com.n30dyn4m1c.photosphere.ui.theme.GlassSurfaceDim
 import com.n30dyn4m1c.photosphere.ui.theme.PillShape
 import com.n30dyn4m1c.photosphere.ui.theme.SphereAccent
+import com.n30dyn4m1c.photosphere.ui.theme.SphereActive
 import com.n30dyn4m1c.photosphere.ui.theme.SphereOnSurface
 import com.n30dyn4m1c.photosphere.ui.theme.SphereOnSurfaceVariant
 import com.n30dyn4m1c.photosphere.ui.theme.SphereSurface
