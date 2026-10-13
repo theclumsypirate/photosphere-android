@@ -46,3 +46,23 @@ local.properties
 **/__pycache__/
 # Agent workspace rules (local only, never committed).
 /AGENTS.md
+
+# Secrets, credentials and PII: never committed, no exceptions.
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.asc
+*.gpg
+*credentials*.json
+*secret*.json
+*token*.txt
+*token*.json
+.tokens
+.secrets/
+secrets/
+credentials/
+google-services.json
+GoogleService-Info.plist
