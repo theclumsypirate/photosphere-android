@@ -205,8 +205,7 @@ internal fun estimateSphereOptics(
                     // Worth a warning of its own: this is the case that used to
                     // space the capture plan past any overlap at all, and it is
                     // the first thing to look for in a run that would not stitch.
-                    Log.w(
-                        TAG,
+                    Logging.w(
                         "Camera $id calibration claims ${fromIntrinsics.horizontalDegrees}° " +
                             "where its sensor geometry says ${fromGeometry.horizontalDegrees}°; " +
                             "trusting the geometry",
@@ -219,8 +218,7 @@ internal fun estimateSphereOptics(
                         streamAspectRatio = streamAspectRatio,
                     )
                 }
-                Log.i(
-                    TAG,
+                Logging.i(
                     "Camera $id: intrinsics=$fromIntrinsics geometry=$fromGeometry " +
                         "stream=$streamAspectRatio -> $sensorFieldOfView",
                 )
@@ -246,7 +244,7 @@ internal fun estimateSphereOptics(
         } catch (e: Exception) {
             // A camera that will not describe itself still previews fine; the
             // markers just ride on the default optics.
-            Log.w(TAG, "Falling back to default field of view", e)
+            Logging.w( "Falling back to default field of view", e)
         }
     }
 

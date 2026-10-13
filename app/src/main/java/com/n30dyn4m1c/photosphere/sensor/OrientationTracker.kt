@@ -300,9 +300,9 @@ class OrientationTracker(
             if (registered) {
                 sensorThread = thread
                 isListening = true
-                Log.i(Logging.TAG, "OrientationTracker: listening (sensor=$sensorType)")
+                Logging.i( "OrientationTracker: listening (sensor=$sensorType)")
             } else {
-                Log.w(TAG, "Rotation vector registration refused")
+                Logging.w( "Rotation vector registration refused")
                 thread.quitSafely()
             }
             return registered
@@ -321,7 +321,7 @@ class OrientationTracker(
 
             sensorManager?.unregisterListener(this)
             isListening = false
-            Log.d(Logging.TAG, "OrientationTracker: stopped")
+            Logging.d( "OrientationTracker: stopped")
             // quitSafely, not quit: lets an event already queued finish its
             // matrix conversion instead of tearing the looper out from under it.
             sensorThread?.quitSafely()
@@ -355,7 +355,7 @@ class OrientationTracker(
         try {
             SensorManager.getRotationMatrixFromVector(rotationMatrix, values)
         } catch (e: IllegalArgumentException) {
-            Log.w(TAG, "Rejected a malformed rotation vector", e)
+            Logging.w( "Rejected a malformed rotation vector", e)
             return
         }
 
@@ -386,8 +386,7 @@ class OrientationTracker(
             // A copy: the scratch buffer is reused by the next event.
             cameraBasis = basis.copyOf(),
         )
-        Log.v(
-            Logging.TAG,
+        Logging.v(
             "attitude yaw=%.1f pitch=%.1f roll=%.1f acc=%s".format(
                 Locale.US, angles[0], angles[1], angles[2], publishedAccuracy,
             ),
@@ -395,8 +394,7 @@ class OrientationTracker(
         val nowMillis = SystemClock.elapsedRealtime()
         if (nowMillis - lastAttitudeLogMillis >= 1000L) {
             lastAttitudeLogMillis = nowMillis
-            Log.i(
-                Logging.TAG,
+            Logging.i(
                 "attitude yaw=%.1f pitch=%.1f roll=%.1f acc=%s".format(
                     Locale.US, angles[0], angles[1], angles[2], publishedAccuracy,
                 ),
@@ -451,7 +449,7 @@ class OrientationTracker(
     private fun screenAnglesDegrees(source: FloatArray): FloatArray? {
         val axes = DisplayAxes.forDisplayRotation(displayRotation)
         if (!SensorManager.remapCoordinateSystem(source, axes.axisX, axes.axisY, displayMatrix)) {
-            Log.w(TAG, "Display remap rejected for rotation $displayRotation")
+            Logging.w( "Display remap rejected for rotation $displayRotation")
             return null
         }
         SensorManager.getOrientation(displayMatrix, anglesRadians)

@@ -152,7 +152,7 @@ fun PanoramaResultScreen(
         val decoded = withContext(Dispatchers.IO) { decodePreview(sphere.file) }
         if (decoded == null) {
             isPreviewFailed = true
-            Log.w(TAG, "Could not decode a preview of ${sphere.file.name}")
+            Logging.w( "Could not decode a preview of ${sphere.file.name}")
         } else {
             // The previous preview is dead the moment this one lands; recycle it
             // rather than letting ~4 MB of bitmap wait for GC on a low-memory
@@ -204,17 +204,17 @@ fun PanoramaResultScreen(
      */
     fun exportFrames() {
         if (frameFiles.isEmpty()) return
-        Log.i(TAG, "Exporting ${frameFiles.size} frames")
+        Logging.i( "Exporting ${frameFiles.size} frames")
         scope.launch {
             MediaExporter.exportFrames(context, frameFiles)
                 .onSuccess { count ->
-                    Log.i(TAG, "Exported $count frames")
+                    Logging.i( "Exported $count frames")
                     snackbarHostState.showSnackbar(
                         context.getString(R.string.capture_frames_saved, count)
                     )
                 }
                 .onFailure { error ->
-                    Log.e(TAG, "Frame export failed", error)
+                    Logging.e( "Frame export failed", error)
                     snackbarHostState.showSnackbar(
                         context.getString(R.string.capture_frames_save_failed, error.message.orEmpty())
                     )
@@ -403,7 +403,7 @@ fun PanoramaResultScreen(
             // one that decodes the GL texture this dialog shows.
             if (previewMode == PreviewMode.Panorama && panoBitmap != null) {
                 TextButton(onClick = {
-                    Log.i(Logging.TAG, "PanoramaResultScreen: fullscreen opened")
+                    Logging.i( "PanoramaResultScreen: fullscreen opened")
                     showFullscreenSphere = true
                 }) {
                     Text(text = stringResource(R.string.result_fullscreen))
@@ -426,7 +426,7 @@ fun PanoramaResultScreen(
                 exportState = exportState,
                 onExport = {
                     exportState = ExportState.Working
-                    Log.i(Logging.TAG, "PanoramaResultScreen: export started")
+                    Logging.i( "PanoramaResultScreen: export started")
                     scope.launch {
                         val result = MediaExporter.export(
                             context = context,
@@ -436,7 +436,7 @@ fun PanoramaResultScreen(
                         )
                         result
                             .onSuccess { exported ->
-                                Log.i(Logging.TAG, "PanoramaResultScreen: exported ${exported.displayName}")
+                                Logging.i( "PanoramaResultScreen: exported ${exported.displayName}")
                                 exportState = ExportState.Done(exported.displayName)
                                 snackbarHostState.showSnackbar(
                                     context.getString(
@@ -446,7 +446,7 @@ fun PanoramaResultScreen(
                                 )
                             }
                             .onFailure { error ->
-                                Log.e(Logging.TAG, "PanoramaResultScreen: export failed", error)
+                                Logging.e( "PanoramaResultScreen: export failed", error)
                                 exportState = ExportState.Idle
                                 snackbarHostState.showSnackbar(
                                     context.getString(
@@ -458,7 +458,7 @@ fun PanoramaResultScreen(
                     }
                 },
                 onShare = {
-                    Log.i(Logging.TAG, "PanoramaResultScreen: sharing ${sphere.file.name}")
+                    Logging.i( "PanoramaResultScreen: sharing ${sphere.file.name}")
                     if (!context.shareSphere(sphere.file)) {
                         scope.launch {
                             snackbarHostState.showSnackbar(
@@ -822,7 +822,7 @@ private fun Context.shareSphere(file: File): Boolean {
         SphereImageStore.shareUri(this, file)
     } catch (e: IllegalArgumentException) {
         // Thrown when the file sits outside every path in file_paths.xml.
-        Log.e(TAG, "No FileProvider path covers ${file.name}", e)
+        Logging.e( "No FileProvider path covers ${file.name}", e)
         return false
     }
 
@@ -842,7 +842,7 @@ private fun Context.shareSphere(file: File): Boolean {
         )
         true
     } catch (e: ActivityNotFoundException) {
-        Log.w(TAG, "Nothing on this device can receive an image", e)
+        Logging.w( "Nothing on this device can receive an image", e)
         false
     }
 }

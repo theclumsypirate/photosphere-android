@@ -3,6 +3,7 @@ package com.n30dyn4m1c.photosphere
 import android.app.Application
 import android.util.Log
 import com.n30dyn4m1c.photosphere.storage.SphereImageStore
+import com.n30dyn4m1c.photosphere.util.FileLogger
 import com.n30dyn4m1c.photosphere.util.Logging
 import org.opencv.android.OpenCVLoader
 import java.io.File
@@ -20,12 +21,13 @@ class PhotoSphereApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         Logging.installCrashHandler()
-        Log.i(Logging.TAG, "PhotoSphereApplication.onCreate")
+        FileLogger.init(this)
+        Logging.i( "PhotoSphereApplication.onCreate")
         isOpenCvAvailable = OpenCVLoader.initLocal()
         if (isOpenCvAvailable) {
-            Log.i(TAG, "OpenCV initialised: ${OpenCVLoader.OPENCV_VERSION}")
+            Logging.i( "OpenCV initialised: ${OpenCVLoader.OPENCV_VERSION}")
         } else {
-            Log.e(TAG, "OpenCV failed to initialise; sphere stitching is disabled")
+            Logging.e( "OpenCV failed to initialise; sphere stitching is disabled")
         }
 
         // A finished sphere whose process died while it was on screen is
@@ -45,7 +47,7 @@ class PhotoSphereApplication : Application() {
         val newest = spheres.maxByOrNull { it.lastModified() } ?: return
         spheres.forEach { stale ->
             if (stale != newest && !stale.delete()) {
-                Log.w(TAG, "Could not clear orphaned sphere ${stale.name}")
+                Logging.w( "Could not clear orphaned sphere ${stale.name}")
             }
         }
     }

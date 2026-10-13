@@ -157,7 +157,7 @@ private class SphereRenderer : GLSurfaceView.Renderer {
         GLES20.glClearColor(0f, 0f, 0f, 1f)
         program = buildProgram()
         if (program == 0) {
-            Log.e(TAG, "Shader program failed to link; the pano view stays black")
+            Logging.e( "Shader program failed to link; the pano view stays black")
         }
     }
 
@@ -207,7 +207,7 @@ private class SphereRenderer : GLSurfaceView.Renderer {
         GLES20.glDisableVertexAttribArray(aPosition)
         if (!loggedFirstFrame) {
             loggedFirstFrame = true
-            Log.i(TAG, "First sphere frame rendered")
+            Logging.i( "First sphere frame rendered")
         }
     }
 
@@ -215,7 +215,7 @@ private class SphereRenderer : GLSurfaceView.Renderer {
         pendingBitmap = bitmap
         spanLatRadians = (2.0 * Math.PI * bitmap.height / bitmap.width)
             .toFloat().coerceIn(0.05f, Math.PI.toFloat())
-        Log.i(TAG, "Sphere texture ${bitmap.width}x${bitmap.height} (span %.0f°)"
+        Logging.i( "Sphere texture ${bitmap.width}x${bitmap.height} (span %.0f°)"
             .format(spanLatRadians * 180f / Math.PI))
     }
 
@@ -257,7 +257,7 @@ private class SphereRenderer : GLSurfaceView.Renderer {
         val linkStatus = IntArray(1)
         GLES20.glGetProgramiv(program, GLES20.GL_LINK_STATUS, linkStatus, 0)
         if (linkStatus[0] == 0) {
-            Log.e(TAG, "Link error: ${GLES20.glGetProgramInfoLog(program)}")
+            Logging.e( "Link error: ${GLES20.glGetProgramInfoLog(program)}")
             GLES20.glDeleteProgram(program)
             return 0
         }
@@ -271,7 +271,7 @@ private class SphereRenderer : GLSurfaceView.Renderer {
         val compileStatus = IntArray(1)
         GLES20.glGetShaderiv(shader, GLES20.GL_COMPILE_STATUS, compileStatus, 0)
         if (compileStatus[0] == 0) {
-            Log.e(TAG, "Shader compile error: ${GLES20.glGetShaderInfoLog(shader)}")
+            Logging.e( "Shader compile error: ${GLES20.glGetShaderInfoLog(shader)}")
             GLES20.glDeleteShader(shader)
             return null
         }

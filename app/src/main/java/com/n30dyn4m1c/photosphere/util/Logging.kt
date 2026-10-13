@@ -14,12 +14,41 @@ object Logging {
 
     const val TAG = "PhotoSphere"
 
+    /**
+     * Logcat plus the JSON file ([FileLogger], INFO and above). DEBUG and
+     * VERBOSE stay logcat-only: at 50 Hz the attitude stream alone would fill
+     * megabytes of JSON per hour.
+     */
+    fun i(message: String) {
+        Log.i(TAG, message)
+        FileLogger.append("I", message)
+    }
+
+    fun d(message: String) {
+        Log.d(TAG, message)
+        FileLogger.append("D", message)
+    }
+
+    fun w(message: String, throwable: Throwable? = null) {
+        if (throwable == null) Log.w(TAG, message) else Log.w(TAG, message, throwable)
+        FileLogger.append("W", message, throwable)
+    }
+
+    fun e(message: String, throwable: Throwable? = null) {
+        if (throwable == null) Log.e(TAG, message) else Log.e(TAG, message, throwable)
+        FileLogger.append("E", message, throwable)
+    }
+
+    fun v(message: String) {
+        Log.v(TAG, message)
+    }
+
     /** Scrie in logcat orice excepție neprinsă, apoi lasa comportamentul normal (procesul moare). */
     fun installCrashHandler() {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             try {
-                Log.e(TAG, "CRASH neprins in firul '${thread.name}'", throwable)
+                e("CRASH neprins in firul '${thread.name}'", throwable)
             } catch (_: Throwable) {
                 // nimic: nu vrem ca logging-ul sa ascunda crash-ul original
             }

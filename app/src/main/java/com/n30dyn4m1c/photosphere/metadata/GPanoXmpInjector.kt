@@ -236,13 +236,13 @@ object GPanoXmpInjector {
                     throw IOException("Could not move ${temp.name} onto ${file.name}", e)
                 }
             }
-            Log.i(Logging.TAG, "GPano injected into ${file.name} (${metadata.projectionType})")
+            Logging.i( "GPano injected into ${file.name} (${metadata.projectionType})")
             file
         } finally {
             if (temp.exists()) temp.delete()
         }
     }.onFailure { error ->
-        Log.e(Logging.TAG, "GPano inject failed for ${file.name}", error)
+        Logging.e( "GPano inject failed for ${file.name}", error)
     }
 
     /**

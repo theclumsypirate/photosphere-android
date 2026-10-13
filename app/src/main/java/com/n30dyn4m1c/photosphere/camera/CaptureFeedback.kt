@@ -51,7 +51,7 @@ class CaptureFeedback(context: Context) {
         if (isReleased) return
         playTick()
         runCatching { shutterSound.play(MediaActionSound.SHUTTER_CLICK) }
-            .onFailure { Log.w(TAG, "Shutter sound failed", it) }
+            .onFailure { Logging.w( "Shutter sound failed", it) }
     }
 
     fun release() {
@@ -70,7 +70,7 @@ class CaptureFeedback(context: Context) {
             VibrationEffect.createOneShot(FALLBACK_TICK_MILLIS, VibrationEffect.DEFAULT_AMPLITUDE)
         }
         runCatching { vibrator.vibrate(effect) }
-            .onFailure { Log.w(TAG, "Haptic tick failed", it) }
+            .onFailure { Logging.w( "Haptic tick failed", it) }
     }
 }
 

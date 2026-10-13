@@ -6,6 +6,7 @@ import android.graphics.Matrix
 import android.util.Log
 import androidx.exifinterface.media.ExifInterface
 import com.n30dyn4m1c.photosphere.BuildConfig
+import com.n30dyn4m1c.photosphere.util.Logging
 import com.n30dyn4m1c.photosphere.PhotoSphereApplication
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -274,7 +275,7 @@ object PhotoSphereStitcher {
     fun ensureOpenCv(): Boolean {
         if (isOpenCvReady) return true
         isOpenCvReady = PhotoSphereApplication.isOpenCvAvailable || OpenCVLoader.initLocal()
-        if (!isOpenCvReady) Log.e(TAG, "OpenCV native library unavailable; cannot stitch")
+        if (!isOpenCvReady) Logging.e( "OpenCV native library unavailable; cannot stitch")
         return isOpenCvReady
     }
 
@@ -401,8 +402,7 @@ object PhotoSphereStitcher {
             var fovChecked = false
 
             if (frames.isNotEmpty()) {
-                Log.i(
-                    TAG,
+                Logging.i(
                     "Stitch input: ${frames.size} frames, reported FOV " +
                         "$horizontalFovDegrees°x$verticalFovDegrees°, " +
                         "distortion=${radialDistortion?.coefficients?.joinToString() ?: "none"}, " +
@@ -446,16 +446,14 @@ object PhotoSphereStitcher {
                         !read.hasExifOrientation &&
                         portraitRotationDegrees % 180 == 90
                     ) {
-                        Log.w(
-                            TAG,
+                        Logging.w(
                             "Frame $position decoded ${image.cols()}x${image.rows()} with no " +
                                 "EXIF orientation — rotating ${portraitRotationDegrees}° " +
                                 "clockwise against the ${horizontalFov}°x${verticalFov}° FOV",
                         )
                         image = rotateClockwise(image, portraitRotationDegrees)
                     }
-                    Log.i(
-                        TAG,
+                    Logging.i(
                         "Frame $position decoded ${image.cols()}x${image.rows()} at pose " +
                             "yaw=${frame.pose.yawDegrees}° pitch=${frame.pose.pitchDegrees}° " +
                             "roll=${frame.pose.rollDegrees}°",
@@ -474,8 +472,7 @@ object PhotoSphereStitcher {
                             verticalFovDegrees = verticalFov,
                         )
                         if (corrected != null) {
-                            Log.w(
-                                TAG,
+                            Logging.w(
                                 "FOV ${horizontalFov}°x${verticalFov}° does not match the " +
                                     "${image.cols()}x${image.rows()} frame; using " +
                                     "${corrected.first}°x${corrected.second}°",
@@ -516,8 +513,7 @@ object PhotoSphereStitcher {
             }
             onProgress(StitchProgress(StitchStage.Reading, frames.size, frames.size))
             val canvasHeight = canvasHeightFor(canvasWidth, longitudeSpanDegrees, latitudeSpanDegrees)
-            Log.i(
-                TAG,
+            Logging.i(
                 "Stitch geometry: corrected FOV ${horizontalFov}°x${verticalFov}°, " +
                     "canvas ${canvasWidth}x$canvasHeight " +
                     "($longitudeSpanDegrees° x $latitudeSpanDegrees°)",
@@ -559,8 +555,7 @@ object PhotoSphereStitcher {
                         "r=${p.rollDegrees.roundToInt()}"
                 }
                 val focals = refinement.focalScales.map { "%.4f".format(it) }
-                Log.i(
-                    TAG,
+                Logging.i(
                     "Refinement matched ${refinement.matchedEdges} edges; " +
                         "refined poses: ${poses.joinToString(", ")}; " +
                         "focal scales: ${focals.joinToString(", ")}",
@@ -644,8 +639,7 @@ object PhotoSphereStitcher {
                 }
             }
             if (BuildConfig.DEBUG && seams != null) {
-                Log.i(
-                    TAG,
+                Logging.i(
                     "Seams ($seamMode): ${seams.gridWidth}x${seams.gridHeight} grid at scale " +
                         "${seams.scale} over ${prepared.size} frames",
                 )
@@ -687,7 +681,7 @@ object PhotoSphereStitcher {
                 onProgress(StitchProgress(StitchStage.Projecting))
                 applyUnsharpMask(rendered.canvas, unsharpAmount)
                 val bitmap = toBitmap(rendered.canvas)
-                Log.i(TAG, "Stitch done: ${bitmap.width}x${bitmap.height} " +
+                Logging.i( "Stitch done: ${bitmap.width}x${bitmap.height} " +
                     "(${(rendered.coverage * 100).roundToInt()}% covered)")
                 Result.success(bitmap)
             } finally {
@@ -696,18 +690,18 @@ object PhotoSphereStitcher {
         } catch (e: CancellationException) {
             throw e
         } catch (e: StitchException) {
-            Log.w(TAG, "Stitch failed: ${e.status} (${e.status.code})", e)
+            Logging.w( "Stitch failed: ${e.status} (${e.status.code})", e)
             Result.failure<Bitmap>(e)
         } catch (e: OutOfMemoryError) {
             // Recoverable here: the frames are released in the finally below, and
             // the user can retry at a lower input resolution.
-            Log.e(TAG, "Out of memory stitching ${frames.size} frames", e)
+            Logging.e( "Out of memory stitching ${frames.size} frames", e)
             Result.failure<Bitmap>(
                 StitchException(StitchStatus.OutOfMemory, "Not enough memory to stitch", e)
             )
         } catch (e: Exception) {
             // Native OpenCV failures arrive as CvException, a RuntimeException.
-            Log.e(TAG, "Stitch failed", e)
+            Logging.e( "Stitch failed", e)
             Result.failure<Bitmap>(
                 StitchException(StitchStatus.Unknown, e.message ?: "Stitch failed", e)
             )

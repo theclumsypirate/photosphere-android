@@ -75,9 +75,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Log.i(Logging.TAG, "MainActivity.onCreate")
-        Log.i(
-            Logging.TAG,
+        Logging.i( "MainActivity.onCreate")
+        Logging.i(
             "PhotoSphereApp v${BuildConfig.VERSION_NAME} (${BuildConfig.BUILD_TYPE}) " +
                 "on ${Build.MANUFACTURER} ${Build.MODEL} API ${Build.VERSION.SDK_INT}"
         )
@@ -106,32 +105,32 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        Log.d(Logging.TAG, "MainActivity.onStart")
+        Logging.d( "MainActivity.onStart")
     }
 
     override fun onResume() {
         super.onResume()
-        Log.d(Logging.TAG, "MainActivity.onResume")
+        Logging.d( "MainActivity.onResume")
     }
 
     override fun onPause() {
-        Log.d(Logging.TAG, "MainActivity.onPause")
+        Logging.d( "MainActivity.onPause")
         super.onPause()
     }
 
     override fun onStop() {
-        Log.d(Logging.TAG, "MainActivity.onStop")
+        Logging.d( "MainActivity.onStop")
         super.onStop()
     }
 
     override fun onDestroy() {
-        Log.d(Logging.TAG, "MainActivity.onDestroy")
+        Logging.d( "MainActivity.onDestroy")
         super.onDestroy()
     }
 
     override fun onLowMemory() {
         super.onLowMemory()
-        Log.w(Logging.TAG, "MainActivity.onLowMemory: memorie redusa")
+        Logging.w( "MainActivity.onLowMemory: memorie redusa")
     }
 
     companion object {
@@ -204,7 +203,7 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
     fun discardSphere() {
         val finished = sphere ?: return
         sphere = null
-        Log.i(Logging.TAG, "Discarding sphere ${finished.file.name}")
+        Logging.i( "Discarding sphere ${finished.file.name}")
         // NonCancellable: this runs as the result screen is being torn down, and
         // a several-megabyte JPEG left in the cache is exactly what the next
         // stitch would have to clean up. The buffered frames go too: a fresh
@@ -228,18 +227,18 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
 
             entry == null -> EntryChooser(
                 onCapture = {
-                    Log.i(Logging.TAG, "Entry: Capture")
+                    Logging.i( "Entry: Capture")
                     entry = Entry.Capture
                 },
                 onImport = {
-                    Log.i(Logging.TAG, "Entry: Import")
+                    Logging.i( "Entry: Import")
                     entry = Entry.Import
                 },
             )
 
             entry == Entry.Import -> ImportPhotosScreen(
                 onSphereReady = {
-                    Log.i(Logging.TAG, "Sphere ready: ${it.file.name} (import)")
+                    Logging.i( "Sphere ready: ${it.file.name} (import)")
                     sphere = it
                 },
                 onBack = { entry = null },
@@ -250,7 +249,7 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
             ) {
                 PhotoSphereCameraScreen(
                     onSphereReady = {
-                        Log.i(Logging.TAG, "Sphere ready: ${it.file.name} (capture)")
+                        Logging.i( "Sphere ready: ${it.file.name} (capture)")
                         sphere = it
                     }
                 )

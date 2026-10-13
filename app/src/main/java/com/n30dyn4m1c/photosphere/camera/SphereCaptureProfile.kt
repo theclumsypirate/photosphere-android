@@ -144,8 +144,7 @@ internal fun resolveSphereCaptureProfile(
             characteristics?.get(CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION)
         ),
     ).also { profile ->
-        Log.i(
-            Logging.TAG,
+        Logging.i(
             "Capture profile for ${cameraId ?: "default lens"}: focus=${profile.focusMode} " +
                 "aeLock=${profile.aeLockSupported} awbLock=${profile.awbLockSupported} " +
                 "ois=${profile.opticalStabilizationSupported}",
