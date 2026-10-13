@@ -5,7 +5,8 @@ name: release-signed
 # signed release APK with the keystore from CI secrets and attaches only the
 # APK to the GitHub Release (no mapping.txt). Runs only on manual dispatch.
 # Secrets needed: KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD
-# (keystore) + RELEASE_PAT (push back + release creation).
+# (keystore). Release creation uses softprops/action-gh-release with the
+# built-in GITHUB_TOKEN; no PAT needed.
 on:
   workflow_dispatch:
     inputs:
@@ -39,7 +40,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.RELEASE_PAT }}
           fetch-depth: 0
 
       - name: Reconstitute keystore from secret
@@ -94,6 +94,7 @@ jobs:
         id: version
         env:
           RELEASE_TYPE: ${{ inputs.release_type }}
+          INPUT_NOTES: ${{ inputs.notes }}
         run: |
           greater() {
             printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n 1
@@ -131,10 +132,18 @@ jobs:
           fi
           code=$(grep -oP 'versionCode = \K[0-9]+' app/build.gradle.kts)
           code=$((code + 1))
+          if [ -z "$INPUT_NOTES" ]; then
+            notes="Signed $RELEASE_TYPE release $tag."
+          else
+            notes="$INPUT_NOTES"
+          fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "name=$name" >> "$GITHUB_OUTPUT"
           echo "code=$code" >> "$GITHUB_OUTPUT"
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "notes<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$notes" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
           echo "Releasing $tag (versionCode $code, prerelease $prerelease)"
 
       - name: Bump version files, commit and tag
@@ -169,10 +178,8 @@ jobs:
             echo "release APK: $apk ($(du -h "$apk" | cut -f1))"
           done
 
-      - name: Create GitHub Release with signed APK
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
-          INPUT_NOTES: ${{ inputs.notes }}
+      - name: Prepare release asset
+        id: asset
         run: |
           VERSION="${{ steps.version.outputs.name }}"
           SRC_APK="$(ls app/build/outputs/apk/release/*arm64-v8a*.apk | head -1)"
@@ -183,15 +190,14 @@ jobs:
             echo "::error::$APK is not a valid APK."
             exit 1
           fi
-          flags=""
-          if [ "${{ steps.version.outputs.prerelease }}" = "true" ]; then
-            flags="$flags --prerelease"
-          fi
-          if [ -z "$INPUT_NOTES" ]; then
-            INPUT_NOTES="Signed ${{ inputs.release_type }} release ${{ steps.version.outputs.tag }}."
-          fi
-          # shellcheck disable=SC2086
-          gh release create "${{ steps.version.outputs.tag }}" \
-            "$APK" \
-            --title "Photo Sphere v${VERSION} (signed)" \
-            --notes "$INPUT_NOTES" $flags
+          echo "apk=$APK" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Photo Sphere v${{ steps.version.outputs.name }} (signed)
+          body: ${{ steps.version.outputs.notes }}
+          prerelease: ${{ steps.version.outputs.prerelease == 'true' }}
+          fail_on_unmatched_files: true
+          files: ${{ steps.asset.outputs.apk }}
