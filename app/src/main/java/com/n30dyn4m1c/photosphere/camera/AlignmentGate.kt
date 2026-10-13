@@ -13,7 +13,7 @@ data class AlignmentState(
     val dwellProgress: Float = 0f,
     /** True while the aim is inside the capture threshold. */
     val isAligned: Boolean = false,
-    /** True while a shutter is in flight, so the overlay can flash. */
+    /** True while a shutter is in flight. */
     val isCapturing: Boolean = false,
 ) {
     val hasDistance: Boolean get() = !distanceDegrees.isNaN()
