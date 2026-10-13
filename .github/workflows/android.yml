@@ -1,4 +1,4 @@
-name: Android
+name: build-debug
 
 # Builds the debug APKs. The APKs are uploaded as workflow artifacts, so a
 # device can be tested against without a local Android SDK — download, unzip,

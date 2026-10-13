@@ -11,7 +11,7 @@ Do NOT run `./gradlew assembleDebug`, `assembleRelease`, `installDebug`, or
 - The local machine may not have the pinned SDK/NDK toolchain; CI is the
   source of truth.
 
-Get test builds instead from the `Android` GitHub workflow
+Get test builds instead from the `build-debug` GitHub workflow
 (`.github/workflows/android.yml`), which runs **only** on manual dispatch or
 pull requests — never on push — and uploads `photosphere-debug-apks` as
 artifacts. Download, unzip, `adb install` the APK matching the device ABI.
