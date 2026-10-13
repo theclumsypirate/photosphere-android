@@ -1,0 +1,24 @@
+# Device lab
+
+`tools/photosphere_lab.py` (stdlib only, needs `adb` + the debug build) for
+bugs that only reproduce on hardware:
+
+```bash
+# Filtered logcat: every app TAG + AndroidRuntime crashes.
+python3 tools/photosphere_lab.py logcat --out /tmp/opencode/bug.log
+
+# Live: stream while reproducing the bug on the phone, Ctrl-C to stop.
+python3 tools/photosphere_lab.py logcat --follow
+
+# Capture sessions on the device (debug builds only, via run-as).
+python3 tools/photosphere_lab.py sessions
+
+# Pull the newest session's frames and audit EXIF orientation.
+# 0/UNDEFINED is the known Motorola quirk the stitcher fallback handles.
+python3 tools/photosphere_lab.py frames --pull /tmp/opencode/frames
+```
+
+What it deliberately does **not** do: drive the capture UI (guided capture
+needs a hand turning a real phone — no script can aim it), or re-run the
+stitch in Python. Frame placement forensics come from the EXIF audit plus the
+stitch diagnostics line on the result screen (debug builds).

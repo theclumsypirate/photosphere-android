@@ -1,5 +1,6 @@
 package com.n30dyn4m1c.photosphere.camera
 
+import android.os.SystemClock
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -11,6 +12,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
@@ -35,6 +37,15 @@ import kotlin.math.min
 
 /** How long the marker takes to hand over to the next target. */
 private const val FOCUS_TRANSITION_MILLIS = 350
+
+/**
+ * Minimum gap between shutter flashes.
+ *
+ * Captures landing in rapid succession (dense targets near a pole, a slow
+ * sweep chaining dwells) would otherwise strobe the whole screen white once
+ * per frame. Single captures still flash exactly as before.
+ */
+private const val FLASH_MIN_INTERVAL_MILLIS = 1500L
 
 /** Period of the "this one is live" pulse on the active marker. */
 private const val PULSE_PERIOD_MILLIS = 1600
@@ -110,12 +121,19 @@ fun TargetOverlay(
     // (a burst of three can take a couple of seconds), and a wash that long
     // would read as a glitch and hide the aim. Observed through snapshotFlow so
     // the sensor-rate alignment state does not recompose the overlay.
+    // Rate-limited: captures in rapid succession flash once, not once per
+    // frame, so a chained run cannot strobe the screen.
     val flash = remember { Animatable(0f) }
+    val lastFlashMillis = remember { mutableLongStateOf(0L) }
     LaunchedEffect(Unit) {
         snapshotFlow { alignment().isCapturing }.collect { capturing ->
             if (capturing) {
-                flash.snapTo(1f)
-                flash.animateTo(0f, animationSpec = tween(durationMillis = 200))
+                val now = SystemClock.elapsedRealtime()
+                if (now - lastFlashMillis.longValue >= FLASH_MIN_INTERVAL_MILLIS) {
+                    lastFlashMillis.longValue = now
+                    flash.snapTo(1f)
+                    flash.animateTo(0f, animationSpec = tween(durationMillis = 200))
+                }
             }
         }
     }

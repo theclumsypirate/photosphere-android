@@ -3,6 +3,7 @@ package com.n30dyn4m1c.photosphere
 import android.app.Application
 import android.util.Log
 import com.n30dyn4m1c.photosphere.storage.SphereImageStore
+import com.n30dyn4m1c.photosphere.util.Logging
 import org.opencv.android.OpenCVLoader
 import java.io.File
 
@@ -18,6 +19,7 @@ class PhotoSphereApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        Logging.installCrashHandler()
         isOpenCvAvailable = OpenCVLoader.initLocal()
         if (isOpenCvAvailable) {
             Log.i(TAG, "OpenCV initialised: ${OpenCVLoader.OPENCV_VERSION}")

@@ -72,6 +72,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -286,6 +287,18 @@ fun PhotoSphereCameraScreen(
     // pinned to the exposure reached so far. Written from the camera thread and
     // the main thread; Compose snapshot state is safe to write from either.
     var isThreeALocked by remember { mutableStateOf(false) }
+    // Set on the first successful lock and cleared only by a rebind: the
+    // shutter gate needs "the exposure converged at least once", not "it is
+    // locked right now", because the user may unlock later for a manual
+    // brightness adjustment without killing capture.
+    var hasLockedOnce by remember { mutableStateOf(false) }
+    // Live brightness: the HAL's exposure-compensation range (null while
+    // unbound, 0..0 when unsupported) and the index currently requested.
+    var exposureRange by remember { mutableStateOf<IntRange?>(null) }
+    var exposureIndex by remember { mutableIntStateOf(0) }
+    // The repeating request's camera2 control, for (un)locking AE outside the
+    // bind effect (mirrors the atomic used by the convergence callback).
+    var camera2ControlState by remember { mutableStateOf<Camera2CameraControl?>(null) }
 
     // How much of the sphere the plan walks: the whole sphere (rings out to
     // both poles) or just the horizon ring — a regular pano that goes all the
@@ -399,6 +412,58 @@ fun PhotoSphereCameraScreen(
     // so the capture that follows is built on a steady pivot.
     var showInstructions by rememberSaveable { mutableStateOf(true) }
 
+    /**
+     * Pins or releases the preview's auto-exposure outside the bind effect.
+     *
+     * Locking re-pins whatever the HAL converged on (the brightness slider's
+     * counterpart: adjust, then lock). AWB is left alone — only AE moves.
+     */
+    fun setAeLocked(locked: Boolean) {
+        val control = camera2ControlState
+        if (control == null) {
+            Log.w(TAG, "No camera control yet for AE ${if (locked) "lock" else "unlock"}")
+            return
+        }
+        runCatching {
+            control.addCaptureRequestOptions(
+                CaptureRequestOptions.Builder()
+                    .setCaptureRequestOption(CaptureRequest.CONTROL_AE_LOCK, locked)
+                    .build()
+            )
+        }.onSuccess { isThreeALocked = locked }
+            .onFailure { error -> Log.w(TAG, "Could not change AE lock", error) }
+    }
+
+    /**
+     * Requests an exposure-compensation index for a brighter/darker preview.
+     *
+     * A locked AE ignores compensation changes on most HALs, so adjusting
+     * unlocks first — the lock button (or the next bind) re-pins. Stills
+     * follow the preview on most HALs; where they don't, the preview is still
+     * an honest brightness aid while aiming.
+     */
+    fun applyExposure(index: Int, force: Boolean = false) {
+        val camera = boundCamera ?: return
+        val clamped = exposureRange?.let { index.coerceIn(it.first, it.last) } ?: index
+        if (!force && clamped == exposureIndex && !isThreeALocked) return
+        exposureIndex = clamped
+        if (isThreeALocked) setAeLocked(false)
+        runCatching {
+            camera.cameraControl.setExposureCompensationIndex(clamped)
+                .addListener(
+                    { Log.i(TAG, "Exposure compensation -> $clamped") },
+                    ContextCompat.getMainExecutor(context),
+                )
+        }.onFailure { error ->
+            Log.w(TAG, "Could not set exposure compensation", error)
+            scope.launch {
+                snackbarHostState.showSnackbar(
+                    context.getString(R.string.capture_failed, error.message.orEmpty())
+                )
+            }
+        }
+    }
+
     // The stitch runs off the main thread and reports back from there, so its
     // progress travels as a StateFlow rather than as Compose state written from
     // a background dispatcher.
@@ -492,6 +557,7 @@ fun PhotoSphereCameraScreen(
     LaunchedEffect(lifecycleOwner, previewView, bindAttempt) {
         cameraError = null
         isThreeALocked = false
+        hasLockedOnce = false
         val cameraProvider = try {
             context.awaitCameraProvider()
         } catch (e: Exception) {
@@ -556,7 +622,11 @@ fun PhotoSphereCameraScreen(
                             .build()
                     )
                 }
-                    .onSuccess { isThreeALocked = true }
+                    .onSuccess {
+                        isThreeALocked = true
+                        hasLockedOnce = true
+                        Log.i(TAG, "AE/AWB locked")
+                    }
                     .onFailure { error ->
                         threeALocked.set(false)
                         Log.w(TAG, "Could not lock 3A", error)
@@ -657,6 +727,15 @@ fun PhotoSphereCameraScreen(
             camera2Control.set(
                 runCatching { Camera2CameraControl.from(camera.cameraControl) }.getOrNull()
             )
+            camera2ControlState = camera2Control.get()
+            // Exposure-compensation range of the bound lens; a 0..0 range
+            // means the HAL offers no compensation and the slider stays hidden.
+            val evRange = camera.cameraInfo.exposureState.exposureCompensationRange
+            exposureRange = evRange.lower..evRange.upper
+            exposureIndex = camera.cameraInfo.exposureState.exposureCompensationIndex
+            // Re-apply the requested compensation on the fresh session so a
+            // rebind does not silently drop a manual brightness adjustment.
+            applyExposure(exposureIndex, force = true)
             // The lens that answered, not the one that was asked for: a filter
             // that matched nothing, or a device that substitutes a logical
             // camera, both land here and both would otherwise leave the optics
@@ -782,10 +861,11 @@ fun PhotoSphereCameraScreen(
                 // cleared.
                 isStitching = stitchJob != null,
                 captured = { buffer.frames.value.mapTo(HashSet()) { it.index } },
-                // No frame before the session's AE/AWB lock has landed: a
+                // No frame before the session's AE/AWB lock has landed once: a
                 // still fired mid-convergence is pinned to whatever exposure
-                // has been reached so far — on a dark scene, near black.
-                canTrigger = isThreeALocked,
+                // has been reached so far — on a dark scene, near black. A
+                // later manual unlock (brightness slider) does not re-arm this.
+                canTrigger = hasLockedOnce,
                 createPlan = { yawNow ->
                     // Rebuilt on the bearing it was originally anchored at
                     // (saved across configuration changes) so a recreation
@@ -1035,6 +1115,11 @@ fun PhotoSphereCameraScreen(
         )
     }
 
+    // Brightness slider: only when a lens is bound and the HAL actually
+    // offers a compensation range wider than a point.
+    val evRange = exposureRange
+    val showExposure = boundCamera != null && evRange != null && evRange.last > evRange.first
+
     // What the focus badge says. FOCUS_POINT starts as an invitation to tap and
     // settles on "locked" once the first sweep has converged.
     val lockBadge: String? = when (captureProfile?.focusMode) {
@@ -1162,6 +1247,12 @@ fun PhotoSphereCameraScreen(
                 onToggleSeams = { seamEnabled = !seamEnabled },
                 colorFrames = colorFrames,
                 onToggleColorFrames = { colorFrames = !colorFrames },
+                evIndex = exposureIndex,
+                evRange = exposureRange,
+                aeLocked = isThreeALocked,
+                showExposure = showExposure,
+                onEvChange = { applyExposure(it) },
+                onToggleAeLock = { setAeLocked(!isThreeALocked) },
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(insets),
@@ -1285,6 +1376,12 @@ private fun CaptureHud(
     onToggleSeams: () -> Unit,
     colorFrames: Boolean,
     onToggleColorFrames: () -> Unit,
+    evIndex: Int,
+    evRange: IntRange?,
+    aeLocked: Boolean,
+    showExposure: Boolean,
+    onEvChange: (Int) -> Unit,
+    onToggleAeLock: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     BoxWithConstraints(modifier = modifier) {
@@ -1413,6 +1510,16 @@ private fun CaptureHud(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
+            if (showExposure && evRange != null) {
+                ExposureRow(
+                    evIndex = evIndex,
+                    evRange = evRange,
+                    aeLocked = aeLocked,
+                    onEvChange = onEvChange,
+                    onToggleAeLock = onToggleAeLock,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             HintCard(text = hint)
             // Debug-only A/B control for the lens model: a device that reports
             // LENS_DISTORTION in the wrong convention warps every frame, and
@@ -1498,6 +1605,63 @@ private fun CaptureHud(
                         style = MaterialTheme.typography.labelLarge,
                     )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Live brightness: exposure-compensation slider plus the AE lock toggle.
+ *
+ * Dragging the slider unlocks AE (a locked AE ignores compensation changes on
+ * most HALs) and requests the new index; the button re-pins the converged
+ * values so the rest of the run keeps one exposure.
+ */
+@Composable
+private fun ExposureRow(
+    evIndex: Int,
+    evRange: IntRange,
+    aeLocked: Boolean,
+    onEvChange: (Int) -> Unit,
+    onToggleAeLock: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        shape = PillShape,
+        color = GlassSurface,
+        shadowElevation = 6.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.exposure_brightness),
+                style = MaterialTheme.typography.labelMedium,
+                color = GlassContentDim,
+            )
+            Slider(
+                value = evIndex.toFloat(),
+                onValueChange = { onEvChange(it.roundToInt()) },
+                valueRange = evRange.first.toFloat()..evRange.last.toFloat(),
+                steps = (evRange.last - evRange.first - 1).coerceAtLeast(0),
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = stringResource(R.string.exposure_ev_value, evIndex),
+                style = MaterialTheme.typography.labelMedium,
+                color = GlassContent,
+            )
+            TextButton(onClick = onToggleAeLock) {
+                Text(
+                    text = stringResource(
+                        if (aeLocked) R.string.exposure_unlock else R.string.exposure_lock
+                    ),
+                    color = GlassContent,
+                    style = MaterialTheme.typography.labelMedium,
+                )
             }
         }
     }

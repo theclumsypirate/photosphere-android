@@ -36,6 +36,10 @@
     <string name="capture_lock_locked">Focus locked · AE &amp; WB locked</string>
     <string name="capture_lock_hint">Tap the viewfinder to focus</string>
     <string name="capture_lock_fixed">Fixed-focus lens</string>
+    <string name="exposure_brightness">Brightness</string>
+    <string name="exposure_ev_value">EV %+d</string>
+    <string name="exposure_lock">Lock exposure</string>
+    <string name="exposure_unlock">Unlock exposure</string>
     <string name="capture_hint_search">Move the reticle onto the marker</string>
     <string name="capture_hint_hold">Hold still…</string>
     <string name="capture_hint_ring_done">Band %1$d of %2$d covered — stitch now, or keep going</string>
