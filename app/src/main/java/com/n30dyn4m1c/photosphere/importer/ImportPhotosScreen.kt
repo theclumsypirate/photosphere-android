@@ -63,7 +63,7 @@ import java.io.IOException
 private const val TAG = Logging.TAG
 
 /** How many photos the system picker may return at once. */
-private const val MAX_PICK = 30
+private const val MAX_PICK = 100
 
 /** `UserComment` form SphereImageStore stamps capture attitudes in. */
 private val ATTITUDE_RE =

@@ -26,6 +26,20 @@ or pull device frames with `tools/photosphere_lab.py frames`) and outputs
 - **v6** — global horizon shear (end-to-end drift). 9/10: one continuous
   photo, only crop-edge wedges left.
 
+## Scored loop (user's 37 saved frames, true EXIF poses)
+
+- **all36_v1** — sensor poses + plain averaging. 5.5/10: full coverage, but
+  ghosts everywhere, ceiling arcs, nadir smear, wrap strip.
+- **all36_v2** — + pivot referral (0.35 m / 3.5 m room scale) + feather
+  weights. 7.5/10: horizon band reads clean.
+- **all36_v3** — + room-scale scene + wrap-seam blend. 8.5/10: no strip,
+  tight ceiling; nadir streaks remain (close-range floor + wild pole rolls).
+- **Reference: stock `cv2.Stitcher`** (same engine xpano is built on):
+  crashed outright on 7 texture-poor frames (FLANN assert); on the remaining
+  30 it built a single-viewpoint mosaic, not a sphere — 2/10 *as a 360 photo*
+  (locally clean, ~8/10 as a patch). Blind chaining without poses cannot do
+  this job; the score to beat was set by our own v3 instead.
+
 ## What this proved for the app
 
 Every validated trick already has a Kotlin counterpart: sanity-gated edges
