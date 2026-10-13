@@ -137,6 +137,16 @@ private class SphereRenderer : GLSurfaceView.Renderer {
     private var fovRadians = Math.toRadians(DEFAULT_FOV_DEGREES.toDouble()).toFloat()
     private var aspectRatio = 1f
 
+    /**
+     * Latitude span the texture covers, radians. A full sphere is π; a ring
+     * capture renders a narrower band (see canvasHeightFor) that must sit at
+     * its true elevation instead of stretching over the poles — the flat
+     * preview looks right either way, but the sphere view deforms a band
+     * mapped as a sphere. Derived from the aspect (square pixels make
+     * width:height = 360°:span).
+     */
+    private var spanLatRadians = Math.PI.toFloat()
+
     private var vertexBuffer: FloatBuffer? = null
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
@@ -176,12 +186,14 @@ private class SphereRenderer : GLSurfaceView.Renderer {
         val uPitch = GLES20.glGetUniformLocation(program, "uPitch")
         val uTanHalfFov = GLES20.glGetUniformLocation(program, "uTanHalfFov")
         val uAspect = GLES20.glGetUniformLocation(program, "uAspect")
+        val uSpanLat = GLES20.glGetUniformLocation(program, "uSpanLat")
 
         GLES20.glUniform1i(uTexture, 0)
         GLES20.glUniform1f(uYaw, yawRadians)
         GLES20.glUniform1f(uPitch, pitchRadians)
         GLES20.glUniform1f(uTanHalfFov, tan(fovRadians / 2f))
         GLES20.glUniform1f(uAspect, aspectRatio)
+        GLES20.glUniform1f(uSpanLat, spanLatRadians)
 
         val buffer = vertexBuffer ?: fullScreenQuad().also { vertexBuffer = it }
         GLES20.glEnableVertexAttribArray(aPosition)
@@ -193,6 +205,8 @@ private class SphereRenderer : GLSurfaceView.Renderer {
 
     fun setBitmap(bitmap: Bitmap) {
         pendingBitmap = bitmap
+        spanLatRadians = (2.0 * Math.PI * bitmap.height / bitmap.width)
+            .toFloat().coerceIn(0.05f, Math.PI.toFloat())
     }
 
     fun setView(yawDegrees: Float, pitchDegrees: Float, fovDegrees: Float) {
@@ -301,6 +315,7 @@ private class SphereRenderer : GLSurfaceView.Renderer {
             uniform float uPitch;
             uniform float uTanHalfFov;
             uniform float uAspect;
+            uniform float uSpanLat;
             void main() {
                 float x = (vUv.x * 2.0 - 1.0) * uTanHalfFov * uAspect;
                 float y = (vUv.y * 2.0 - 1.0) * uTanHalfFov;
@@ -313,7 +328,7 @@ private class SphereRenderer : GLSurfaceView.Renderer {
                 vec3 up = cross(right, forward);
                 vec3 dir = normalize(forward + x * right + y * up);
                 float u = 0.5 + atan(dir.x, dir.y) / 6.2831853;
-                float v = 0.5 - asin(clamp(dir.z, -1.0, 1.0)) / 3.14159265;
+                float v = 0.5 - asin(clamp(dir.z, -1.0, 1.0)) / uSpanLat;
                 gl_FragColor = texture2D(uTexture, vec2(u, v));
             }
         """
@@ -329,6 +344,8 @@ private class SphereRenderer : GLSurfaceView.Renderer {
  * @param yawDegrees compass bearing the view is centred on (0 = north)
  * @param pitchDegrees elevation the view is centred on, positive up
  * @param fovDegrees vertical field of view
+ * @param spanLatRadians latitude span the texture covers (π for a full sphere,
+ *   less for a ring band); the mirror of the renderer's `uSpanLat` uniform
  * @return the equirectangular texture coordinate, `u` across (0 = the ±180°
  *   seam), `v` down (0 = the north pole)
  */
@@ -339,6 +356,7 @@ internal fun equirectUvForView(
     pitchDegrees: Float,
     fovDegrees: Float,
     aspect: Float,
+    spanLatRadians: Float = Math.PI.toFloat(),
 ): Pair<Float, Float> {
     val tanHalf = tan(Math.toRadians(fovDegrees / 2.0))
     val x = xScreen * tanHalf * aspect
@@ -372,7 +390,7 @@ internal fun equirectUvForView(
     val length = sqrt(dirX * dirX + dirY * dirY + dirZ * dirZ)
 
     val u = 0.5 + atan2(dirX, dirY) / (2.0 * Math.PI)
-    val v = 0.5 - asin((dirZ / length).coerceIn(-1.0, 1.0)) / Math.PI
+    val v = 0.5 - asin((dirZ / length).coerceIn(-1.0, 1.0)) / spanLatRadians
     return (u.toFloat() to v.toFloat())
 }
 

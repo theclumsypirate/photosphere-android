@@ -33,3 +33,29 @@ Every validated trick already has a Kotlin counterpart: sanity-gated edges
 horizon-true geometry (sensor poses). The loop's verdict: don't replace the
 pipeline — its bad stitches come from coverage, darkness and EXIF handling,
 not the blender.
+
+## Headless 360-viewer test (`view360.py`)
+
+`tools/pano_proto/ref/html-360-viewer` (A-Frame `a-sky`) assumes a full 2:1
+equirectangular sphere. `view360.py` reproduces exactly its mapping — same
+ray-cast, same fov 80 — over person-like pans, no browser needed:
+
+```bash
+python3 tools/pano_proto/view360.py --pano out/v6.jpg --out views_v6naive
+python3 tools/pano_proto/view360.py --pano out/v7.jpg --out views_v7
+```
+
+Scores from the contact sheets (`out/views_*.jpg`):
+
+- **v6-as-sphere 3/10**: the cylindrical strip stretched over a sphere —
+  black bars splitting views, squeezed content, black on any tilt. This is
+  the "flat looks OK, 360 looks deformed" failure: the input was never a
+  sphere, so no viewer can show it as one.
+- **v7 true equirect 8.5/10**: the whole horizon ring explorable, black only
+  where nothing was shot (poles). Honest output for partial coverage.
+
+The ported fix: `PanoramaView` mapped *every* canvas as a full sphere, so
+ring captures (narrow latitude bands) stretched vertically in-app — the same
+deformation class. The renderer now derives the latitude span from the canvas
+aspect (`uSpanLat` uniform + `equirectUvForView` span parameter, pinned by
+`PanoramaUvTest`).

@@ -20,7 +20,8 @@ class PanoramaUvTest {
         pitch: Float = 0f,
         fov: Float = 70f,
         aspect: Float = 1f,
-    ) = equirectUvForView(x, y, yaw, pitch, fov, aspect)
+        spanLatRadians: Float = Math.PI.toFloat(),
+    ) = equirectUvForView(x, y, yaw, pitch, fov, aspect, spanLatRadians)
 
     @Test
     fun `looking north shows the middle of the equirectangular frame`() {
@@ -76,5 +77,30 @@ class PanoramaUvTest {
         val square = uv(x = 1f, y = 0f, fov = 70f, aspect = 1f)
         // The same screen-space x covers more degrees when the view is wider.
         assertTrue("expected a wider reach, was ${wide.first}", wide.first > square.first)
+    }
+
+    @Test
+    fun `a ring band keeps the horizon centred`() {
+        // A 360°×72° band canvas is 5:1; its equator is still the middle row.
+        val span = Math.toRadians(72.0).toFloat()
+        val (_, v) = uv(x = 0f, y = 0f, spanLatRadians = span)
+        assertEquals(0.5f, v, TOLERANCE)
+    }
+
+    @Test
+    fun `a ring band pushes the poles off the texture`() {
+        // Looking 45° up with only ±36° of band: v leaves [0, 1], i.e. black —
+        // the view must not stretch the band over the pole.
+        val span = Math.toRadians(72.0).toFloat()
+        val (_, v) = uv(x = 0f, y = 0f, pitch = 45f, spanLatRadians = span)
+        assertTrue("expected v outside [0, 1], was $v", v < 0f)
+    }
+
+    @Test
+    fun `a full sphere keeps the old mapping`() {
+        // Span π is exactly the historical behaviour: latitude +45° sits a
+        // quarter from the top.
+        val (_, v) = uv(x = 0f, y = 0f, pitch = 45f, spanLatRadians = Math.PI.toFloat())
+        assertEquals(0.25f, v, TOLERANCE)
     }
 }
