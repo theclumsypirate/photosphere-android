@@ -44,3 +44,5 @@ local.properties
 
 # Python bytecode cache from the lab/prototype tools.
 **/__pycache__/
+# Agent workspace rules (local only, never committed).
+/AGENTS.md
