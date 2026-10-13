@@ -37,8 +37,9 @@ jobs:
 
       # arm64-v8a only: the ABI every modern phone runs. The OpenCV AAR still
       # carries native libraries for all ABIs, but only this split is packaged.
+      # --info so the next "unable to strip" line says exactly why.
       - name: Assemble debug APK (arm64-v8a)
-        run: ./gradlew :app:assembleDebug -PonlyAbi=arm64-v8a
+        run: ./gradlew :app:assembleDebug -PonlyAbi=arm64-v8a --info
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
