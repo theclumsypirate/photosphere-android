@@ -11,15 +11,19 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -184,6 +188,10 @@ fun PanoramaResultScreen(
     var isConfirmingDiscard by remember(sphere.file) { mutableStateOf(false) }
     val isSaved = exportState is ExportState.Done
     val isWorking = exportState is ExportState.Working
+    // The diagnostics grow with the frame count (one line per frame), so on a
+    // 36-frame sphere they would push the preview and the export button off
+    // the screen: the whole column scrolls, and the block starts collapsed.
+    var diagnosticsExpanded by remember(sphere.file) { mutableStateOf(false) }
     var showSaveFramesDialog by remember(sphere.file) { mutableStateOf(false) }
     // Immersive 360: the pannable view alone, like a web 360 viewer.
     var showFullscreenSphere by remember(sphere.file) { mutableStateOf(false) }
@@ -298,6 +306,7 @@ fun PanoramaResultScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
                 .padding(insets)
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -356,15 +365,25 @@ fun PanoramaResultScreen(
                 }
 
                 if (BuildConfig.DEBUG && sphere.diagnostics != null) {
+                    val lines = sphere.diagnostics.lines()
+                    // Collapsed to the header + a few frames: a full sphere
+                    // lists forty of them, and the photo is the point here.
+                    val shown = if (diagnosticsExpanded || lines.size <= 7) {
+                        sphere.diagnostics
+                    } else {
+                        lines.take(6).joinToString("\n") +
+                            "\n… +${lines.size - 6} lines — tap to expand"
+                    }
                     Surface(
                         shape = MaterialTheme.shapes.small,
                         color = MaterialTheme.colorScheme.surfaceVariant,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 4.dp),
+                            .padding(top = 4.dp)
+                            .clickable { diagnosticsExpanded = !diagnosticsExpanded },
                     ) {
                         Text(
-                            text = sphere.diagnostics,
+                            text = shown,
                             style = MaterialTheme.typography.bodySmall,
                             fontFamily = FontFamily.Monospace,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -396,9 +415,11 @@ fun PanoramaResultScreen(
                 panoBitmap = panoBitmap,
                 mode = previewMode,
                 isFailed = isPreviewFailed,
+                // Fixed ratio, not weight: the column scrolls, and weight
+                // needs the bounded height a scrollable column cannot give.
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
+                    .aspectRatio(16f / 9f),
             )
 
             ResultActions(
