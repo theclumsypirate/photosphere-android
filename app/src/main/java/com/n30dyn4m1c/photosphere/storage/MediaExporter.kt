@@ -109,6 +109,36 @@ object MediaExporter {
         }
     }
 
+    /**
+     * Copies every frame in [sources] into `Pictures/360Panoramas` as its own
+     * photo — the "save what I shot" escape hatch.
+     *
+     * Names carry the session id and the position, so re-exporting the same run
+     * does not collide. The attitude EXIF stamped at capture travels along
+     * untouched. Returns how many landed; any failure fails the whole batch.
+     */
+    suspend fun exportFrames(
+        context: Context,
+        sources: List<File>,
+        dispatcher: CoroutineDispatcher = Dispatchers.IO,
+    ): Result<Int> = withContext(dispatcher + NonCancellable) {
+        runCatching {
+            var saved = 0
+            sources.forEachIndexed { position, source ->
+                export(context, source, displayName = frameDisplayName(source, position))
+                    .getOrThrow()
+                saved++
+            }
+            saved
+        }.onFailure { error ->
+            Log.e(TAG, "Could not export ${sources.size} frames to $RELATIVE_PATH", error)
+        }
+    }
+
+    /** Gallery name for one frame: session + position, sorts chronologically. */
+    fun frameDisplayName(source: File, position: Int): String =
+        "frame_%s_%02d.jpg".format(source.parentFile?.name ?: "session", position)
+
     /** API 29+: insert pending, stream the bytes in, then publish. */
     private fun exportPending(
         context: Context,

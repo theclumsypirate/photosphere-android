@@ -261,7 +261,10 @@ guess at where each frame belongs. Stale sessions are cleared when a new run
 starts. A frame that came out blurred, or one shot while something moved through
 the scene, is dropped with the **undo** button in the top-left corner (the
 Street View camera's control): the last frame is deleted and its target becomes
-the active one again, so it can simply be re-shot.
+the active one again, so it can simply be re-shot. A **Save frames** action
+(caution icon) exports every buffered JPEG — attitude EXIF included — to the
+gallery, but only after a dialog with the exact count, since a sphere's worth
+of full-resolution photos landing at once is worth a second thought.
 
 **Device tuning.** [`SphereDeviceProfile`](../app/src/main/java/com/n30dyn4m1c/photosphere/camera/SphereDeviceProfile.kt)
 is where a specific phone is tuned, decided once per device. On a Samsung

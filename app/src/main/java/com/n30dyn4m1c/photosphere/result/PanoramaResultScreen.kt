@@ -66,6 +66,7 @@ import androidx.core.content.FileProvider
 import com.n30dyn4m1c.photosphere.BuildConfig
 import com.n30dyn4m1c.photosphere.R
 import com.n30dyn4m1c.photosphere.storage.MediaExporter
+import com.n30dyn4m1c.photosphere.util.Logging
 import com.n30dyn4m1c.photosphere.storage.SphereImageStore
 import com.n30dyn4m1c.photosphere.storage.SphereImageStore.StitchedSphere
 import com.n30dyn4m1c.photosphere.stitching.sampleSizeFor
@@ -297,6 +298,7 @@ fun PanoramaResultScreen(
                 exportState = exportState,
                 onExport = {
                     exportState = ExportState.Working
+                    Log.i(Logging.TAG, "PanoramaResultScreen: export started")
                     scope.launch {
                         val result = MediaExporter.export(
                             context = context,
@@ -306,6 +308,7 @@ fun PanoramaResultScreen(
                         )
                         result
                             .onSuccess { exported ->
+                                Log.i(Logging.TAG, "PanoramaResultScreen: exported ${exported.displayName}")
                                 exportState = ExportState.Done(exported.displayName)
                                 snackbarHostState.showSnackbar(
                                     context.getString(
@@ -315,6 +318,7 @@ fun PanoramaResultScreen(
                                 )
                             }
                             .onFailure { error ->
+                                Log.e(Logging.TAG, "PanoramaResultScreen: export failed", error)
                                 exportState = ExportState.Idle
                                 snackbarHostState.showSnackbar(
                                     context.getString(

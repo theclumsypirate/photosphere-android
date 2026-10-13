@@ -40,6 +40,13 @@
     <string name="exposure_ev_value">EV %+d</string>
     <string name="exposure_lock">Lock exposure</string>
     <string name="exposure_unlock">Unlock exposure</string>
+    <string name="capture_save_frames">Save %1$d frames</string>
+    <string name="capture_save_frames_title">Save all frames?</string>
+    <string name="capture_save_frames_message">Save all %1$d captured frames to the gallery? They stay as separate photos, attitude data included.</string>
+    <string name="capture_save_frames_confirm">Save</string>
+    <string name="capture_save_frames_cancel">Cancel</string>
+    <string name="capture_frames_saved">Saved %1$d frames to the gallery</string>
+    <string name="capture_frames_save_failed">Couldn\'t save frames: %1$s</string>
     <string name="capture_hint_search">Move the reticle onto the marker</string>
     <string name="capture_hint_hold">Hold still…</string>
     <string name="capture_hint_ring_done">Band %1$d of %2$d covered — stitch now, or keep going</string>

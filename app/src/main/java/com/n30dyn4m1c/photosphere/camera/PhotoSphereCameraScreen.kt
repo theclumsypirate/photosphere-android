@@ -51,6 +51,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -64,6 +65,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -913,6 +916,7 @@ fun PhotoSphereCameraScreen(
                             // past a target nothing was shot at. The tick is
                             // confirmation the frame counted, so it follows the
                             // same answer.
+                            Log.i(TAG, "Frame ${decision.index} captured")
                             val advanced = coordinator.onCaptured(
                                 token = decision.token,
                                 captured = buffer.frames.value.mapTo(HashSet()) { it.index },
@@ -963,6 +967,32 @@ fun PhotoSphereCameraScreen(
     val capturedIndices = remember(bufferedFrames) { bufferedFrames.mapTo(HashSet()) { it.index } }
 
     /**
+     * Saves every buffered frame as its own gallery photo, after asking.
+     *
+     * A sphere is dozens of full-resolution JPEGs landing in the gallery at
+     * once, so the call site confirms first (see SaveFramesConfirmation).
+     */
+    fun exportFrames() {
+        val files = buffer.frames.value.map { it.file }
+        if (files.isEmpty()) return
+        Log.i(TAG, "Exporting ${files.size} frames")
+        scope.launch {
+            MediaExporter.exportFrames(context, files)
+                .onSuccess { count ->
+                    snackbarHostState.showSnackbar(
+                        context.getString(R.string.capture_frames_saved, count)
+                    )
+                }
+                .onFailure { error ->
+                    Log.e(TAG, "Frame export failed", error)
+                    snackbarHostState.showSnackbar(
+                        context.getString(R.string.capture_frames_save_failed, error.message.orEmpty())
+                    )
+                }
+        }
+    }
+
+    /**
      * Hands the buffered frames to the stitcher and passes on what comes back.
      *
      * Started lazily so [stitchJob] is set before the body can reach its own
@@ -970,6 +1000,7 @@ fun PhotoSphereCameraScreen(
      */
     fun startStitch() {
         if (stitchJob != null) return
+        Log.i(TAG, "Stitch started with ${buffer.frames.value.size} frames")
         val job = scope.launch(start = CoroutineStart.LAZY) {
             // A shutter can be mid-flight when Finish is tapped: the frame it
             // is writing would land in the buffer after the snapshot below,
@@ -1107,7 +1138,19 @@ fun PhotoSphereCameraScreen(
         job.start()
     }
 
+    var showSaveFramesDialog by remember { mutableStateOf(false) }
+
     val stitchState by stitchProgress.collectAsStateWithLifecycle()
+    if (showSaveFramesDialog) {
+        SaveFramesConfirmation(
+            frameCount = bufferedFrames.size,
+            onDismiss = { showSaveFramesDialog = false },
+            onConfirm = {
+                showSaveFramesDialog = false
+                exportFrames()
+            },
+        )
+    }
     if (stitchJob != null) {
         StitchingDialog(
             progress = stitchState,
@@ -1253,6 +1296,9 @@ fun PhotoSphereCameraScreen(
                 showExposure = showExposure,
                 onEvChange = { applyExposure(it) },
                 onToggleAeLock = { setAeLocked(!isThreeALocked) },
+                frameCount = bufferedFrames.size,
+                canSaveFrames = bufferedFrames.isNotEmpty() && stitchJob == null,
+                onSaveFrames = { showSaveFramesDialog = true },
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(insets),
@@ -1382,6 +1428,9 @@ private fun CaptureHud(
     showExposure: Boolean,
     onEvChange: (Int) -> Unit,
     onToggleAeLock: () -> Unit,
+    frameCount: Int,
+    canSaveFrames: Boolean,
+    onSaveFrames: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     BoxWithConstraints(modifier = modifier) {
@@ -1570,6 +1619,26 @@ private fun CaptureHud(
             // whenever they like — that is worth a beat of motion to notice,
             // where a button materialising under a thumb is just a mis-tap
             // waiting to happen.
+            AnimatedVisibility(
+                visible = canSaveFrames,
+                enter = fadeIn(),
+                exit = fadeOut(),
+            ) {
+                TextButton(onClick = onSaveFrames) {
+                    Icon(
+                        imageVector = Icons.Filled.Warning,
+                        contentDescription = null,
+                        tint = SphereActive,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = stringResource(R.string.capture_save_frames, frameCount),
+                        color = GlassContent,
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                }
+            }
             AnimatedVisibility(
                 visible = canStitch,
                 enter = fadeIn() + expandVertically() + scaleIn(initialScale = 0.94f),
@@ -2081,6 +2150,45 @@ private fun InstructionStep(
             )
         }
     }
+}
+
+/**
+ * Confirms exporting every buffered frame as its own gallery photo.
+ *
+ * Dozens of full-resolution JPEGs landing in the gallery at once is storage
+ * and clutter worth a caution icon and an exact count — not a silent dump.
+ * The attitude EXIF stamped at capture travels with each frame.
+ */
+@Composable
+private fun SaveFramesConfirmation(
+    frameCount: Int,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                imageVector = Icons.Filled.Warning,
+                contentDescription = null,
+                tint = SphereActive,
+            )
+        },
+        title = { Text(text = stringResource(R.string.capture_save_frames_title)) },
+        text = {
+            Text(text = stringResource(R.string.capture_save_frames_message, frameCount))
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(text = stringResource(R.string.capture_save_frames_confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(text = stringResource(R.string.capture_save_frames_cancel))
+            }
+        },
+    )
 }
 
 /**

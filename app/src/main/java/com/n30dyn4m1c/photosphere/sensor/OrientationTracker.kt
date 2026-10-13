@@ -9,6 +9,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.util.Log
 import android.view.Surface
+import com.n30dyn4m1c.photosphere.util.Logging
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -290,6 +291,7 @@ class OrientationTracker(
             if (registered) {
                 sensorThread = thread
                 isListening = true
+                Log.i(Logging.TAG, "OrientationTracker: listening (sensor=$sensorType)")
             } else {
                 Log.w(TAG, "Rotation vector registration refused")
                 thread.quitSafely()
@@ -310,6 +312,7 @@ class OrientationTracker(
 
             sensorManager?.unregisterListener(this)
             isListening = false
+            Log.d(Logging.TAG, "OrientationTracker: stopped")
             // quitSafely, not quit: lets an event already queued finish its
             // matrix conversion instead of tearing the looper out from under it.
             sensorThread?.quitSafely()

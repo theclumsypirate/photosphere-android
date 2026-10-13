@@ -20,6 +20,7 @@ class PhotoSphereApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         Logging.installCrashHandler()
+        Log.i(Logging.TAG, "PhotoSphereApplication.onCreate")
         isOpenCvAvailable = OpenCVLoader.initLocal()
         if (isOpenCvAvailable) {
             Log.i(TAG, "OpenCV initialised: ${OpenCVLoader.OPENCV_VERSION}")

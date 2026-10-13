@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -60,6 +61,7 @@ import com.n30dyn4m1c.photosphere.storage.SphereImageStore
 import com.n30dyn4m1c.photosphere.storage.SphereImageStore.StitchedSphere
 import com.n30dyn4m1c.photosphere.ui.theme.PhotoSphereTheme
 import com.n30dyn4m1c.photosphere.ui.theme.PillShape
+import com.n30dyn4m1c.photosphere.util.Logging
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
@@ -68,6 +70,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Log.i(Logging.TAG, "MainActivity.onCreate")
         // Both bars stay transparent over the viewfinder, and both are forced to
         // *light* icons. The default follows the system's day/night setting,
         // which on a phone in light mode paints dark status-bar icons — over a
@@ -89,6 +92,36 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        Log.d(Logging.TAG, "MainActivity.onStart")
+    }
+
+    override fun onResume() {
+        super.onResume()
+        Log.d(Logging.TAG, "MainActivity.onResume")
+    }
+
+    override fun onPause() {
+        Log.d(Logging.TAG, "MainActivity.onPause")
+        super.onPause()
+    }
+
+    override fun onStop() {
+        Log.d(Logging.TAG, "MainActivity.onStop")
+        super.onStop()
+    }
+
+    override fun onDestroy() {
+        Log.d(Logging.TAG, "MainActivity.onDestroy")
+        super.onDestroy()
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        Log.w(Logging.TAG, "MainActivity.onLowMemory: memorie redusa")
     }
 
     companion object {

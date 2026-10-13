@@ -34,6 +34,8 @@ APP_TAGS = [
     "OrientationTracker",
     "CameraOptics",
     "PanoramaView",
+    "PanoramaResult",
+    "ImageBufferManager",
 ]
 EXIF_ORIENTATION_TAG = 0x0112
 
