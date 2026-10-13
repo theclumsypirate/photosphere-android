@@ -7,5 +7,5 @@
         every cold start.
     -->
     <color name="sphere_background">#FF0A0D10</color>
-    <color name="ic_launcher_background">#FF0B3D5C</color>
+    <color name="ic_launcher_background">#FF0F111A</color>
 </resources>

@@ -1,29 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A globe with latitude/longitude lines, sized for the 108dp adaptive-icon
-     canvas (the inner 72dp is the safe zone). -->
+<!-- Fluid-knot brand mark: two gradient strokes, no shadow (vectors have none).
+     512 viewport so the artwork's own coordinates carry over; the knot sits
+     inside the adaptive-icon safe zone. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
+    android:viewportWidth="512"
+    android:viewportHeight="512">
 
     <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M54,30a24,24 0 1,0 0.01,0zM54,34.5a19.5,19.5 0 1,1 -0.01,0zM54,34.5" />
+        android:fillColor="#00000000"
+        android:pathData="M156 180 C 220 120, 292 392, 356 332 C 400 290, 380 200, 310 200 C 240 200, 200 320, 156 332 Z"
+        android:strokeColor="@color/grad_knot_warm"
+        android:strokeLineCap="round"
+        android:strokeWidth="28" />
     <path
-        android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="3"
-        android:pathData="M30,54 L78,54" />
-    <path
-        android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="3"
-        android:pathData="M54,30 C42,42 42,66 54,78 C66,66 66,42 54,30" />
-    <path
-        android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="2.5"
-        android:pathData="M34.5,42.5 L73.5,42.5" />
-    <path
-        android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="2.5"
-        android:pathData="M34.5,65.5 L73.5,65.5" />
+        android:fillColor="#00000000"
+        android:pathData="M356 332 C 292 392, 220 120, 156 180 C 112 222, 132 312, 202 312 C 272 312, 312 192, 356 180 Z"
+        android:strokeAlpha="0.9"
+        android:strokeColor="@color/grad_knot_cool"
+        android:strokeLineCap="round"
+        android:strokeWidth="28" />
 </vector>
