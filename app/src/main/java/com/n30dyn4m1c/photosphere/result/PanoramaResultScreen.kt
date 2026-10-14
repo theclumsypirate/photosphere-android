@@ -35,7 +35,9 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -72,6 +74,7 @@ import androidx.core.content.FileProvider
 import com.n30dyn4m1c.photosphere.BuildConfig
 import com.n30dyn4m1c.photosphere.R
 import com.n30dyn4m1c.photosphere.storage.MediaExporter
+import com.n30dyn4m1c.photosphere.stitching.StitchStyle
 import com.n30dyn4m1c.photosphere.util.Logging
 import com.n30dyn4m1c.photosphere.storage.SphereImageStore
 import com.n30dyn4m1c.photosphere.storage.SphereImageStore.StitchedSphere
@@ -128,12 +131,24 @@ private enum class PreviewMode { Flat, Panorama }
  *   optional "save them as separate photos" export; empty when there is
  *   nothing to offer (e.g. an imported sphere)
  * @param onTakeAnother discards this sphere and returns to capture
+ * @param madeWith the style the current sphere was stitched with
+ * @param restitching the style being stitched right now, null when idle
+ * @param onRestitch re-stitches the buffered frames with another style;
+ *   null when the frames are gone (e.g. an imported sphere)
+ * @param restitchError the last restitch failure, shown once then consumed
+ *   through [onRestitchErrorShown]
+ * @param onRestitchErrorShown clears [restitchError] after it was shown
  */
 @Composable
 fun PanoramaResultScreen(
     sphere: StitchedSphere,
     frameFiles: List<File>,
     onTakeAnother: () -> Unit,
+    madeWith: StitchStyle = StitchStyle.Balanced,
+    restitching: StitchStyle? = null,
+    onRestitch: ((StitchStyle) -> Unit)? = null,
+    restitchError: String? = null,
+    onRestitchErrorShown: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -246,6 +261,13 @@ fun PanoramaResultScreen(
     // Back means "I'm done with this one" — the same thing the button does.
     // Without this, back would leave the activity with a sphere still cached.
     BackHandler(onBack = ::leave)
+
+    LaunchedEffect(restitchError) {
+        if (restitchError != null) {
+            snackbarHostState.showSnackbar(restitchError)
+            onRestitchErrorShown()
+        }
+    }
 
     if (isConfirmingDiscard) {
         DiscardConfirmation(
@@ -469,8 +491,11 @@ fun PanoramaResultScreen(
                 },
                 onTakeAnother = ::leave,
                 frameCount = frameFiles.size,
-                canSaveFrames = frameFiles.isNotEmpty() && !isWorking,
+                canSaveFrames = frameFiles.isNotEmpty() && !isWorking && restitching == null,
                 onSaveFrames = { showSaveFramesDialog = true },
+                madeWith = madeWith,
+                restitching = restitching,
+                onRestitch = onRestitch,
             )
         }
     }
@@ -670,10 +695,16 @@ private fun ResultActions(
     frameCount: Int,
     canSaveFrames: Boolean,
     onSaveFrames: () -> Unit,
+    madeWith: StitchStyle,
+    restitching: StitchStyle?,
+    onRestitch: ((StitchStyle) -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     val isExported = exportState is ExportState.Done
     val isWorking = exportState is ExportState.Working
+    // A re-stitch replaces the file every other button reads, so while one
+    // runs the rest wait — same rule as an export in flight.
+    val isBusy = isWorking || restitching != null
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -691,7 +722,7 @@ private fun ResultActions(
             // Disabled once it has landed rather than hidden: "Saved to gallery"
             // is the answer to "did that work?", and re-tapping would only file a
             // second copy.
-            enabled = !isWorking && !isExported,
+            enabled = !isBusy && !isExported,
             colors = ButtonDefaults.buttonColors(
                 // A landed export keeps the accent instead of greying out. It is
                 // disabled because the work is done, not because it is
@@ -757,7 +788,7 @@ private fun ResultActions(
                     .weight(1f)
                     .height(50.dp),
                 shape = PillShape,
-                enabled = !isWorking,
+                enabled = !isBusy,
                 onClick = onShare,
             ) {
                 Icon(
@@ -777,7 +808,7 @@ private fun ResultActions(
                 shape = PillShape,
                 // Held back during an export: the sphere it is copying from is
                 // the file this button deletes.
-                enabled = !isWorking,
+                enabled = !isBusy,
                 onClick = onTakeAnother,
             ) {
                 Icon(
@@ -789,6 +820,57 @@ private fun ResultActions(
                     modifier = Modifier.padding(start = 8.dp),
                     text = stringResource(R.string.result_take_another),
                 )
+            }
+        }
+
+        // Same frames, another seam style — for when this stitch has a flaw
+        // worth re-rolling. Only while the frames are still buffered; an
+        // imported sphere has nothing to re-stitch from.
+        if (onRestitch != null) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.restitch_as),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(
+                        8.dp,
+                        Alignment.CenterHorizontally,
+                    ),
+                ) {
+                    RestitchChip(
+                        text = stringResource(R.string.restitch_balanced),
+                        selected = madeWith == StitchStyle.Balanced,
+                        enabled = !isBusy,
+                        onClick = { onRestitch(StitchStyle.Balanced) },
+                    )
+                    RestitchChip(
+                        text = stringResource(R.string.restitch_crisp),
+                        selected = madeWith == StitchStyle.Crisp,
+                        enabled = !isBusy,
+                        onClick = { onRestitch(StitchStyle.Crisp) },
+                    )
+                    RestitchChip(
+                        text = stringResource(R.string.restitch_careful),
+                        selected = madeWith == StitchStyle.Careful,
+                        enabled = !isBusy,
+                        onClick = { onRestitch(StitchStyle.Careful) },
+                    )
+                }
+                if (restitching != null) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    Text(
+                        text = stringResource(R.string.restitching),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
 
@@ -805,6 +887,24 @@ private fun ResultActions(
             )
         }
     }
+}
+
+/** One stitch style pill in the "Restitch as" row. */
+@Composable
+private fun RestitchChip(
+    text: String,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    // Tapping the current style re-stitches identically: harmless but
+    // pointless, so the landed style stays marked and the others invite.
+    FilterChip(
+        selected = selected,
+        enabled = enabled,
+        onClick = onClick,
+        label = { Text(text = text) },
+    )
 }
 
 /**

@@ -140,6 +140,11 @@
     <string name="result_share">Share</string>
     <string name="result_share_failed">No app on this device can receive a photo.</string>
     <string name="result_take_another">New photo</string>
+    <string name="restitch_as">Restitch as:</string>
+    <string name="restitch_balanced">Balanced</string>
+    <string name="restitch_crisp">Crisp</string>
+    <string name="restitch_careful">Careful</string>
+    <string name="restitching">Restitching…</string>
     <string name="result_discard_title">Discard this photo?</string>
     <string name="result_discard_message">It hasn\'t been saved to your gallery yet, so starting a new one deletes it for good.</string>
     <string name="result_discard_confirm">Discard</string>

@@ -65,12 +65,18 @@ import com.n30dyn4m1c.photosphere.storage.rememberImageBufferManager
 import com.n30dyn4m1c.photosphere.result.PanoramaResultScreen
 import com.n30dyn4m1c.photosphere.sensor.OrientationDebugScreen
 import com.n30dyn4m1c.photosphere.settings.SettingsScreen
+import com.n30dyn4m1c.photosphere.stitching.RestitchOffer
+import com.n30dyn4m1c.photosphere.stitching.SphereWriteFailed
+import com.n30dyn4m1c.photosphere.stitching.StitchStyle
+import com.n30dyn4m1c.photosphere.stitching.restitchSphere
 import com.n30dyn4m1c.photosphere.storage.SphereImageStore
 import com.n30dyn4m1c.photosphere.storage.SphereImageStore.StitchedSphere
 import com.n30dyn4m1c.photosphere.ui.theme.PhotoSphereTheme
 import com.n30dyn4m1c.photosphere.ui.theme.PillShape
 import com.n30dyn4m1c.photosphere.util.Logging
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 
@@ -203,10 +209,59 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
     val buffer = rememberImageBufferManager()
     val frameFiles = remember(sphere) { buffer.files() }
 
+    // Re-stitching ("Restitch as: Balanced / Crisp / Careful"): the offer
+    // arrives with the sphere and dies with it. The work runs in this
+    // scope, which outlives the camera screen.
+    var restitchOffer by remember { mutableStateOf<RestitchOffer?>(null) }
+    var restitchStyle by remember { mutableStateOf(StitchStyle.Balanced) }
+    var restitching by remember { mutableStateOf<StitchStyle?>(null) }
+    var restitchError by remember { mutableStateOf<String?>(null) }
+    var restitchJob by remember { mutableStateOf<Job?>(null) }
+    val appContext = LocalContext.current.applicationContext
+
+    fun restitch(style: StitchStyle) {
+        val offer = restitchOffer ?: return
+        if (restitching != null) return
+        restitching = style
+        restitchError = null
+        restitchJob = scope.launch {
+            try {
+                val replacement = restitchSphere(
+                    context = appContext,
+                    frames = offer.frames(),
+                    params = offer.params,
+                    style = style,
+                )
+                sphere = replacement
+                restitchStyle = style
+                Logging.i("Restitched as $style")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Logging.e("Restitch failed", e)
+                restitchError = if (e is SphereWriteFailed) {
+                    appContext.getString(R.string.stitch_error_write_failed)
+                } else {
+                    appContext.getString(
+                        R.string.stitch_failed,
+                        e.message.orEmpty(),
+                    )
+                }
+            } finally {
+                restitching = null
+            }
+        }
+    }
+
     /** Throws away the finished sphere and goes back to capture. */
     fun discardSphere() {
         val finished = sphere ?: return
         sphere = null
+        restitchOffer = null
+        // A re-stitch in flight would otherwise land after the teardown and
+        // put the result screen back up with nothing behind it.
+        restitchJob?.cancel()
+        restitchJob = null
         Logging.i("Discarding sphere ${finished.file.name}")
         // NonCancellable: this runs as the result screen is being torn down, and
         // a several-megabyte JPEG left in the cache is exactly what the next
@@ -229,6 +284,11 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
                 sphere = finished,
                 frameFiles = frameFiles,
                 onTakeAnother = { discardSphere() },
+                madeWith = restitchStyle,
+                restitching = restitching,
+                onRestitch = restitchOffer?.let { { style: StitchStyle -> restitch(style) } },
+                restitchError = restitchError,
+                onRestitchErrorShown = { restitchError = null },
             )
 
             entry == null -> EntryChooser(
@@ -247,6 +307,7 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
                 onSphereReady = {
                     Logging.i("Sphere ready: ${it.file.name} (import)")
                     sphere = it
+                    restitchOffer = null
                 },
                 onBack = { entry = null },
             )
@@ -255,9 +316,11 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
                 permissions = MainActivity.REQUIRED_PERMISSIONS,
             ) {
                 PhotoSphereCameraScreen(
-                    onSphereReady = {
-                        Logging.i("Sphere ready: ${it.file.name} (capture)")
-                        sphere = it
+                    onSphereReady = { stitched, offer ->
+                        Logging.i("Sphere ready: ${stitched.file.name} (capture)")
+                        sphere = stitched
+                        restitchOffer = offer
+                        restitchStyle = offer?.madeWith ?: StitchStyle.Balanced
                     }
                 )
             }

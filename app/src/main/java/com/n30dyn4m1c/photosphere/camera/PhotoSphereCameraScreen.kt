@@ -119,7 +119,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
-import androidx.exifinterface.media.ExifInterface
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.n30dyn4m1c.photosphere.BuildConfig
@@ -131,12 +130,17 @@ import com.n30dyn4m1c.photosphere.sensor.currentDisplayRotation
 import com.n30dyn4m1c.photosphere.sensor.rememberOrientationTracker
 import com.n30dyn4m1c.photosphere.stitching.CameraPose
 import com.n30dyn4m1c.photosphere.stitching.PhotoSphereStitcher
+import com.n30dyn4m1c.photosphere.stitching.RestitchOffer
+import com.n30dyn4m1c.photosphere.stitching.RestitchParams
 import com.n30dyn4m1c.photosphere.stitching.SeamMode
 import com.n30dyn4m1c.photosphere.stitching.SphereFrame
 import com.n30dyn4m1c.photosphere.stitching.StitchException
 import com.n30dyn4m1c.photosphere.stitching.StitchProgress
 import com.n30dyn4m1c.photosphere.stitching.StitchStage
 import com.n30dyn4m1c.photosphere.stitching.StitchStatus
+import com.n30dyn4m1c.photosphere.stitching.StitchStyle
+import com.n30dyn4m1c.photosphere.stitching.stitchDiagnostics
+import com.n30dyn4m1c.photosphere.stitching.toSphereFrame
 import com.n30dyn4m1c.photosphere.storage.ImageBufferManager
 import com.n30dyn4m1c.photosphere.storage.MediaExporter
 import com.n30dyn4m1c.photosphere.storage.SessionSupersededException
@@ -231,11 +235,12 @@ private const val RING_LATITUDE_SPAN_FACTOR = 1.3f
  * `MainActivity.RequirePermissions`.
  *
  * @param onSphereReady called on the main thread with a finished sphere, once
- *   the frames it was built from have been cleared
+ *   the frames it was built from have been cleared. The offer carries what a
+ *   re-stitch needs: same frames, same settings, another seam style.
  */
 @Composable
 fun PhotoSphereCameraScreen(
-    onSphereReady: (StitchedSphere) -> Unit,
+    onSphereReady: (StitchedSphere, RestitchOffer?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -1152,7 +1157,35 @@ fun PhotoSphereCameraScreen(
                         // composition either way.
                         resetGuidance()
                         Logging.i("Sphere ready ${stitched.width}x${stitched.height}")
-                        onSphereReady(stitched)
+                        // Same frames, same settings, another seam style on
+                        // request: the result screen can re-stitch without
+                        // this screen, so the params travel with the sphere.
+                        // The frame list is read at tap time, not now.
+                        val centerLongitude = if (planStartYawDegrees.isNaN()) {
+                            0f
+                        } else {
+                            planStartYawDegrees
+                        }
+                        onSphereReady(
+                            stitched,
+                            RestitchOffer(
+                                madeWith = StitchStyle.forSeam(seamMode),
+                                params = RestitchParams(
+                                    fieldOfView = fieldOfView,
+                                    optics = optics,
+                                    distortionEnabled = distortionEnabled,
+                                    maxInputDimension = deviceProfile.stitchMaxInputDimension,
+                                    maxOutputWidth = deviceProfile.stitchMaxOutputWidth,
+                                    unsharpAmount = deviceProfile.unsharpAmount,
+                                    pivot = deviceProfile.pivot,
+                                    useRefinement = refinementEnabled,
+                                    debugColors = colorFrames,
+                                    latitudeSpanDegrees = latitudeSpanDegrees,
+                                    centerLongitudeDegrees = centerLongitude,
+                                ),
+                                frames = { buffer.frames.value.map { it.toSphereFrame() } },
+                            ),
+                        )
                     }
                     .onFailure { error ->
                         Logging.e("Stitch failed", error)
@@ -2411,60 +2444,6 @@ private fun captureHint(    isSensorAvailable: Boolean,
     completedRings > 0 -> stringResource(R.string.capture_hint_ring_done, completedRings, ringCount)
     else -> stringResource(R.string.capture_hint_search)
 }
-
-/**
- * Debug-only summary of what a stitch was built from, for the result screen.
- *
- * The pose column is what decides whether frames land where they were shot:
- * yaw should sweep across a capture, pitch should follow the rings, and roll
- * should stay small when the phone is held level. When a sphere comes out
- * scrambled this is the first place to look.
- *
- * The EXIF column is the other half of the puzzle: the stitch decodes each
- * JPEG upright via its `ORIENTATION` tag, and a frame that lost that tag
- * decodes landscape and lands rotated 90° against its pose.
- */
-private fun stitchDiagnostics(
-    frames: List<SphereFrame>,
-    fieldOfView: FieldOfView,
-    optics: SphereOptics,
-    distortionApplied: Boolean,
-    refinementApplied: Boolean,
-    seamMode: SeamMode,
-    debugColors: Boolean = false,
-): String {
-    val poses = frames.mapIndexed { index, frame ->
-        val exif = runCatching {
-            ExifInterface(frame.file).getAttributeInt(
-                ExifInterface.TAG_ORIENTATION,
-                ExifInterface.ORIENTATION_NORMAL,
-            )
-        }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
-        "  #$index yaw ${frame.pose.yawDegrees.roundToInt()}° " +
-            "pitch ${frame.pose.pitchDegrees.roundToInt()}° roll ${frame.pose.rollDegrees.roundToInt()}°" +
-            " exif=$exif"
-    }.joinToString(separator = "\n")
-    val device = listOfNotNull(
-        Build.MANUFACTURER,
-        Build.MODEL,
-    ).joinToString(" ")
-    val distortion = optics.radialDistortion
-        ?.coefficients
-        ?.joinToString(prefix = "[", postfix = "]") { "%.4f".format(it) }
-        ?: "none"
-    return "Device: $device\n" +
-        "FOV: ${fieldOfView.horizontalDegrees.roundToInt()}° x " +
-        "${fieldOfView.verticalDegrees.roundToInt()}° (screen) " +
-        "rotation=${optics.portraitRotationDegrees}°\n" +
-        "Distortion k: $distortion ${if (distortionApplied) "applied" else "OFF (pinhole)"}\n" +
-        "Refinement: ${if (refinementApplied) "on" else "off (sensor poses)"}\n" +
-        "Seams: ${when (seamMode) {
-            SeamMode.Blend -> "off (blend)"
-            SeamMode.Carve -> "on (carved)"
-            SeamMode.WinnerTakeAll -> "on (winner)"
-        }}\n" +
-        (if (debugColors) "Colors: SOLID DEBUG FRAMES (placement check, not a photo)\n" else "") +
-        "Frames (capture order):\n$poses"}
 
 /** Writes one frame to the session's cache directory and buffers it.
  *
