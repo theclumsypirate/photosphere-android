@@ -46,6 +46,8 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.n30dyn4m1c.photosphere.camera.AlignmentGate
 import com.n30dyn4m1c.photosphere.camera.CaptureFeedback
+import com.n30dyn4m1c.photosphere.camera.FocusReticle
+import com.n30dyn4m1c.photosphere.camera.FocusReticleOverlay
 import com.n30dyn4m1c.photosphere.camera.GuidanceFeedback
 import com.n30dyn4m1c.photosphere.camera.GuidanceProfile
 import com.n30dyn4m1c.photosphere.camera.rememberCaptureFeedback
@@ -259,6 +261,30 @@ fun OrbitCaptureScreen(
         ) {
             AndroidView(
                 factory = { previewView },
+                modifier = Modifier.fillMaxSize(),
+            )
+            // Same aim point and focus square as the sphere capture: the
+            // ring warms as the aim closes in and fills with the dwell,
+            // the square sits centred and locks green on target.
+            val aimDistance = if (activeTarget == null) {
+                0f
+            } else {
+                OrbitGuidance.distanceDegrees(plan, orientation.yawDegrees, activeTarget)
+            }
+            val onTarget = activeTarget != null &&
+                plan.isOnTarget(orientation.yawDegrees, activeTarget)
+            OrbitReticleOverlay(
+                distanceDegrees = aimDistance,
+                thresholdDegrees = ORBIT_DWELL_DEGREES,
+                dwellProgress = dwellProgress,
+            )
+            FocusReticleOverlay(
+                focus = FocusReticle(
+                    x = 0.5f,
+                    y = 0.5f,
+                    isWorking = false,
+                    isLocked = onTarget,
+                ),
                 modifier = Modifier.fillMaxSize(),
             )
             Column(
