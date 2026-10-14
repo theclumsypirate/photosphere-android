@@ -37,6 +37,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.exifinterface.media.ExifInterface
 import com.n30dyn4m1c.photosphere.storage.MediaExporter
+import com.n30dyn4m1c.photosphere.storage.SphereImageStore.StitchedSphere
 import com.n30dyn4m1c.photosphere.util.Logging
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -47,15 +48,18 @@ import kotlinx.coroutines.withContext
  * Swipe through the finished walk, one angle per page.
  *
  * Drag side to side to turn the subject around. "Save all" files every
- * angle to the gallery; "New walk" throws the set away and starts over.
- * Nothing here touches the rest of the app.
+ * angle to the gallery; "Stitch 360" sews the walk into one continuous
+ * turntable photo with the main stitching pipeline; "New walk" throws
+ * the set away and starts over.
  *
  * @param onNewWalk discards this set and returns to the orbit camera.
+ * @param onStitched hands a finished orbit sphere to the result screen.
  */
 @Composable
 fun OrbitViewerScreen(
     files: List<File>,
     onNewWalk: () -> Unit,
+    onStitched: (StitchedSphere) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -63,6 +67,7 @@ fun OrbitViewerScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var saving by remember { mutableStateOf(false) }
     var savedCount by remember { mutableStateOf<Int?>(null) }
+    var stitching by remember { mutableStateOf(false) }
     val pagerState = rememberPagerState(pageCount = { files.size })
 
     // System back returns to the camera for another walk.
@@ -122,6 +127,28 @@ fun OrbitViewerScreen(
                 horizontalArrangement = Arrangement.SpaceEvenly,
             ) {
                 TextButton(onClick = onNewWalk) { Text("New walk") }
+                Button(
+                    enabled = !saving && !stitching,
+                    onClick = {
+                        stitching = true
+                        scope.launch {
+                            runCatching {
+                                OrbitStitch.stitch(context, files)
+                            }.onSuccess { sphere ->
+                                Logging.i("Orbit stitched ${sphere.width}x${sphere.height}")
+                                onStitched(sphere)
+                            }.onFailure { error ->
+                                Logging.e("Orbit stitch failed", error)
+                                snackbarHostState.showSnackbar(
+                                    "Could not stitch: ${error.message.orEmpty()}",
+                                )
+                            }
+                            stitching = false
+                        }
+                    },
+                ) {
+                    Text(if (stitching) "Stitching…" else "Stitch 360")
+                }
                 Button(
                     enabled = !saving && savedCount == null,
                     onClick = {

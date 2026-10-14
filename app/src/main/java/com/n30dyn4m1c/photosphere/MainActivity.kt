@@ -344,6 +344,11 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
                     OrbitViewerScreen(
                         files = finishedWalk,
                         onNewWalk = { orbitFiles = null },
+                        onStitched = { stitched ->
+                            Logging.i("Sphere ready: ${stitched.file.name} (orbit)")
+                            sphere = stitched
+                            restitchOffer = null
+                        },
                     )
                 }
             }

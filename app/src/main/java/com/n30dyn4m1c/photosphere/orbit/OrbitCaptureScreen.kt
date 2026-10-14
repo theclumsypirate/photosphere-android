@@ -58,6 +58,7 @@ import com.n30dyn4m1c.photosphere.camera.rememberGuidanceFeedback
 import com.n30dyn4m1c.photosphere.R
 import com.n30dyn4m1c.photosphere.sensor.rememberOrientationData
 import com.n30dyn4m1c.photosphere.storage.MediaExporter
+import com.n30dyn4m1c.photosphere.storage.SphereImageStore
 import com.n30dyn4m1c.photosphere.ui.theme.GlassContent
 import com.n30dyn4m1c.photosphere.ui.theme.GlassSurface
 import com.n30dyn4m1c.photosphere.ui.theme.PillShape
@@ -227,6 +228,20 @@ fun OrbitCaptureScreen(
                     shutterSound.onFrameCaptured()
                     guidance.dwellTick()
                     Logging.i("Orbit angle $index captured")
+                    // Same EXIF pose stamp as the main camera: the stitcher
+                    // places each angle from it, no re-shoot needed.
+                    val shotYaw = orientation.yawDegrees
+                    val shotPitch = orientation.pitchDegrees
+                    val shotRoll = orientation.rollDegrees
+                    scope.launch(Dispatchers.IO) {
+                        SphereImageStore.stampCaptureOrientation(
+                            OrbitStore.angleFile(walkDirectory, index),
+                            index,
+                            shotYaw,
+                            shotPitch,
+                            shotRoll,
+                        )
+                    }
                 }
 
                 override fun onError(error: ImageCaptureException) {
