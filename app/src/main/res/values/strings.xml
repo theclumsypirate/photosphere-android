@@ -54,6 +54,7 @@
     <string name="entry_import">Import photos</string>
     <string name="entry_orbit">Person / Object</string>
     <string name="orbit_finish">Done</string>
+    <string name="orbit_start_capturing">Start capturing</string>
 
     <!-- Photo import: stitch pictures already on the device. -->
     <string name="import_title">Import photos</string>

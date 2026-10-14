@@ -367,7 +367,7 @@ fun OrbitCaptureScreen(
                         .align(Alignment.BottomCenter)
                         .padding(bottom = 32.dp),
                 ) {
-                    Text("Start walk")
+                    Text(stringResource(R.string.orbit_start_capturing))
                 }
             } else if (currentPlan != null) {
                 OrbitHud(
