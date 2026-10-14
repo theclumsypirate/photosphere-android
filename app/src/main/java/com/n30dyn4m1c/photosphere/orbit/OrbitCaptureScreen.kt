@@ -153,7 +153,7 @@ fun OrbitCaptureScreen(
             output,
             ContextCompat.getMainExecutor(context),
             object : ImageCapture.OnImageSavedCallback {
-                override fun onImageSaved(results: ImageCapture.OutputResults) {
+                override fun onImageSaved(results: ImageCapture.OutputFileResults) {
                     capturing = false
                     captured = captured + index
                     Logging.i("Orbit angle $index captured")
