@@ -347,12 +347,19 @@ fun OrbitCaptureScreen(
             } else {
                 currentPlan.turnTo(orientation.yawDegrees, activeTarget)
             }
-            if (started) {
+            val walkPlan = currentPlan
+            if (started && walkPlan != null) {
                 OrbitReticleOverlay(
                     distanceDegrees = aimDistance,
                     thresholdDegrees = ORBIT_DWELL_DEGREES,
                     dwellProgress = dwellProgress,
                     turnDegrees = turn,
+                )
+                OrbitTargetsOverlay(
+                    plan = walkPlan,
+                    currentYawDegrees = orientation.yawDegrees,
+                    activeIndex = activeTarget,
+                    captured = captured,
                 )
             }
             val square = tapPoint?.takeUnless { started }

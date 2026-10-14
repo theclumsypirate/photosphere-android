@@ -126,3 +126,57 @@ private fun DrawScope.edgePosition(direction: Offset, margin: Float): Offset {
 }
 
 private const val ORBIT_RETICLE_RADIUS_FRACTION = 0.16f
+private const val ORBIT_HFOV_DEGREES = 60f
+
+/**
+ * The target dots copied from the sphere capture: one per walk angle,
+ * placed left or right of centre by compass bearing. Done angles are
+ * green dots, upcoming ones white outlines, the active one an amber
+ * ring. Bearings outside the view simply have no dot; the edge chevron
+ * above points the way to them.
+ */
+@Composable
+fun OrbitTargetsOverlay(
+    plan: OrbitPlan,
+    currentYawDegrees: Float,
+    activeIndex: Int?,
+    captured: Set<Int>,
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier = modifier.fillMaxSize()) {
+        val halfFov = ORBIT_HFOV_DEGREES / 2f
+        val margin = 24.dp.toPx()
+        val cy = size.height / 2f
+        plan.angles.forEachIndexed { index, bearing ->
+            val rel = wrapDelta(bearing - currentYawDegrees)
+            if (abs(rel) > halfFov) return@forEachIndexed
+            val x = size.width / 2f + (rel / halfFov) * (size.width / 2f - margin)
+            when {
+                index in captured -> drawCircle(
+                    color = SphereAccent,
+                    radius = 5.dp.toPx(),
+                    center = Offset(x, cy),
+                )
+                index == activeIndex -> {
+                    drawCircle(
+                        color = SphereActive,
+                        radius = 16.dp.toPx(),
+                        center = Offset(x, cy),
+                        style = Stroke(width = 5.dp.toPx()),
+                    )
+                    drawCircle(
+                        color = SphereActive,
+                        radius = 5.dp.toPx(),
+                        center = Offset(x, cy),
+                    )
+                }
+                else -> drawCircle(
+                    color = Color.White.copy(alpha = 0.32f),
+                    radius = 7.dp.toPx(),
+                    center = Offset(x, cy),
+                    style = Stroke(width = 1.5.dp.toPx()),
+                )
+            }
+        }
+    }
+}
