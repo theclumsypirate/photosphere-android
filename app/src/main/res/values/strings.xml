@@ -52,6 +52,7 @@
     <string name="entry_title">Make a 360° photo</string>
     <string name="entry_capture">Capture with camera</string>
     <string name="entry_import">Import photos</string>
+    <string name="entry_orbit">Person / Object</string>
 
     <!-- Photo import: stitch pictures already on the device. -->
     <string name="import_title">Import photos</string>

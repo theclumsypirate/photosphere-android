@@ -10,6 +10,7 @@ import androidx.core.content.FileProvider
 import androidx.exifinterface.media.ExifInterface
 import com.n30dyn4m1c.photosphere.metadata.GPanoMetadata
 import com.n30dyn4m1c.photosphere.metadata.GPanoXmpInjector
+import com.n30dyn4m1c.photosphere.orbit.OrbitStore
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -361,6 +362,10 @@ object SphereImageStore {
         val spheres = File(context.cacheDir, SPHERES_DIRECTORY)
         if (spheres.exists() && !spheres.deleteRecursively()) {
             Logging.w("Could not clear sphere cache")
+        }
+        val walks = File(context.cacheDir, OrbitStore.WALKS_DIRECTORY)
+        if (walks.exists() && !walks.deleteRecursively()) {
+            Logging.w("Could not clear orbit walk cache")
         }
     }
 
