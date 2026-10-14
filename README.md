@@ -8,6 +8,12 @@
   <b>Android app for guided capture and stitching of 360° photo spheres.</b>
 </p>
 
+<p align="center">
+  <a href="https://github.com/theclumsypirate/photosphere-android/releases/latest"><img src="https://img.shields.io/github/v/release/theclumsypirate/photosphere-android?label=release" alt="Latest release"></a>
+  <img src="docs/assets/badge-android.svg" alt="Android 8.0 or later">
+  <a href="LICENSE"><img src="docs/assets/badge-licence.svg" alt="Licence"></a>
+</p>
+
 ## What it does
 
 It has a built in camera that guides you frame by frame and takes each photo
