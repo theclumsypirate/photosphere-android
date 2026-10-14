@@ -56,6 +56,7 @@
     <string name="orbit_finish">Done</string>
     <string name="orbit_tap_subject">Tap the subject, then walk around it</string>
     <string name="orbit_subject_locked">Subject locked</string>
+    <string name="orbit_confirm">Confirm</string>
 
     <!-- Photo import: stitch pictures already on the device. -->
     <string name="import_title">Import photos</string>

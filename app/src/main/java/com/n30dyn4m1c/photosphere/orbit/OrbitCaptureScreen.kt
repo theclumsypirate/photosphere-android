@@ -174,16 +174,8 @@ fun OrbitCaptureScreen(
     var tapPoint by remember { mutableStateOf<Offset?>(null) }
     var previewSize by remember { mutableStateOf(IntSize.Zero) }
 
-    // Subject tap starts the walk by itself after a beat: no button on
-    // the first page. The tapped bearing becomes angle zero.
-    LaunchedEffect(tapPoint) {
-        if (!started && tapPoint != null) {
-            delay(ORBIT_START_DELAY_MILLIS)
-            plan = orbitPlan(angleCount, orientation.yawDegrees)
-            started = true
-            Logging.i("Orbit walk started")
-        }
-    }
+    // The tap only locks the subject; the walk starts from the Confirm
+    // button below, so the choice is deliberate, never blind.
     val gate = remember(angleCount) { AlignmentGate(ORBIT_DWELL_DEGREES, ORBIT_DWELL_MILLIS) }
     var capturing by remember { mutableStateOf(false) }
     var dwellProgress by remember { mutableFloatStateOf(0f) }
@@ -405,20 +397,41 @@ fun OrbitCaptureScreen(
                 modifier = Modifier.fillMaxSize(),
             )
             if (!started) {
-                // No button on the first page: the tap on the subject
-                // starts the walk by itself (see the effect above).
-                Surface(
-                    shape = PillShape,
-                    color = GlassSurface,
-                    modifier = Modifier.align(Alignment.BottomCenter)
-                        .padding(bottom = 32.dp),
+                // The tap only locks the subject; Confirm below starts the
+                // walk, so the choice is deliberate, never blind.
+                Column(
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Text(
-                        text = stringResource(R.string.orbit_tap_subject),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = GlassContent,
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 13.dp),
-                    )
+                    Surface(
+                        shape = PillShape,
+                        color = GlassSurface,
+                        modifier = Modifier.padding(bottom = 12.dp),
+                    ) {
+                        Text(
+                            text = stringResource(
+                                if (tapPoint == null) {
+                                    R.string.orbit_tap_subject
+                                } else {
+                                    R.string.orbit_subject_locked
+                                },
+                            ),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = GlassContent,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 13.dp),
+                        )
+                    }
+                    Button(
+                        enabled = tapPoint != null,
+                        onClick = {
+                            plan = orbitPlan(angleCount, orientation.yawDegrees)
+                            started = true
+                            Logging.i("Orbit walk started")
+                        },
+                        modifier = Modifier.padding(bottom = 32.dp),
+                    ) {
+                        Text(stringResource(R.string.orbit_confirm))
+                    }
                 }
             } else if (currentPlan != null) {
                 OrbitHud(
@@ -510,4 +523,3 @@ private const val ORBIT_DWELL_DEGREES = 6f
 private const val ORBIT_DWELL_MILLIS = 800L
 private const val VOICE_SETTLE_MILLIS = 600L
 private const val ORBIT_MIN_FINISH = 3
-private const val ORBIT_START_DELAY_MILLIS = 1200L
