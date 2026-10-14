@@ -52,3 +52,8 @@ appears twice (true motion, not ghosting).
   averaging. With v7 ownership (aligned by construction) it fixes the
   exposure tiles. Bindings that work: `prepare((x,y,w,h))` single
   tuple, `feed` int16 image + uint8 mask, `blend(None, None)`.
+
+- **v12** — critic top-5 fixes: pole bands pinned to single sources
+  (zenith rows to nearest up-ring frame, nadir rows to nearest
+  down-ring frame), 6 multiband bands, 128px wrap blend, 3px boundary
+  soften along ownership edges.
