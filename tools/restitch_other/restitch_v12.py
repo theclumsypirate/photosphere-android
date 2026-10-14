@@ -117,7 +117,7 @@ def main():
     # Gain-corrected seam-res images for the cut.
     imgs = [(cv2.resize(w, (sw, sh), interpolation=cv2.INTER_AREA)
              .astype(np.float32) * np.float32(g)) for w, g in zip(warped, gains)]
-    covs = [co & ~st for co, st in zip(small_cov, steep)]
+    covs = [np.zeros_like(co) if st else co for co, st in zip(small_cov, steep)]
     stacked = np.stack([im * co[..., None] for im, co in zip(imgs, covs)])
     counts = np.stack(covs).sum(axis=0)
     mean = stacked.sum(axis=0) / np.maximum(counts, 1)[..., None]

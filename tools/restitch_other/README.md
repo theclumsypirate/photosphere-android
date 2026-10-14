@@ -57,3 +57,11 @@ appears twice (true motion, not ghosting).
   (zenith rows to nearest up-ring frame, nadir rows to nearest
   down-ring frame), 6 multiband bands, 128px wrap blend, 3px boundary
   soften along ownership edges.
+
+- **v13 (abandoned, file removed)** — ORB/SIFT rotation refinement of
+  sensor poses (Kotlin PoseRefiner gates: 1500 features, Lowe 0.8,
+  2deg RANSAC, 12+ inliers, max 6deg correction). Result: 0 inliers
+  on every pair, both ORB and SIFT. Indoor texture is too repetitive
+  and parallax breaks the rotation-only model. Sensor poses stand as
+  truth, same as the Kotlin default (refinement OFF). v13 output was
+  identical to v12.
