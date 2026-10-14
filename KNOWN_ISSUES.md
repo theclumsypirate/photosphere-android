@@ -1,6 +1,6 @@
 # Known issues
 
-Things that look like bugs but are physics, hardware limits, or trade-offs.
+Things that look like bugs but are physics, hardware limits, or trade-offs ,
 **if you know a concrete way how to fix them** then file a bug report.
 
 ## Ghosting and sliced objects
