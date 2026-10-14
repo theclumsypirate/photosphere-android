@@ -39,12 +39,9 @@ on older phones.
 - [Design](docs/design.md) — dark UI, signals, accessibility
 - [Status](docs/status.md) — what's done, what's left
 
----
 
 ## Contributing
 Before filing a bug, read [this](KNOWN_ISSUES.md).
-
----
 
 ## Credits
 
