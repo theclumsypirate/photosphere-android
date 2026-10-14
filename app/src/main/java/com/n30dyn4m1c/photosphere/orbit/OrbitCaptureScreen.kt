@@ -2,9 +2,11 @@ package com.n30dyn4m1c.photosphere.orbit
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -21,13 +23,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -39,7 +44,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.n30dyn4m1c.photosphere.camera.AlignmentGate
+import com.n30dyn4m1c.photosphere.camera.CaptureFeedback
+import com.n30dyn4m1c.photosphere.camera.GuidanceFeedback
+import com.n30dyn4m1c.photosphere.camera.GuidanceProfile
+import com.n30dyn4m1c.photosphere.camera.rememberCaptureFeedback
+import com.n30dyn4m1c.photosphere.camera.rememberGuidanceFeedback
 import com.n30dyn4m1c.photosphere.sensor.rememberOrientationData
+import com.n30dyn4m1c.photosphere.ui.theme.PillShape
 import com.n30dyn4m1c.photosphere.util.Logging
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -49,15 +61,16 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Walk-around 360 capture for a person or an object.
+ * Walk-around 360 capture for a person or an object, with the full
+ * capture-screen experience: pill HUD, voice guidance, aim beeps, dwell
+ * auto-shutter, shutter feedback, brightness slider and retakes.
  *
- * Stand back, keep the subject centred, and walk around it: the screen
- * shows which bearing is next and fires the shutter on its own when the
- * aim holds still on target. Twelve angles by default. When the set is
- * complete the files go to [onDone] for the orbit viewer.
+ * Stand back, keep the subject centred, and walk around it through
+ * [angleCount] bearings. When the set is complete the files go to
+ * [onDone] in plan order for the orbit viewer.
  *
- * Fully self-contained: permission, camera, guidance and files all live
- * here, nothing outside the `orbit` package is modified.
+ * Self-contained apart from imports: nothing outside the `orbit`
+ * package is modified.
  *
  * @param onDone called with one file per angle, in plan order.
  * @param onBack leaves without keeping anything.
@@ -101,12 +114,16 @@ fun OrbitCaptureScreen(
     var captured by remember { mutableStateOf(setOf<Int>()) }
     val target = plan.nextTarget(captured)
 
+    val guidance: GuidanceFeedback = rememberGuidanceFeedback()
+    val shutterSound: CaptureFeedback = rememberCaptureFeedback()
+
     val previewView = remember {
         PreviewView(context).apply {
             scaleType = PreviewView.ScaleType.FILL_CENTER
         }
     }
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
+    var camera by remember { mutableStateOf<Camera?>(null) }
     LaunchedEffect(previewView) {
         val provider = withContext(Dispatchers.IO) {
             ProcessCameraProvider.getInstance(context).get()
@@ -121,7 +138,7 @@ fun OrbitCaptureScreen(
         imageCapture = capture
         runCatching {
             provider.unbindAll()
-            provider.bindToLifecycle(
+            camera = provider.bindToLifecycle(
                 lifecycleOwner,
                 CameraSelector.DEFAULT_BACK_CAMERA,
                 preview,
@@ -136,16 +153,15 @@ fun OrbitCaptureScreen(
     }
 
     val orientation by rememberOrientationData()
+    val gate = remember(angleCount) { AlignmentGate(ORBIT_DWELL_DEGREES, ORBIT_DWELL_MILLIS) }
     var capturing by remember { mutableStateOf(false) }
-    var dwellJob by remember { mutableStateOf<Job?>(null) }
-
-    // System back abandons the walk: half a circle is not a product.
-    BackHandler(onBack = onBack)
+    var dwellProgress by remember { mutableFloatStateOf(0f) }
 
     fun takePhoto(index: Int) {
         val capture = imageCapture ?: return
         if (capturing || index in captured) return
         capturing = true
+        gate.reset()
         val output = ImageCapture.OutputFileOptions.Builder(
             OrbitStore.angleFile(walkDirectory, index),
         ).build()
@@ -156,6 +172,8 @@ fun OrbitCaptureScreen(
                 override fun onImageSaved(results: ImageCapture.OutputFileResults) {
                     capturing = false
                     captured = captured + index
+                    shutterSound.onFrameCaptured()
+                    guidance.dwellTick()
                     Logging.i("Orbit angle $index captured")
                 }
 
@@ -170,17 +188,48 @@ fun OrbitCaptureScreen(
         )
     }
 
-    // Dwell shutter: hold the aim on target for a second and the photo
-    // takes itself. Any drift restarts the wait.
+    fun retake(index: Int) {
+        if (capturing) return
+        gate.reset()
+        scope.launch(Dispatchers.IO) {
+            runCatching { OrbitStore.angleFile(walkDirectory, index).delete() }
+            withContext(Dispatchers.Main) {
+                captured = captured - index
+                Logging.i("Orbit angle $index cleared for retake")
+            }
+        }
+    }
+
+    // Dwell shutter: the gate fires once the aim holds on target.
     val activeTarget = target
     LaunchedEffect(orientation.yawDegrees, activeTarget) {
-        dwellJob?.cancel()
-        dwellJob = null
-        if (activeTarget != null && plan.isOnTarget(orientation.yawDegrees, activeTarget)) {
-            dwellJob = launch {
-                delay(DWELL_MILLIS)
-                takePhoto(activeTarget)
-            }
+        if (activeTarget == null) return@LaunchedEffect
+        val distance = OrbitGuidance.distanceDegrees(plan, orientation.yawDegrees, activeTarget)
+        val reading = gate.update(distance, SystemClock.elapsedRealtime())
+        val previous = dwellProgress
+        dwellProgress = reading.dwellProgress
+        if (GuidanceProfile.crossedDwellMilestone(previous, reading.dwellProgress)) {
+            guidance.dwellTick()
+        }
+        if (reading.isAligned && plan.isOnTarget(orientation.yawDegrees, activeTarget)) {
+            takePhoto(activeTarget)
+        }
+    }
+
+    // Voice line per target, after a beat so it does not talk over itself.
+    LaunchedEffect(activeTarget) {
+        if (activeTarget == null) return@LaunchedEffect
+        delay(VOICE_SETTLE_MILLIS)
+        guidance.announce(OrbitGuidance.announceFor(plan, orientation.yawDegrees, activeTarget))
+    }
+
+    // Aim beeps: the closer, the faster.
+    LaunchedEffect(activeTarget, capturing) {
+        while (activeTarget != null && !capturing) {
+            val distance = OrbitGuidance.distanceDegrees(plan, orientation.yawDegrees, activeTarget)
+            val interval = GuidanceProfile.beepIntervalMillis(distance) ?: break
+            guidance.beep()
+            delay(interval)
         }
     }
 
@@ -191,6 +240,13 @@ fun OrbitCaptureScreen(
             onDone(files.filter { it.exists() })
         }
     }
+
+    // System back abandons the walk: half a circle is not a product.
+    BackHandler(onBack = onBack)
+
+    // Live exposure compensation, straight from the bound camera.
+    val exposureRange = camera?.cameraInfo?.exposureState?.exposureCompensationRange
+    var exposureIndex by remember { mutableStateOf(0) }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -211,40 +267,78 @@ fun OrbitCaptureScreen(
                     .padding(top = 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(
-                    text = "Angle ${captured.size + 1} of ${plan.angles.size}",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onPrimary,
-                )
-                Text(
-                    text = if (activeTarget == null) {
-                        "Done"
-                    } else {
-                        val turn = plan.turnTo(orientation.yawDegrees, activeTarget)
-                        when {
-                            plan.isOnTarget(orientation.yawDegrees, activeTarget) ->
-                                "Hold still…"
-                            turn > 0 -> "Turn right ${turn.toInt()}°"
-                            else -> "Turn left ${(-turn).toInt()}°"
-                        }
-                    },
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onPrimary,
-                )
+                Surface(shape = PillShape, color = MaterialTheme.colorScheme.primaryContainer) {
+                    Text(
+                        text = "Angle ${captured.size + 1} of ${plan.angles.size}",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
+                Surface(
+                    shape = PillShape,
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                    modifier = Modifier.padding(top = 8.dp),
+                ) {
+                    Text(
+                        text = if (activeTarget == null) {
+                            "Done"
+                        } else {
+                            OrbitGuidance.hintFor(plan, orientation.yawDegrees, activeTarget)
+                        },
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
             }
-            Row(
+            Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .padding(bottom = 24.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
+                    .padding(bottom = 20.dp, start = 24.dp, end = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                TextButton(onClick = onBack) { Text("Back") }
-                Button(
-                    enabled = !capturing && activeTarget != null,
-                    onClick = { activeTarget?.let { takePhoto(it) } },
+                if (exposureRange != null && exposureRange.upper > exposureRange.lower) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "Brightness",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.padding(end = 8.dp),
+                        )
+                        Slider(
+                            value = exposureIndex.toFloat(),
+                            onValueChange = { value ->
+                                exposureIndex = value.toInt()
+                                camera?.cameraControl?.setExposureCompensationIndex(exposureIndex)
+                            },
+                            valueRange = exposureRange.lower.toFloat()..
+                                exposureRange.upper.toFloat(),
+                            steps = (exposureRange.upper - exposureRange.lower - 1)
+                                .coerceAtLeast(0),
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
                 ) {
-                    Text("Shoot now")
+                    TextButton(onClick = onBack) { Text("Back") }
+                    val lastShot = captured.maxOrNull()
+                    TextButton(
+                        enabled = lastShot != null && !capturing,
+                        onClick = { lastShot?.let { retake(it) } },
+                    ) {
+                        Text("Retake")
+                    }
+                    Button(
+                        enabled = !capturing && activeTarget != null,
+                        onClick = { activeTarget?.let { takePhoto(it) } },
+                    ) {
+                        Text("Shoot now")
+                    }
                 }
             }
         }
@@ -265,4 +359,6 @@ private fun OrbitPermissionGate(onRetry: () -> Unit) {
     }
 }
 
-private const val DWELL_MILLIS = 1000L
+private const val ORBIT_DWELL_DEGREES = 6f
+private const val ORBIT_DWELL_MILLIS = 800L
+private const val VOICE_SETTLE_MILLIS = 600L
