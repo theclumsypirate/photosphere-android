@@ -31,7 +31,7 @@ Test builds come from the `build-debug` CI workflow — see
 
 ## Credits
 
-Original author: https://github.com/n30dyn4m1c/360-photo-app
+Original author: [n30dyn4m1c/360-photo-app](https://github.com/n30dyn4m1c/360-photo-app)
 
 ## License
 
