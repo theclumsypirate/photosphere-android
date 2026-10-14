@@ -31,7 +31,13 @@ Test builds come from the `build-debug` CI workflow — see
 
 ## Credits
 
-Original author: [n30dyn4m1c/360-photo-app](https://github.com/n30dyn4m1c/360-photo-app)
+| Project | Licence | How it is used |
+| --- | --- | --- |
+| [OpenCV](https://opencv.org) | Apache-2.0 | The stitching engine, fetched from Maven Central at build time and packaged in the APK. |
+| [CameraX](https://developer.android.com/training/camerax) | Apache-2.0 | Guided capture: preview, stills, exposure control. |
+| [Jetpack Compose + Material 3](https://developer.android.com/jetpack/compose) | Apache-2.0 | The whole UI, including the orbit walk and the result viewer. |
+| [ExifInterface](https://developer.android.com/jetpack/androidx/releases/exifinterface) | Apache-2.0 | Poses stamped into frames, rotation tags read back at stitch time. |
+| [n30dyn4m1c/360-photo-app](https://github.com/n30dyn4m1c/360-photo-app) | MIT | Original author. |
 
 ## License
 
