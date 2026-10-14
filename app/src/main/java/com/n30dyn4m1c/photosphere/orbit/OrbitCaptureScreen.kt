@@ -8,22 +8,22 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
+import androidx.camera.core.SurfaceOrientedMeteringPointFactory
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,13 +35,17 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.n30dyn4m1c.photosphere.camera.AlignmentGate
-import com.n30dyn4m1c.photosphere.camera.CaptureFeedback
 import com.n30dyn4m1c.photosphere.camera.FocusReticle
 import com.n30dyn4m1c.photosphere.camera.FocusReticleOverlay
 import com.n30dyn4m1c.photosphere.camera.GuidanceFeedback
@@ -53,19 +57,20 @@ import com.n30dyn4m1c.photosphere.storage.MediaExporter
 import com.n30dyn4m1c.photosphere.util.Logging
 import java.io.File
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Walk-around 360 capture for a person or an object, with the full
+ * Walk-around 360 capture for a chosen subject, with the full
  * capture-screen experience: pill HUD, voice guidance, aim beeps, dwell
  * auto-shutter, shutter feedback, brightness slider and retakes.
  *
- * Stand back, keep the subject centred, and walk around it through
- * [angleCount] bearings. When the set is complete the files go to
- * [onDone] in plan order for the orbit viewer.
+ * Two phases. First tap the subject (person, apple, anything): the lens
+ * meters on it and the walk starts from the bearing faced right then.
+ * Then walk around it through [angleCount] bearings while the screen
+ * guides each step. When the set is complete the files go to [onDone]
+ * in plan order for the orbit viewer.
  *
  * Self-contained apart from imports: nothing outside the `orbit`
  * package is modified.
@@ -108,12 +113,16 @@ fun OrbitCaptureScreen(
     LaunchedEffect(walkDirectory) {
         withContext(Dispatchers.IO) { OrbitStore.pruneWalks(context, walkDirectory) }
     }
-    val plan = remember(angleCount) { orbitPlan(angleCount) }
+
+    // Phase one: no plan yet. The first tap chooses the subject and the
+    // bearing faced at that moment becomes angle zero.
+    var started by remember { mutableStateOf(false) }
+    var plan by remember { mutableStateOf<OrbitPlan?>(null) }
     var captured by remember { mutableStateOf(setOf<Int>()) }
-    val target = plan.nextTarget(captured)
+    val target = plan?.nextTarget(captured)
 
     val guidance: GuidanceFeedback = rememberGuidanceFeedback()
-    val shutterSound: CaptureFeedback = rememberCaptureFeedback()
+    val shutterSound = rememberCaptureFeedback()
 
     val previewView = remember {
         PreviewView(context).apply {
@@ -154,6 +163,27 @@ fun OrbitCaptureScreen(
     val gate = remember(angleCount) { AlignmentGate(ORBIT_DWELL_DEGREES, ORBIT_DWELL_MILLIS) }
     var capturing by remember { mutableStateOf(false) }
     var dwellProgress by remember { mutableFloatStateOf(0f) }
+
+    // Subject tap point, preview-normalised. The square follows it until
+    // the walk starts, then returns to the centre.
+    var tapPoint by remember { mutableStateOf<Offset?>(null) }
+    var previewSize by remember { mutableStateOf(IntSize.Zero) }
+
+    fun focusSubject(point: Offset) {
+        val cam = camera ?: return
+        tapPoint = point
+        val factory = SurfaceOrientedMeteringPointFactory(
+            previewSize.width.toFloat().coerceAtLeast(1f),
+            previewSize.height.toFloat().coerceAtLeast(1f),
+        )
+        val meteringPoint = factory.createPoint(point.x, point.y)
+        val action = FocusMeteringAction.Builder(meteringPoint).build()
+        runCatching {
+            cam.cameraControl.startFocusAndMetering(action)
+        }.onFailure { error ->
+            Logging.w("Orbit subject focus failed", error)
+        }
+    }
 
     fun takePhoto(index: Int) {
         val capture = imageCapture ?: return
@@ -199,32 +229,38 @@ fun OrbitCaptureScreen(
     }
 
     // Dwell shutter: the gate fires once the aim holds on target.
+    val currentPlan = plan
     val activeTarget = target
-    LaunchedEffect(orientation.yawDegrees, activeTarget) {
-        if (activeTarget == null) return@LaunchedEffect
-        val distance = OrbitGuidance.distanceDegrees(plan, orientation.yawDegrees, activeTarget)
+    LaunchedEffect(orientation.yawDegrees, activeTarget, currentPlan) {
+        if (currentPlan == null || activeTarget == null) return@LaunchedEffect
+        val distance = OrbitGuidance.distanceDegrees(currentPlan, orientation.yawDegrees, activeTarget)
         val reading = gate.update(distance, SystemClock.elapsedRealtime())
         val previous = dwellProgress
         dwellProgress = reading.dwellProgress
         if (GuidanceProfile.crossedDwellMilestone(previous, reading.dwellProgress)) {
             guidance.dwellTick()
         }
-        if (reading.isAligned && plan.isOnTarget(orientation.yawDegrees, activeTarget)) {
+        if (reading.isAligned && currentPlan.isOnTarget(orientation.yawDegrees, activeTarget)) {
             takePhoto(activeTarget)
         }
     }
 
     // Voice line per target, after a beat so it does not talk over itself.
-    LaunchedEffect(activeTarget, guidanceEnabled) {
-        if (activeTarget == null || !guidanceEnabled) return@LaunchedEffect
+    LaunchedEffect(activeTarget, currentPlan) {
+        if (currentPlan == null || activeTarget == null) return@LaunchedEffect
         delay(VOICE_SETTLE_MILLIS)
-        guidance.announce(OrbitGuidance.announceFor(plan, orientation.yawDegrees, activeTarget))
+        guidance.announce(
+            OrbitGuidance.announceFor(context, currentPlan, orientation.yawDegrees, activeTarget),
+        )
     }
 
     // Aim beeps: the closer, the faster.
-    LaunchedEffect(activeTarget, capturing, guidanceEnabled) {
-        while (activeTarget != null && !capturing && guidanceEnabled) {
-            val distance = OrbitGuidance.distanceDegrees(plan, orientation.yawDegrees, activeTarget)
+    var guidanceEnabled by remember { mutableStateOf(true) }
+    LaunchedEffect(activeTarget, capturing, guidanceEnabled, currentPlan) {
+        while (currentPlan != null && activeTarget != null && !capturing && guidanceEnabled) {
+            val distance = OrbitGuidance.distanceDegrees(
+                currentPlan, orientation.yawDegrees, activeTarget,
+            )
             val interval = GuidanceProfile.beepIntervalMillis(distance) ?: break
             guidance.beep()
             delay(interval)
@@ -232,9 +268,9 @@ fun OrbitCaptureScreen(
     }
 
     // All angles shot: hand the set over in plan order.
-    LaunchedEffect(captured.size) {
-        if (target == null) {
-            val files = plan.angles.indices.map { OrbitStore.angleFile(walkDirectory, it) }
+    LaunchedEffect(captured.size, currentPlan) {
+        if (currentPlan != null && activeTarget == null) {
+            val files = currentPlan.angles.indices.map { OrbitStore.angleFile(walkDirectory, it) }
             onDone(files.filter { it.exists() })
         }
     }
@@ -242,53 +278,16 @@ fun OrbitCaptureScreen(
     // System back abandons the walk: half a circle is not a product.
     BackHandler(onBack = onBack)
 
-    var guidanceEnabled by remember { mutableStateOf(true) }
-
-    fun walkFiles(): List<File> =
-        plan.angles.indices
-            .map { OrbitStore.angleFile(walkDirectory, it) }
-            .filter { it.exists() }
-
-    fun saveWalkFrames() {
-        val files = walkFiles()
-        if (files.isEmpty()) return
-        Logging.i("Exporting ${files.size} orbit frames")
-        scope.launch {
-            MediaExporter.exportFrames(context, files)
-                .onSuccess { count ->
-                    snackbarHostState.showSnackbar("$count orbit photos saved")
-                }
-                .onFailure { error ->
-                    Logging.e("Orbit frame export failed", error)
-                    snackbarHostState.showSnackbar("Could not save: ${error.message.orEmpty()}")
-                }
-        }
-    }
-
-    fun restartWalk() {
-        if (capturing) return
-        gate.reset()
-        scope.launch(Dispatchers.IO) {
-            runCatching {
-                walkDirectory.listFiles()?.forEach { it.delete() }
-            }
-            withContext(Dispatchers.Main) {
-                captured = emptySet()
-                Logging.i("Orbit walk restarted")
-            }
-        }
-    }
-
     // Live exposure compensation, straight from the bound camera.
     val exposureRange = camera?.cameraInfo?.exposureState?.exposureCompensationRange
     val showExposure = camera != null && exposureRange != null &&
         exposureRange.upper > exposureRange.lower
     var exposureIndex by remember { mutableStateOf(0) }
 
-    val hint = if (activeTarget == null) {
-        "Done"
-    } else {
-        OrbitGuidance.hintFor(plan, orientation.yawDegrees, activeTarget)
+    val hint = when {
+        currentPlan == null -> "Tap the subject, then start the walk"
+        activeTarget == null -> "Done"
+        else -> OrbitGuidance.hintFor(context, currentPlan, orientation.yawDegrees, activeTarget)
     }
 
     Scaffold(
@@ -299,7 +298,13 @@ fun OrbitCaptureScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(insets),
+                .padding(insets)
+                .onSizeChanged { previewSize = it }
+                .pointerInput(started, tapPoint == null) {
+                    detectTapGestures { offset ->
+                        if (!started) focusSubject(offset)
+                    }
+                },
         ) {
             AndroidView(
                 factory = { previewView },
@@ -307,60 +312,131 @@ fun OrbitCaptureScreen(
             )
             // Same aim point and focus square as the sphere capture: the
             // ring warms as the aim closes in and fills with the dwell,
-            // the square sits centred and locks green on target.
-            val aimDistance = if (activeTarget == null) {
+            // the square sits centred and locks green on target. Before
+            // the walk starts the square follows the subject tap instead.
+            val aimDistance = if (currentPlan == null || activeTarget == null) {
                 0f
             } else {
-                OrbitGuidance.distanceDegrees(plan, orientation.yawDegrees, activeTarget)
+                OrbitGuidance.distanceDegrees(currentPlan, orientation.yawDegrees, activeTarget)
             }
-            val onTarget = activeTarget != null &&
-                plan.isOnTarget(orientation.yawDegrees, activeTarget)
-            OrbitReticleOverlay(
-                distanceDegrees = aimDistance,
-                thresholdDegrees = ORBIT_DWELL_DEGREES,
-                dwellProgress = dwellProgress,
-            )
+            val onTarget = currentPlan != null && activeTarget != null &&
+                currentPlan.isOnTarget(orientation.yawDegrees, activeTarget)
+            val turn = if (currentPlan == null || activeTarget == null) {
+                null
+            } else {
+                currentPlan.turnTo(orientation.yawDegrees, activeTarget)
+            }
+            if (started) {
+                OrbitReticleOverlay(
+                    distanceDegrees = aimDistance,
+                    thresholdDegrees = ORBIT_DWELL_DEGREES,
+                    dwellProgress = dwellProgress,
+                    turnDegrees = turn,
+                )
+            }
+            val square = tapPoint?.takeUnless { started }
             FocusReticleOverlay(
-                focus = FocusReticle(
-                    x = 0.5f,
-                    y = 0.5f,
-                    isWorking = false,
-                    isLocked = onTarget,
-                ),
+                focus = if (started) {
+                    FocusReticle(
+                        x = 0.5f,
+                        y = 0.5f,
+                        isWorking = false,
+                        isLocked = onTarget,
+                    )
+                } else if (square != null && previewSize != IntSize.Zero) {
+                    FocusReticle(
+                        x = (square.x / previewSize.width).coerceIn(0f, 1f),
+                        y = (square.y / previewSize.height).coerceIn(0f, 1f),
+                        isWorking = false,
+                        isLocked = true,
+                    )
+                } else {
+                    null
+                },
                 modifier = Modifier.fillMaxSize(),
             )
-            OrbitHud(
-                capturedCount = captured.size,
-                totalTargets = plan.angles.size,
-                hint = hint,
-                canFinish = captured.size >= ORBIT_MIN_FINISH && activeTarget != null,
-                onFinish = {
-                    val files = walkFiles()
-                    if (files.isNotEmpty()) onDone(files)
-                },
-                onRestart = ::restartWalk,
-                canUndo = captured.isNotEmpty(),
-                undoEnabled = !capturing,
-                onUndo = {
-                    captured.maxOrNull()?.let { retake(it) }
-                },
-                guidanceEnabled = guidanceEnabled,
-                onToggleGuidance = { guidanceEnabled = !guidanceEnabled },
-                evIndex = exposureIndex,
-                evRange = exposureRange?.let { it.lower..it.upper },
-                showExposure = showExposure,
-                onEvChange = { value ->
-                    exposureIndex = value
-                    camera?.cameraControl?.setExposureCompensationIndex(value)
-                },
-                frameCount = captured.size,
-                canSaveFrames = captured.isNotEmpty(),
-                onSaveFrames = ::saveWalkFrames,
-                isComplete = activeTarget == null,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(insets),
-            )
+            if (!started) {
+                Button(
+                    enabled = tapPoint != null,
+                    onClick = {
+                        plan = orbitPlan(angleCount, orientation.yawDegrees)
+                        started = true
+                        Logging.i("Orbit walk started")
+                    },
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 32.dp),
+                ) {
+                    Text("Start walk")
+                }
+            } else if (currentPlan != null) {
+                OrbitHud(
+                    capturedCount = captured.size,
+                    totalTargets = currentPlan.angles.size,
+                    hint = hint,
+                    canFinish = captured.size >= ORBIT_MIN_FINISH && activeTarget != null,
+                    onFinish = {
+                        val files = currentPlan.angles.indices
+                            .map { OrbitStore.angleFile(walkDirectory, it) }
+                            .filter { it.exists() }
+                        if (files.isNotEmpty()) onDone(files)
+                    },
+                    onRestart = {
+                        if (!capturing) {
+                            gate.reset()
+                            scope.launch(Dispatchers.IO) {
+                                runCatching {
+                                    walkDirectory.listFiles()?.forEach { it.delete() }
+                                }
+                                withContext(Dispatchers.Main) {
+                                    captured = emptySet()
+                                    Logging.i("Orbit walk restarted")
+                                }
+                            }
+                        }
+                    },
+                    canUndo = captured.isNotEmpty(),
+                    undoEnabled = !capturing,
+                    onUndo = {
+                        captured.maxOrNull()?.let { retake(it) }
+                    },
+                    guidanceEnabled = guidanceEnabled,
+                    onToggleGuidance = { guidanceEnabled = !guidanceEnabled },
+                    evIndex = exposureIndex,
+                    evRange = exposureRange?.let { it.lower..it.upper },
+                    showExposure = showExposure,
+                    onEvChange = { value ->
+                        exposureIndex = value
+                        camera?.cameraControl?.setExposureCompensationIndex(value)
+                    },
+                    frameCount = captured.size,
+                    canSaveFrames = captured.isNotEmpty(),
+                    onSaveFrames = {
+                        val files = currentPlan.angles.indices
+                            .map { OrbitStore.angleFile(walkDirectory, it) }
+                            .filter { it.exists() }
+                        if (files.isNotEmpty()) {
+                            Logging.i("Exporting ${files.size} orbit frames")
+                            scope.launch {
+                                MediaExporter.exportFrames(context, files)
+                                    .onSuccess { count ->
+                                        snackbarHostState.showSnackbar("$count orbit photos saved")
+                                    }
+                                    .onFailure { error ->
+                                        Logging.e("Orbit frame export failed", error)
+                                        snackbarHostState.showSnackbar(
+                                            "Could not save: ${error.message.orEmpty()}",
+                                        )
+                                    }
+                            }
+                        }
+                    },
+                    isComplete = activeTarget == null,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(insets),
+                )
+            }
         }
     }
 }

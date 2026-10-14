@@ -1,45 +1,44 @@
 package com.n30dyn4m1c.photosphere.orbit
 
+import android.content.Context
+import com.n30dyn4m1c.photosphere.R
 import kotlin.math.abs
 
 /**
- * Spoken and sounded guidance for the orbit walk.
- *
- * Same vocabulary as the sphere capture (beeps that quicken as the aim
- * closes in, a haptic tick as the dwell lands, a voice line per target),
- * computed from an [OrbitPlan] instead of a sphere plan. The sounding
- * itself stays in [GuidanceFeedback][com.n30dyn4m1c.photosphere.camera.GuidanceFeedback];
- * this file only decides what to say and when.
+ * Spoken guidance for the orbit walk, in the exact words of the sphere
+ * capture: "Next: to your left", with the angle position prepended so the
+ * photographer knows where the walk stands.
  */
 object OrbitGuidance {
 
     /**
-     * The voice line for a fresh target: which angle it is and which way
-     * to turn, or to hold still when already on it.
+     * The voice line for a fresh target, e.g. "Angle 3 of 12. Next: to
+     * your right." Silent (centre) targets get no direction.
      */
-    fun announceFor(plan: OrbitPlan, yawDegrees: Float, index: Int): String {
-        val turn = plan.turnTo(yawDegrees, index)
+    fun announceFor(context: Context, plan: OrbitPlan, yawDegrees: Float, index: Int): String {
         val position = "Angle ${index + 1} of ${plan.angles.size}."
-        return if (plan.isOnTarget(yawDegrees, index)) {
-            "$position Hold still."
-        } else if (turn > 0) {
-            "$position Turn right ${turn.toInt()} degrees."
-        } else {
-            "$position Turn left ${(-turn).toInt()} degrees."
-        }
+        val direction = directionPhrase(context, plan, yawDegrees, index) ?: return position
+        return "$position " + context.getString(R.string.guidance_target, direction)
     }
 
-    /** Short on-screen hint mirroring the voice line. */
-    fun hintFor(plan: OrbitPlan, yawDegrees: Float, index: Int): String {
-        val turn = plan.turnTo(yawDegrees, index)
-        return when {
-            plan.isOnTarget(yawDegrees, index) -> "Hold still…"
-            turn > 0 -> "Turn right ${turn.toInt()}°"
-            else -> "Turn left ${(-turn).toInt()}°"
-        }
-    }
+    /** Short on-screen hint with the same words as the voice line. */
+    fun hintFor(context: Context, plan: OrbitPlan, yawDegrees: Float, index: Int): String =
+        announceFor(context, plan, yawDegrees, index)
 
     /** Absolute aim error for the beep loop and the dwell gate. */
     fun distanceDegrees(plan: OrbitPlan, yawDegrees: Float, index: Int): Float =
         abs(plan.turnTo(yawDegrees, index))
+
+    private fun directionPhrase(
+        context: Context,
+        plan: OrbitPlan,
+        yawDegrees: Float,
+        index: Int,
+    ): String? {
+        if (plan.isOnTarget(yawDegrees, index)) return null
+        val turn = plan.turnTo(yawDegrees, index)
+        return context.getString(
+            if (turn > 0) R.string.guidance_right else R.string.guidance_left,
+        )
+    }
 }
