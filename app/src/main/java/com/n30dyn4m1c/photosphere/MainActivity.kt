@@ -331,25 +331,31 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
             )
 
             entry == Entry.Orbit -> {
-                // Own mini-flow beside capture and import: shoot the walk,
-                // then swipe through it. Back from the viewer returns to
-                // the camera; back from the camera returns to the entries.
-                val finishedWalk = orbitFiles
-                if (finishedWalk == null) {
-                    OrbitCaptureScreen(
-                        onDone = { orbitFiles = it },
-                        onBack = { entry = null },
-                    )
+                // Debug-only, like the entry button: a release process can
+                // never land here, but a restored task should not either.
+                if (!BuildConfig.DEBUG) {
+                    entry = null
                 } else {
-                    OrbitViewerScreen(
-                        files = finishedWalk,
-                        onNewWalk = { orbitFiles = null },
-                        onStitched = { stitched ->
-                            Logging.i("Sphere ready: ${stitched.file.name} (orbit)")
-                            sphere = stitched
-                            restitchOffer = null
-                        },
-                    )
+                    // Own mini-flow beside capture and import: shoot the walk,
+                    // then swipe through it. Back from the viewer returns to
+                    // the camera; back from the camera returns to the entries.
+                    val finishedWalk = orbitFiles
+                    if (finishedWalk == null) {
+                        OrbitCaptureScreen(
+                            onDone = { orbitFiles = it },
+                            onBack = { entry = null },
+                        )
+                    } else {
+                        OrbitViewerScreen(
+                            files = finishedWalk,
+                            onNewWalk = { orbitFiles = null },
+                            onStitched = { stitched ->
+                                Logging.i("Sphere ready: ${stitched.file.name} (orbit)")
+                                sphere = stitched
+                                restitchOffer = null
+                            },
+                        )
+                    }
                 }
             }
 
