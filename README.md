@@ -23,6 +23,13 @@ gallery and stitch those. You can export the result to your gallery, share it,
 or save every frame as its own photo. You can change brightness live and tap
 to focus.
 
+## Install it from here
+
+Grab the latest APK from
+[GitHub Releases](https://github.com/theclumsypirate/photosphere-android/releases/latest):
+pick the file ending in `arm64-v8a.apk` on modern phones or `armeabi-v7a.apk`
+on older phones, then open it to install.
+
 ## Docs
 
 - [Build](docs/build.md) — requirements, building, dependencies, project layout
