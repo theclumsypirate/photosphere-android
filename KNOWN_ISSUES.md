@@ -1,8 +1,7 @@
 # Known issues
 
 Things that look like bugs but are physics, hardware limits, or trade-offs.
-Read this before filing an issue: if your problem is listed here, there is
-nothing to fix in code, only workarounds.
+**if you know a concrete way how to fix them** then file a bug report.
 
 ## Ghosting and sliced objects
 
