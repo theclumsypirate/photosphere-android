@@ -166,27 +166,33 @@ jobs:
           git tag "${{ steps.version.outputs.tag }}"
           git push origin main "${{ steps.version.outputs.tag }}"
 
-      - name: Assemble signed release APK (arm64-v8a)
+      - name: Assemble signed release APKs (arm64-v8a, armeabi-v7a)
         run: |
-          ./gradlew :app:assembleRelease -PonlyAbi=arm64-v8a \
+          ./gradlew :app:assembleRelease -PonlyAbi=arm64-v8a,armeabi-v7a \
             -PkeystorePath="$GITHUB_WORKSPACE/$KEYSTORE_PATH" \
             -PkeystorePassword="$KEYSTORE_PASSWORD" \
             -PkeyAlias="$KEY_ALIAS" \
             -PkeyPassword="$KEY_PASSWORD"
 
-      - name: Prepare release asset
+      - name: Prepare release assets
         id: asset
         run: |
           VERSION="${{ steps.version.outputs.name }}"
-          SRC_APK="$(ls app/build/outputs/apk/release/*arm64-v8a*.apk | head -1)"
-          APK="photosphere_android_v${VERSION}.apk"
-          cp "$SRC_APK" "$APK"
-          echo "APK: $APK ($(du -h "$APK" | cut -f1))"
-          if ! unzip -tqq "$APK"; then
-            echo "::error::$APK is not a valid APK."
-            exit 1
-          fi
-          echo "apk=$APK" >> "$GITHUB_OUTPUT"
+          FILES=""
+          for ABI in arm64-v8a armeabi-v7a; do
+            SRC_APK="$(ls app/build/outputs/apk/release/*${ABI}*.apk | head -1)"
+            APK="photosphere_android_v${VERSION}_${ABI}.apk"
+            cp "$SRC_APK" "$APK"
+            echo "APK: $APK ($(du -h "$APK" | cut -f1))"
+            if ! unzip -tqq "$APK"; then
+              echo "::error::$APK is not a valid APK."
+              exit 1
+            fi
+            FILES="${FILES}${APK}"$'\n'
+          done
+          echo "apks<<EOF" >> "$GITHUB_OUTPUT"
+          printf '%s' "$FILES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -196,4 +202,4 @@ jobs:
           body: ${{ steps.version.outputs.notes }}
           prerelease: ${{ steps.version.outputs.prerelease == 'true' }}
           fail_on_unmatched_files: true
-          files: ${{ steps.asset.outputs.apk }}
+          files: ${{ steps.asset.outputs.apks }}
