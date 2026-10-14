@@ -9,7 +9,7 @@ import java.io.File
  * JSON object per line, so `adb` can pull history the logcat buffer already
  * rotated away.
  *
- * Retention is one hour: entries older than [RETENTION_MILLIS] are dropped on
+ * Retention is four hours: entries older than [RETENTION_MILLIS] are dropped on
  * init and every [PRUNE_EVERY] appends (plus a size cap as backstop). DEBUG
  * and VERBOSE stay logcat-only — at 50 Hz the attitude stream alone would
  * fill megabytes per hour.

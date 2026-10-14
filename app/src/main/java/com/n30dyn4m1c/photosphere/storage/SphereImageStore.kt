@@ -34,6 +34,12 @@ import java.util.Locale
  * - **MediaStore** is for images the user keeps, and is
  *   [MediaExporter]'s job — "Export to gallery" on the result screen is the only
  *   thing that puts a sphere in front of the rest of the system.
+ *
+ * Lifecycle: sessions and finished spheres are intermediate data, not keepsakes.
+ * They are deleted when the user discards or starts over, and whatever survives
+ * a process death is wiped shortly after the app was last backgrounded (see
+ * [deleteImageCache]). The diagnostics logs live elsewhere and are never
+ * touched here.
  */
 object SphereImageStore {
 
@@ -333,6 +339,28 @@ object SphereImageStore {
     fun deleteCachedSphere(file: File) {
         if (file.exists() && !file.delete()) {
             Logging.w("Could not delete cached sphere ${file.name}")
+        }
+    }
+
+    /**
+     * Wipes every cached image: all capture sessions and all finished spheres.
+     *
+     * Called after the app was backgrounded and never came back (swiped out of
+     * recents, then relaunched): after a process death no screen still
+     * references these files, so they are garbage. The diagnostics logs
+     * (`cache/logs`) and the saved crash reports (`filesDir/crashes`) are
+     * deliberately left alone. Only pictures go.
+     *
+     * Touches the filesystem — call off the main thread.
+     */
+    fun deleteImageCache(context: Context) {
+        val sessions = File(context.cacheDir, SESSIONS_DIRECTORY)
+        if (sessions.exists() && !sessions.deleteRecursively()) {
+            Logging.w("Could not clear image session cache")
+        }
+        val spheres = File(context.cacheDir, SPHERES_DIRECTORY)
+        if (spheres.exists() && !spheres.deleteRecursively()) {
+            Logging.w("Could not clear sphere cache")
         }
     }
 
