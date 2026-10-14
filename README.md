@@ -5,7 +5,7 @@
 <h1 align="center">Photosphere</h1>
 
 <p align="center">
-  <b>Android app for guided capture and stitching of 360° photo spheres.</b>
+  Android app for guided capture and stitching of 360° photo spheres.
 </p>
 
 <p align="center">
