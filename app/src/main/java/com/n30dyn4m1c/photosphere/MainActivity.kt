@@ -309,10 +309,14 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
                     Logging.i("Entry: Import")
                     entry = Entry.Import
                 },
-                onOrbit = {
-                    Logging.i("Entry: Orbit")
-                    orbitFiles = null
-                    entry = Entry.Orbit
+                onOrbit = if (BuildConfig.DEBUG) {
+                    {
+                        Logging.i("Entry: Orbit")
+                        orbitFiles = null
+                        entry = Entry.Orbit
+                    }
+                } else {
+                    null
                 },
                 onOpenSettings = { showSettings = true },
             )
@@ -391,7 +395,7 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
 private fun EntryChooser(
     onCapture: () -> Unit,
     onImport: () -> Unit,
-    onOrbit: () -> Unit,
+    onOrbit: (() -> Unit)?,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -446,24 +450,28 @@ private fun EntryChooser(
                 style = MaterialTheme.typography.titleMedium,
             )
         }
-        FilledTonalButton(
-            onClick = onOrbit,
-            shape = PillShape,
-            modifier = Modifier
-                .padding(top = 12.dp)
-                .fillMaxWidth()
-                .height(54.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Person,
-                contentDescription = null,
-                modifier = Modifier.size(22.dp),
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = stringResource(R.string.entry_orbit),
-                style = MaterialTheme.typography.titleMedium,
-            )
+        // Experimental: the orbit walk only shows in debug builds. Release
+        // keeps Capture and Import until the walk is proven on device.
+        if (onOrbit != null) {
+            FilledTonalButton(
+                onClick = onOrbit,
+                shape = PillShape,
+                modifier = Modifier
+                    .padding(top = 12.dp)
+                    .fillMaxWidth()
+                    .height(54.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Person,
+                    contentDescription = null,
+                    modifier = Modifier.size(22.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = stringResource(R.string.entry_orbit),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+            }
         }
         }
         IconButton(
