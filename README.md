@@ -1,6 +1,12 @@
-# Photo Sphere
+<p align="center">
+  <img src="docs/assets/icon.svg" width="128" alt="Photosphere app icon" />
+</p>
 
-**Android app for guided capture and stitching of 360° photo spheres.**
+<h1 align="center">Photosphere</h1>
+
+<p align="center">
+  <b>Android app for guided capture and stitching of 360° photo spheres.</b>
+</p>
 
 ## What it does
 

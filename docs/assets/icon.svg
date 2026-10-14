@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Gradient 1 -->
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF5E62" />
+      <stop offset="100%" stop-color="#FF9966" />
+    </linearGradient>
+    <!-- Gradient 2 -->
+    <linearGradient id="grad2" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#4E54C8" />
+      <stop offset="100%" stop-color="#8F94FB" />
+    </linearGradient>
+    <!-- Umbră fină pentru iconiță -->
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+
+  <!-- Fundalul iconiței (colțuri rotunjite standard iOS / Android) -->
+  <rect width="512" height="512" rx="118" fill="#0F111A"/>
+
+  <!-- Elementele geometrice combinate (Nodul fluid abstract) -->
+  <g filter="url(#shadow)">
+    <path d="M156 180 C 220 120, 292 392, 356 332 C 400 290, 380 200, 310 200 C 240 200, 200 320, 156 332 Z" 
+          fill="none" stroke="url(#grad1)" stroke-width="28" stroke-linecap="round"/>
+    <path d="M356 332 C 292 392, 220 120, 156 180 C 112 222, 132 312, 202 312 C 272 312, 312 192, 356 180 Z" 
+          fill="none" stroke="url(#grad2)" stroke-width="28" stroke-linecap="round" opacity="0.9"/>
+  </g>
+</svg>
