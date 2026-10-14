@@ -28,10 +28,20 @@ Baseline: `../pano_proto/out/other_v2.jpg` + `views_other_v2.jpg` (8.5/10 pano).
 
 ## Verdict
 
-v8 beats the old views grid (6.5/10). Winner: `out/restitch_v8.jpg` and
-`out/views_restitch_v8.jpg`. What remains is pure geometry (shelf edge
-offsets, nadir): pixels that disagree everywhere cannot be blended into
-agreement.
+v11 is the winner: `out/restitch_v11.jpg` and `out/views_restitch_v11.jpg`
+(**9/10 views**, completeness 9/10). The stove is back, no ghosts, no
+black areas, ceiling and walls blend smooth. What remains is honest
+geometry: a ~15px cabinet step (parallax), and the walking person
+appears twice (true motion, not ghosting).
+
+- **v9** — wrap-aware circular centroid ownership. Same look as v8;
+  did not bring the stove back (ownership was never the cause).
+- **v10** — steep frames excluded from ownership (all36_v5 lesson) +
+  two mask bugfixes (feed only own coverage; holes = covered but
+  unfed). Full pano with ceiling and floor, but stove still missing.
+- **v11** — global alpha-expansion (v6 costs) over horizon frames
+  only, init from data cost, multiband finish. The content-aware cut
+  routes around the stove instead of through it. **9/10**.
 
 ## What the subagent probes proved
 
