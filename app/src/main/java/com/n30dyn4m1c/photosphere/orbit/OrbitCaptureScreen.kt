@@ -21,9 +21,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -40,6 +42,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -55,6 +58,9 @@ import com.n30dyn4m1c.photosphere.camera.rememberGuidanceFeedback
 import com.n30dyn4m1c.photosphere.R
 import com.n30dyn4m1c.photosphere.sensor.rememberOrientationData
 import com.n30dyn4m1c.photosphere.storage.MediaExporter
+import com.n30dyn4m1c.photosphere.ui.theme.GlassContent
+import com.n30dyn4m1c.photosphere.ui.theme.GlassSurface
+import com.n30dyn4m1c.photosphere.ui.theme.PillShape
 import com.n30dyn4m1c.photosphere.util.Logging
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -162,6 +168,11 @@ fun OrbitCaptureScreen(
 
     val orientation by rememberOrientationData()
 
+    // Subject tap point, preview-normalised. The square follows it until
+    // the walk starts, then returns to the centre.
+    var tapPoint by remember { mutableStateOf<Offset?>(null) }
+    var previewSize by remember { mutableStateOf(IntSize.Zero) }
+
     // Subject tap starts the walk by itself after a beat: no button on
     // the first page. The tapped bearing becomes angle zero.
     LaunchedEffect(tapPoint) {
@@ -175,11 +186,6 @@ fun OrbitCaptureScreen(
     val gate = remember(angleCount) { AlignmentGate(ORBIT_DWELL_DEGREES, ORBIT_DWELL_MILLIS) }
     var capturing by remember { mutableStateOf(false) }
     var dwellProgress by remember { mutableFloatStateOf(0f) }
-
-    // Subject tap point, preview-normalised. The square follows it until
-    // the walk starts, then returns to the centre.
-    var tapPoint by remember { mutableStateOf<Offset?>(null) }
-    var previewSize by remember { mutableStateOf(IntSize.Zero) }
 
     fun focusSubject(point: Offset) {
         val cam = camera ?: return
@@ -384,18 +390,20 @@ fun OrbitCaptureScreen(
                 modifier = Modifier.fillMaxSize(),
             )
             if (!started) {
-                Button(
-                    enabled = tapPoint != null,
-                    onClick = {
-                        plan = orbitPlan(angleCount, orientation.yawDegrees)
-                        started = true
-                        Logging.i("Orbit walk started")
-                    },
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
+                // No button on the first page: the tap on the subject
+                // starts the walk by itself (see the effect above).
+                Surface(
+                    shape = PillShape,
+                    color = GlassSurface,
+                    modifier = Modifier.align(Alignment.BottomCenter)
                         .padding(bottom = 32.dp),
                 ) {
-                    Text(stringResource(R.string.orbit_start_capturing))
+                    Text(
+                        text = stringResource(R.string.orbit_tap_subject),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = GlassContent,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 13.dp),
+                    )
                 }
             } else if (currentPlan != null) {
                 OrbitHud(

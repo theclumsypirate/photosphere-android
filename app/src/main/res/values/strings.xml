@@ -54,7 +54,6 @@
     <string name="entry_import">Import photos</string>
     <string name="entry_orbit">Person / Object</string>
     <string name="orbit_finish">Done</string>
-    <string name="orbit_start_capturing">Start capturing</string>
     <string name="orbit_tap_subject">Tap the subject, then walk around it</string>
     <string name="orbit_subject_locked">Subject locked</string>
 
