@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.Application
 import android.os.Bundle
 import android.util.Log
+import com.n30dyn4m1c.photosphere.diagnostics.LagTracker
 import com.n30dyn4m1c.photosphere.diagnostics.Report
 import com.n30dyn4m1c.photosphere.storage.SphereImageStore
 import com.n30dyn4m1c.photosphere.util.FileLogger
@@ -119,8 +120,17 @@ class PhotoSphereApplication : Application() {
             }
 
             override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
-            override fun onActivityResumed(activity: Activity) = Unit
-            override fun onActivityPaused(activity: Activity) = Unit
+
+            // Slow-frame counting runs only while something is on screen:
+            // resumed means visible and interactive, paused means gone.
+            override fun onActivityResumed(activity: Activity) {
+                if (resumedCount++ == 0) LagTracker.start()
+            }
+
+            override fun onActivityPaused(activity: Activity) {
+                if (--resumedCount == 0) LagTracker.stop()
+            }
+
             override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
             override fun onActivityDestroyed(activity: Activity) = Unit
         })
@@ -136,6 +146,7 @@ class PhotoSphereApplication : Application() {
         private const val IMAGE_CACHE_GRACE_MILLIS = 30_000L
 
         private var foregroundCount = 0
+        private var resumedCount = 0
         private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
         /** True once the OpenCV native library has loaded successfully. */

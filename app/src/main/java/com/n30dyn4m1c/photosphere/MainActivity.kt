@@ -470,11 +470,14 @@ private fun EntryChooser(
             onClick = onOpenSettings,
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .padding(12.dp),
+                .systemBarsPadding()
+                .padding(start = 8.dp, top = 32.dp)
+                .size(56.dp),
         ) {
             Icon(
                 imageVector = Icons.Filled.Settings,
                 contentDescription = stringResource(R.string.settings_open),
+                modifier = Modifier.size(30.dp),
             )
         }
     }

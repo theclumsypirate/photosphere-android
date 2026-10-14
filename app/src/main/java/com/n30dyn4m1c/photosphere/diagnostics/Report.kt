@@ -17,11 +17,13 @@ import kotlinx.coroutines.withContext
 
 /**
  * Crash and log report: one .txt with the app version, how the app last
- * ended, saved crashes, the JSON logs and the live logcat tail. Then share
- * it or save it through the system picker.
+ * ended, saved crashes, slow UI frames, the JSON logs and the live logcat
+ * tail. Sections are split by lines of `=`. Then share it or save it
+ * through the system picker.
  *
  * No background recording: [FileLogger] already keeps four hours of JSON in
- * the process, so nothing extra runs, and nothing is logged while the app is
+ * the process, [LagTracker] only counts frames while something is on
+ * screen, so nothing extra runs, and nothing is logged while the app is
  * closed. Pass [appVersion] explicitly; redaction covers account-like text.
  */
 object Report {
@@ -59,14 +61,18 @@ object Report {
 
             appendLine("== How the app last ended, as Android recorded it")
             append(exits(context))
-            appendLine()
+            appendLine(divider())
 
             appendLine("== Crashes the app wrote down")
             val crashes = File(context.filesDir, CRASH_DIR).listFiles()
                 ?.sortedByDescending { it.name }.orEmpty()
             if (crashes.isEmpty()) appendLine("None.")
             crashes.forEach { appendLine(it.readText()); appendLine() }
-            appendLine()
+            appendLine(divider())
+
+            appendLine("== Slow frames (lag)")
+            append(LagTracker.snapshot())
+            appendLine(divider())
 
             appendLine("== App JSON logs, newest last")
             val recent = FileLogger.readRecent()
@@ -165,6 +171,8 @@ object Report {
     private fun stamp(ms: Long): String =
         SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT).format(Date(ms))
 
+    private fun divider(): String = "=".repeat(DIVIDER_WIDTH)
+
     private val SHAPES = listOf(
         Regex("""[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}""") to "<email>",
         Regex("""(?i)bearer\s+[A-Za-z0-9._~+/=-]+""") to "Bearer <token>",
@@ -178,4 +186,5 @@ object Report {
     private const val ANR_LINES = 400
     private const val LOG_LINES = 6000
     private const val MIN_NAME = 3
+    private const val DIVIDER_WIDTH = 64
 }
