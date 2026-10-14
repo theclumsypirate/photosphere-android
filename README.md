@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://github.com/theclumsypirate/photosphere-android/releases/latest"><img src="https://img.shields.io/github/v/release/theclumsypirate/photosphere-android?label=release" alt="Latest release"></a>
   <img src="docs/assets/badge-android.svg" alt="Android 8.0 or later">
-  <a href="LICENSE"><img src="docs/assets/badge-licence.svg" alt="Licence"></a>
+  <a href="LICENSE"><img src="docs/assets/badge-license.svg" alt="License"></a>
 </p>
 
 ## What it does
@@ -44,7 +44,7 @@ Test builds come from the `build-debug` CI workflow — see
 
 ## Credits
 
-| Project | Licence | How it is used |
+| Project | License | How it is used |
 | --- | --- | --- |
 | [OpenCV](https://opencv.org) | Apache-2.0 | The stitching engine, fetched from Maven Central at build time and packaged in the APK. |
 | [CameraX](https://developer.android.com/training/camerax) | Apache-2.0 | Guided capture: preview, stills, exposure control. |
