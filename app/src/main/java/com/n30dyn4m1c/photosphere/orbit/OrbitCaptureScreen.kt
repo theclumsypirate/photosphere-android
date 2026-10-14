@@ -52,6 +52,7 @@ import com.n30dyn4m1c.photosphere.camera.GuidanceFeedback
 import com.n30dyn4m1c.photosphere.camera.GuidanceProfile
 import com.n30dyn4m1c.photosphere.camera.rememberCaptureFeedback
 import com.n30dyn4m1c.photosphere.camera.rememberGuidanceFeedback
+import com.n30dyn4m1c.photosphere.R
 import com.n30dyn4m1c.photosphere.sensor.rememberOrientationData
 import com.n30dyn4m1c.photosphere.storage.MediaExporter
 import com.n30dyn4m1c.photosphere.util.Logging
@@ -160,6 +161,17 @@ fun OrbitCaptureScreen(
     }
 
     val orientation by rememberOrientationData()
+
+    // Subject tap starts the walk by itself after a beat: no button on
+    // the first page. The tapped bearing becomes angle zero.
+    LaunchedEffect(tapPoint) {
+        if (!started && tapPoint != null) {
+            delay(ORBIT_START_DELAY_MILLIS)
+            plan = orbitPlan(angleCount, orientation.yawDegrees)
+            started = true
+            Logging.i("Orbit walk started")
+        }
+    }
     val gate = remember(angleCount) { AlignmentGate(ORBIT_DWELL_DEGREES, ORBIT_DWELL_MILLIS) }
     var capturing by remember { mutableStateOf(false) }
     var dwellProgress by remember { mutableFloatStateOf(0f) }
@@ -182,6 +194,12 @@ fun OrbitCaptureScreen(
             cam.cameraControl.startFocusAndMetering(action)
         }.onFailure { error ->
             Logging.w("Orbit subject focus failed", error)
+        }
+        // The "AHA" moment: the lens, the square and the voice all lock
+        // onto the tapped subject before the walk starts.
+        Logging.i("Orbit subject locked at ${point.x.toInt()},${point.y.toInt()}")
+        scope.launch {
+            guidance.announce(context.getString(R.string.orbit_subject_locked))
         }
     }
 
@@ -285,7 +303,10 @@ fun OrbitCaptureScreen(
     var exposureIndex by remember { mutableStateOf(0) }
 
     val hint = when {
-        currentPlan == null -> "Tap the subject, then start the walk"
+        currentPlan == null && tapPoint != null ->
+            context.getString(R.string.orbit_subject_locked)
+        currentPlan == null ->
+            context.getString(R.string.orbit_tap_subject)
         activeTarget == null -> "Done"
         else -> OrbitGuidance.hintFor(context, currentPlan, orientation.yawDegrees, activeTarget)
     }
@@ -459,3 +480,4 @@ private const val ORBIT_DWELL_DEGREES = 6f
 private const val ORBIT_DWELL_MILLIS = 800L
 private const val VOICE_SETTLE_MILLIS = 600L
 private const val ORBIT_MIN_FINISH = 3
+private const val ORBIT_START_DELAY_MILLIS = 1200L

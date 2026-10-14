@@ -43,7 +43,7 @@ object Logging {
         Log.v(TAG, message)
     }
 
-    /** Scrie in logcat orice excepție neprinsă, apoi lasa comportamentul normal (procesul moare). */
+    /** Logs any uncaught exception to logcat, then lets the normal behavior run (the process dies). */
     fun installCrashHandler() {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
