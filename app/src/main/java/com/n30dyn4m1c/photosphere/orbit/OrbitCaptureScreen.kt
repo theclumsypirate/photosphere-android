@@ -13,22 +13,18 @@ import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -53,7 +49,7 @@ import com.n30dyn4m1c.photosphere.camera.GuidanceProfile
 import com.n30dyn4m1c.photosphere.camera.rememberCaptureFeedback
 import com.n30dyn4m1c.photosphere.camera.rememberGuidanceFeedback
 import com.n30dyn4m1c.photosphere.sensor.rememberOrientationData
-import com.n30dyn4m1c.photosphere.ui.theme.PillShape
+import com.n30dyn4m1c.photosphere.storage.MediaExporter
 import com.n30dyn4m1c.photosphere.util.Logging
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -219,15 +215,15 @@ fun OrbitCaptureScreen(
     }
 
     // Voice line per target, after a beat so it does not talk over itself.
-    LaunchedEffect(activeTarget) {
-        if (activeTarget == null) return@LaunchedEffect
+    LaunchedEffect(activeTarget, guidanceEnabled) {
+        if (activeTarget == null || !guidanceEnabled) return@LaunchedEffect
         delay(VOICE_SETTLE_MILLIS)
         guidance.announce(OrbitGuidance.announceFor(plan, orientation.yawDegrees, activeTarget))
     }
 
     // Aim beeps: the closer, the faster.
-    LaunchedEffect(activeTarget, capturing) {
-        while (activeTarget != null && !capturing) {
+    LaunchedEffect(activeTarget, capturing, guidanceEnabled) {
+        while (activeTarget != null && !capturing && guidanceEnabled) {
             val distance = OrbitGuidance.distanceDegrees(plan, orientation.yawDegrees, activeTarget)
             val interval = GuidanceProfile.beepIntervalMillis(distance) ?: break
             guidance.beep()
@@ -246,12 +242,58 @@ fun OrbitCaptureScreen(
     // System back abandons the walk: half a circle is not a product.
     BackHandler(onBack = onBack)
 
+    var guidanceEnabled by remember { mutableStateOf(true) }
+
+    fun walkFiles(): List<File> =
+        plan.angles.indices
+            .map { OrbitStore.angleFile(walkDirectory, it) }
+            .filter { it.exists() }
+
+    fun saveWalkFrames() {
+        val files = walkFiles()
+        if (files.isEmpty()) return
+        Logging.i("Exporting ${files.size} orbit frames")
+        scope.launch {
+            MediaExporter.exportFrames(context, files)
+                .onSuccess { count ->
+                    snackbarHostState.showSnackbar("$count orbit photos saved")
+                }
+                .onFailure { error ->
+                    Logging.e("Orbit frame export failed", error)
+                    snackbarHostState.showSnackbar("Could not save: ${error.message.orEmpty()}")
+                }
+        }
+    }
+
+    fun restartWalk() {
+        if (capturing) return
+        gate.reset()
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                walkDirectory.listFiles()?.forEach { it.delete() }
+            }
+            withContext(Dispatchers.Main) {
+                captured = emptySet()
+                Logging.i("Orbit walk restarted")
+            }
+        }
+    }
+
     // Live exposure compensation, straight from the bound camera.
     val exposureRange = camera?.cameraInfo?.exposureState?.exposureCompensationRange
+    val showExposure = camera != null && exposureRange != null &&
+        exposureRange.upper > exposureRange.lower
     var exposureIndex by remember { mutableStateOf(0) }
+
+    val hint = if (activeTarget == null) {
+        "Done"
+    } else {
+        OrbitGuidance.hintFor(plan, orientation.yawDegrees, activeTarget)
+    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        containerColor = Color.Black,
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { insets ->
         Box(
@@ -287,86 +329,38 @@ fun OrbitCaptureScreen(
                 ),
                 modifier = Modifier.fillMaxSize(),
             )
-            Column(
+            OrbitHud(
+                capturedCount = captured.size,
+                totalTargets = plan.angles.size,
+                hint = hint,
+                canFinish = captured.size >= ORBIT_MIN_FINISH && activeTarget != null,
+                onFinish = {
+                    val files = walkFiles()
+                    if (files.isNotEmpty()) onDone(files)
+                },
+                onRestart = ::restartWalk,
+                canUndo = captured.isNotEmpty(),
+                undoEnabled = !capturing,
+                onUndo = {
+                    captured.maxOrNull()?.let { retake(it) }
+                },
+                guidanceEnabled = guidanceEnabled,
+                onToggleGuidance = { guidanceEnabled = !guidanceEnabled },
+                evIndex = exposureIndex,
+                evRange = exposureRange?.let { it.lower..it.upper },
+                showExposure = showExposure,
+                onEvChange = { value ->
+                    exposureIndex = value
+                    camera?.cameraControl?.setExposureCompensationIndex(value)
+                },
+                frameCount = captured.size,
+                canSaveFrames = captured.isNotEmpty(),
+                onSaveFrames = ::saveWalkFrames,
+                isComplete = activeTarget == null,
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Surface(shape = PillShape, color = MaterialTheme.colorScheme.primaryContainer) {
-                    Text(
-                        text = "Angle ${captured.size + 1} of ${plan.angles.size}",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    )
-                }
-                Surface(
-                    shape = PillShape,
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                    modifier = Modifier.padding(top = 8.dp),
-                ) {
-                    Text(
-                        text = if (activeTarget == null) {
-                            "Done"
-                        } else {
-                            OrbitGuidance.hintFor(plan, orientation.yawDegrees, activeTarget)
-                        },
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    )
-                }
-            }
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(bottom = 20.dp, start = 24.dp, end = 24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                if (exposureRange != null && exposureRange.upper > exposureRange.lower) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "Brightness",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.padding(end = 8.dp),
-                        )
-                        Slider(
-                            value = exposureIndex.toFloat(),
-                            onValueChange = { value ->
-                                exposureIndex = value.toInt()
-                                camera?.cameraControl?.setExposureCompensationIndex(exposureIndex)
-                            },
-                            valueRange = exposureRange.lower.toFloat()..
-                                exposureRange.upper.toFloat(),
-                            steps = (exposureRange.upper - exposureRange.lower - 1)
-                                .coerceAtLeast(0),
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                ) {
-                    TextButton(onClick = onBack) { Text("Back") }
-                    val lastShot = captured.maxOrNull()
-                    TextButton(
-                        enabled = lastShot != null && !capturing,
-                        onClick = { lastShot?.let { retake(it) } },
-                    ) {
-                        Text("Retake")
-                    }
-                    Button(
-                        enabled = !capturing && activeTarget != null,
-                        onClick = { activeTarget?.let { takePhoto(it) } },
-                    ) {
-                        Text("Shoot now")
-                    }
-                }
-            }
+                    .fillMaxSize()
+                    .padding(insets),
+            )
         }
     }
 }
@@ -388,3 +382,4 @@ private fun OrbitPermissionGate(onRetry: () -> Unit) {
 private const val ORBIT_DWELL_DEGREES = 6f
 private const val ORBIT_DWELL_MILLIS = 800L
 private const val VOICE_SETTLE_MILLIS = 600L
+private const val ORBIT_MIN_FINISH = 3
