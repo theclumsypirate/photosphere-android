@@ -19,13 +19,26 @@ Baseline: `../pano_proto/out/other_v2.jpg` + `views_other_v2.jpg` (8.5/10 pano).
 - **v6** — same with Kotlin-scale costs (L1 data, LAMBDA 10). 4.5/10:
   coherent regions but sliced/duplicated movers. Parallax too severe.
 - **v7** — feather-center ownership (other_v2 placement) + full-res
-  composite + gains + 2px crossfade. **8/10 views**: sharp, whole
-  objects, no ghosts, seams hide in walls and furniture edges.
+  composite + gains + 2px crossfade. 7/10 views: sharp, whole
+  objects, no ghosts, but ceiling exposure tiles and dotted seams
+  remain, plus 10-30px shelf offsets.
+- **v8** — v7 ownership + `cv2.detail_MultiBandBlender` finish (5 bands,
+  int16 feed). **8.5/10 views**: ceiling and walls blend into smooth
+  gradients, dotted seams gone, detail stays single-source crisp.
 
 ## Verdict
 
-v7 beats the old views grid (6.5/10). Winner: `out/restitch_v7.jpg` and
-`out/views_restitch_v7.jpg`. Remaining seams are parallax, not blending:
-no 2D seam can align pixels that disagree everywhere. Next real gains
-would come from per-overlap local alignment (ECC/flow) before seam
-search, or capturing with less translation between frames.
+v8 beats the old views grid (6.5/10). Winner: `out/restitch_v8.jpg` and
+`out/views_restitch_v8.jpg`. What remains is pure geometry (shelf edge
+offsets, nadir): pixels that disagree everywhere cannot be blended into
+agreement.
+
+## What the subagent probes proved
+
+- ECC translation-only refinement: wrong motion model. Consecutive
+  frames differ by yaw rotation, not translation; ECC converged to
+  huge inconsistent shifts (15-55px). Skipped, correctly.
+- Multiband needs aligned inputs: on misaligned pairs it equals plain
+  averaging. With v7 ownership (aligned by construction) it fixes the
+  exposure tiles. Bindings that work: `prepare((x,y,w,h))` single
+  tuple, `feed` int16 image + uint8 mask, `blend(None, None)`.
