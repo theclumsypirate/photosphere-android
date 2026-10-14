@@ -41,6 +41,7 @@ local.properties
 # Pano prototype corpus + outputs (sourced on demand, see tools/pano_proto/).
 /tools/pano_proto/ref/
 /tools/pano_proto/out/
+/tools/restitch_other/out/
 
 # Python bytecode cache from the lab/prototype tools.
 **/__pycache__/
