@@ -42,6 +42,8 @@ on older phones.
 Test builds come from the `build-debug` CI workflow — see
 [Build](docs/build.md).
 
+Before contributing or filing a bug, read [this](KNOWN_ISSUES.md).
+
 ## Credits
 
 | Project | License | How it is used |
