@@ -39,11 +39,12 @@ on older phones.
 - [Design](docs/design.md) — dark UI, signals, accessibility
 - [Status](docs/status.md) — what's done, what's left
 
-Test builds come from the `build-debug` CI workflow — see
-[Build](docs/build.md).
+---
 
 ## Contributing
 Before filing a bug, read [this](KNOWN_ISSUES.md).
+
+---
 
 ## Credits
 
