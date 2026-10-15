@@ -116,7 +116,11 @@ suspend fun restitchSphere(
         unsharpAmount = params.unsharpAmount,
         pivot = params.pivot,
         portraitRotationDegrees = params.optics.portraitRotationDegrees,
-        useRefinement = params.useRefinement,
+        // Careful restitches from content-matched poses: the refinement
+        // falls back to the sensor poses when nothing matches, so the only
+        // change is better alignment where the features agree. The standard
+        // capture path and the other styles keep sensor poses.
+        useRefinement = params.useRefinement || style == StitchStyle.Careful,
         seamMode = style.seamMode,
         debugColorFrames = params.debugColors,
         longitudeSpanDegrees = 360f,
@@ -144,7 +148,7 @@ suspend fun restitchSphere(
                     fieldOfView = params.fieldOfView,
                     optics = params.optics,
                     distortionApplied = params.distortionEnabled,
-                    refinementApplied = params.useRefinement,
+                    refinementApplied = params.useRefinement || style == StitchStyle.Careful,
                     seamMode = style.seamMode,
                     debugColors = params.debugColors,
                 ),
