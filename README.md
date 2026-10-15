@@ -8,9 +8,9 @@
 
 | Home | Capture |
 | :---: | :---: |
-| ![Home screen](docs/screenshots/home.webp) | ![Guided capture](docs/screenshots/capture.webp) |
+| <img src="docs/screenshots/home.webp" width="200" alt="Home screen"> | <img src="docs/screenshots/capture.webp" width="200" alt="Guided capture"> |
 | **Result** | **Settings** |
-| ![Stitched sphere](docs/screenshots/result.webp) | ![Settings](docs/screenshots/settings.webp) |
+| <img src="docs/screenshots/result.webp" width="200" alt="Stitched sphere"> | <img src="docs/screenshots/settings.webp" width="200" alt="Settings"> |
 
 <p align="center">
   Android app for guided capture and stitching of 360° photo spheres.
