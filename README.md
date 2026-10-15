@@ -4,6 +4,14 @@
 
 <h1 align="center">Photosphere</h1>
 
+### Example photos of the app
+
+| Home | Capture |
+| :---: | :---: |
+| ![Home screen](docs/screenshots/home.webp) | ![Guided capture](docs/screenshots/capture.webp) |
+| **Result** | **Settings** |
+| ![Stitched sphere](docs/screenshots/result.webp) | ![Settings](docs/screenshots/settings.webp) |
+
 <p align="center">
   Android app for guided capture and stitching of 360° photo spheres.
 </p>
