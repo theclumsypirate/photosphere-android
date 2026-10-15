@@ -76,6 +76,13 @@ object SamsungHighRes {
                 ?: continue
             val sizes = runCatching { map.getHighResolutionOutputSizes(ImageFormat.JPEG) }
                 .getOrNull().orEmpty()
+            if (sizes.isNotEmpty()) {
+                Logging.i(
+                    "Samsung high-res probe: camera $id exposes " +
+                        sizes.sortedByDescending { it.width * it.height }
+                            .joinToString { "${it.width}x${it.height}" },
+                )
+            }
             for (size in sizes) {
                 val area = size.width.toLong() * size.height
                 val bestArea = best?.let { it.size.width.toLong() * it.size.height } ?: -1L
@@ -83,7 +90,14 @@ object SamsungHighRes {
             }
         }
         best ?: error("no high-res JPEG size exposed on this phone")
-    }
+    }.onSuccess { target ->
+        Logging.i(
+            "Samsung high-res probe: best is ${target.size.width}x${target.size.height} " +
+                "on camera ${target.cameraId}",
+        )
+    }.onFailure { error ->
+        Logging.w("Samsung high-res probe found nothing", error)
+    }.getOrThrow()
 
     /**
      * Captures one full-resolution still to [file] and returns it.

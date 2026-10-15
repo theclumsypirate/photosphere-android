@@ -2,6 +2,7 @@ package com.n30dyn4m1c.photosphere.camera
 
 import android.os.Build
 import com.n30dyn4m1c.photosphere.stitching.PivotModel
+import com.n30dyn4m1c.photosphere.util.Logging
 
 /**
  * Per-device tuning, decided once per phone.
