@@ -1,0 +1,13 @@
+Camera ID 50 (Back)
+sensor: 4624x3468 (16.0 MP)
+focal length: 5.90000010 mm
+
+JPEG outputs (w x h = MP):
+  3840 x 2160 = 8.3 MP
+  1920 x 1440 = 2.8 MP
+  2400 x 1080 = 2.6 MP
+  1920 x 1080 = 2.1 MP
+  1920 x 864 = 1.7 MP
+  1440 x 1080 = 1.6 MP
+  1088 x 1088 = 1.2 MP
+  1280 x 720 = 0.9 MP

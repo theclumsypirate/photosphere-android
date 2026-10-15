@@ -1,0 +1,14 @@
+Samsung SM-G996B (S21+) camera dump, via adb dumpsys media.camera
+
+id=0 Back: sensor 4032x3024, focal 5.40000010 mm, max JPEG 4032x3024 (12.2 MP)
+id=1 Front: sensor 3648x2736, focal 3.29999995 mm, max JPEG 3648x2736 (10.0 MP)
+id=2 Back: sensor 4032x3024, focal 2.20000005 mm, max JPEG 4032x3024 (12.2 MP)
+id=20 Back: sensor 4032x3024, focal 5.40000010 mm, max JPEG 4032x3024 (12.2 MP)
+id=21 Back: sensor 4864x3648, focal 5.90000010 mm, max JPEG 4864x3648 (17.7 MP)
+id=23 Back: sensor 4032x3024, focal 5.40000010 mm, max JPEG 4032x3024 (12.2 MP)
+id=3 Front: sensor 3216x2208, focal 3.29999995 mm, max JPEG 3216x2208 (7.1 MP)
+id=4 Front: sensor 3648x2736, focal 3.29999995 mm, max JPEG 3648x2736 (10.0 MP)
+id=50 Back: sensor 4624x3468, focal 5.90000010 mm, max JPEG 3840x2160 (8.3 MP)
+id=52 Back: sensor 4864x3648, focal 5.90000010 mm, max JPEG 4864x3648 (17.7 MP)
+id=56 Back: sensor 4032x3024, focal 5.40000010 mm, max JPEG 4032x3024 (12.2 MP)
+id=58 Back: sensor 4032x3024, focal 2.20000005 mm, max JPEG 4032x3024 (12.2 MP)

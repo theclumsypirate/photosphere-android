@@ -1,0 +1,13 @@
+Camera ID 52 (Back)
+sensor: 4864x3648 (17.7 MP)
+focal length: 5.90000010 mm
+
+JPEG outputs (w x h = MP):
+  4864 x 3648 = 17.7 MP
+  4864 x 2736 = 13.3 MP
+  3648 x 3648 = 13.3 MP
+  4864 x 2188 = 10.6 MP
+  3840 x 2160 = 8.3 MP
+  1920 x 1440 = 2.8 MP
+  2400 x 1080 = 2.6 MP
+  1920 x 1080 = 2.1 MP

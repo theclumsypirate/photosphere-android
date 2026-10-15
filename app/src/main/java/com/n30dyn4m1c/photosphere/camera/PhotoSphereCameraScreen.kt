@@ -265,7 +265,17 @@ fun PhotoSphereCameraScreen(
     val orientationState = tracker.orientation.collectAsStateWithLifecycle()
     val feedback = rememberCaptureFeedback()
     val guidance = rememberGuidanceFeedback()
-    val deviceProfile = remember { SphereDeviceProfile.forDevice() }
+    val deviceProfile = remember {
+        val base = SphereDeviceProfile.forDevice()
+        // Samsung-only Settings toggle: shoot the sphere on the ultrawide
+        // lens instead of the profile's pick. Read once per screen so a
+        // mid-session flip cannot renumber the targets.
+        if (SamsungHighRes.isSamsung() && SamsungHighRes.isUltrawidePreferred(context)) {
+            base.copy(preferWidestCamera = true)
+        } else {
+            base
+        }
+    }
 
     // Non-visual guidance: beeps, dwell haptics and spoken target cues, so the
     // capture loop can be driven without sight. Defaults on for a screen

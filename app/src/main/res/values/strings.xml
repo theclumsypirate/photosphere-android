@@ -10,6 +10,17 @@
 
     <string name="capture_starting">Starting camera…</string>
     <string name="capture_failed">Capture failed: %1$s</string>
+
+    <!-- Samsung-only high-resolution test (Settings). -->
+    <string name="samsung_highres_title">Samsung full-sensor still</string>
+    <string name="samsung_highres_note">Probes the biggest high-resolution JPEG size this Samsung exposes and captures one full-sensor still with it. Takes seconds and needs no preview.</string>
+    <string name="samsung_highres_probe">Probed: %1$s on camera %2$s</string>
+    <string name="samsung_highres_capture">Capture full-res still</string>
+    <string name="samsung_highres_working">Capturing…</string>
+    <string name="samsung_highres_saved">Saved %1$s (%2$s)</string>
+    <string name="samsung_highres_failed">Full-res capture failed: %1$s</string>
+    <string name="samsung_ultrawide_label">Prefer ultrawide lens</string>
+    <string name="samsung_ultrawide_note">Shoot spheres on the widest back lens instead of the main one. Applies to the next capture.</string>
     <string name="capture_camera_unavailable">Camera unavailable</string>
     <string name="capture_camera_retry">Try again</string>
     <string name="capture_camera_lost">The camera was taken by another app or stopped. Close other camera apps, then try again — your frames are kept.</string>

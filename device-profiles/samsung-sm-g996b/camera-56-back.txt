@@ -1,0 +1,13 @@
+Camera ID 56 (Back)
+sensor: 4032x3024 (12.2 MP)
+focal length: 5.40000010 mm
+
+JPEG outputs (w x h = MP):
+  4032 x 3024 = 12.2 MP
+  4032 x 2268 = 9.1 MP
+  3024 x 3024 = 9.1 MP
+  3840 x 2160 = 8.3 MP
+  4032 x 1816 = 7.3 MP
+  1920 x 1440 = 2.8 MP
+  2400 x 1080 = 2.6 MP
+  1920 x 1080 = 2.1 MP

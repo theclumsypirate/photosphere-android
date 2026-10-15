@@ -91,14 +91,45 @@ data class SphereDeviceProfile(
             pivot = PivotModel.HandheldBodySwivel,
         )
 
+        /**
+         * Samsung Galaxy S21 / S21+ / S21 Ultra.
+         *
+         * Same sharpness-first shape as the S23 profile: the main 12 MP lens
+         * with OIS captures, capped at its binned output, burst three, and
+         * the stitch runs wide enough to keep the detail. The 64 MP tele
+         * mode is not part of capture; it lives behind the Settings test
+         * button ([SamsungHighRes]) because it needs its own session.
+         */
+        private val SAMSUNG_S21 = SphereDeviceProfile(
+            preferWidestCamera = false,
+            captureMaxLongEdgePx = 4000,
+            burstPerTarget = 3,
+            stitchMaxInputDimension = 2000,
+            stitchMaxOutputWidth = 6144,
+            unsharpAmount = 0.3f,
+            pivot = PivotModel.HandheldBodySwivel,
+        )
+
         /** The profile for the device this process is running on. */
         fun forDevice(): SphereDeviceProfile =
-            if (isSamsungGalaxyS23()) SAMSUNG_S23 else DEFAULT
+            if (isSamsungGalaxyS23()) {
+                SAMSUNG_S23
+            } else if (isSamsungGalaxyS21()) {
+                SAMSUNG_S21
+            } else {
+                DEFAULT
+            }
 
         private fun isSamsungGalaxyS23(): Boolean =
             Build.MANUFACTURER.equals("samsung", ignoreCase = true) &&
                 (Build.MODEL.startsWith("SM-S911") ||
                     Build.MODEL.startsWith("SM-S916") ||
                     Build.MODEL.startsWith("SM-S918"))
+
+        private fun isSamsungGalaxyS21(): Boolean =
+            Build.MANUFACTURER.equals("samsung", ignoreCase = true) &&
+                (Build.MODEL.startsWith("SM-G991") ||
+                    Build.MODEL.startsWith("SM-G996") ||
+                    Build.MODEL.startsWith("SM-G998"))
     }
 }
