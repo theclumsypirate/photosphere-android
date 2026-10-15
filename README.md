@@ -3,15 +3,6 @@
 </p>
 
 <h1 align="center">Photosphere</h1>
-
-### Example photos of the app
-
-| Home | Capture |
-| :---: | :---: |
-| <img src="docs/screenshots/home.webp" width="200" alt="Home screen"> | <img src="docs/screenshots/capture.webp" width="200" alt="Guided capture"> |
-| **Result** | **Settings** |
-| <img src="docs/screenshots/result.webp" width="200" alt="Stitched sphere"> | <img src="docs/screenshots/settings.webp" width="200" alt="Settings"> |
-
 <p align="center">
   Android app for guided capture and stitching of 360° photo spheres.
 </p>
@@ -21,6 +12,16 @@
   <img src="docs/assets/badge-android.svg" alt="Android 8.0 or later">
   <a href="LICENSE"><img src="docs/assets/badge-license.svg" alt="License"></a>
 </p>
+
+
+### Example photos of the app
+
+| Home | Capture |
+| :---: | :---: |
+| <img src="docs/screenshots/home.webp" width="200" alt="Home screen"> | <img src="docs/screenshots/capture.webp" width="200" alt="Guided capture"> |
+| **Result** | **Settings** |
+| <img src="docs/screenshots/result.webp" width="200" alt="Stitched sphere"> | <img src="docs/screenshots/settings.webp" width="200" alt="Settings"> |
+
 
 ## What it does
 
