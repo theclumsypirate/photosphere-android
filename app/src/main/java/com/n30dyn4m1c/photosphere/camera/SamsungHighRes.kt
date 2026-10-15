@@ -27,7 +27,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.withTimeout
 
 /**
  * Samsung-only full-resolution stills (the 64 MP / 108 MP modes).
@@ -97,7 +96,7 @@ object SamsungHighRes {
         )
     }.onFailure { error ->
         Logging.w("Samsung high-res probe found nothing", error)
-    }.getOrThrow()
+    }
 
     /**
      * Captures one full-resolution still to [file] and returns it.
@@ -199,10 +198,6 @@ object SamsungHighRes {
                             }
                         },
                     )
-                    if (!manager.isSessionConfigurationSupported(config)) {
-                        fail(IllegalStateException("high-res combination not supported"))
-                        return@suspendCancellableCoroutine
-                    }
                     runCatching { device.createCaptureSession(config) }.onFailure(::fail)
                 }
             } finally {
