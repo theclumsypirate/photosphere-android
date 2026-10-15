@@ -270,7 +270,7 @@ fun PhotoSphereCameraScreen(
         // Samsung-only Settings toggle: shoot the sphere on the ultrawide
         // lens instead of the profile's pick. Read once per screen so a
         // mid-session flip cannot renumber the targets.
-        if (SamsungHighRes.isSamsung() && SamsungHighRes.isUltrawidePreferred(context)) {
+        if (BuildConfig.DEBUG && SamsungHighRes.isSamsung() && SamsungHighRes.isUltrawidePreferred(context)) {
             base.copy(preferWidestCamera = true)
         } else {
             base

@@ -1,6 +1,7 @@
 package com.n30dyn4m1c.photosphere.camera
 
 import android.os.Build
+import com.n30dyn4m1c.photosphere.BuildConfig
 import com.n30dyn4m1c.photosphere.stitching.PivotModel
 import com.n30dyn4m1c.photosphere.util.Logging
 
@@ -115,7 +116,7 @@ data class SphereDeviceProfile(
         fun forDevice(): SphereDeviceProfile =
             if (isSamsungGalaxyS23()) {
                 SAMSUNG_S23
-            } else if (isSamsungGalaxyS21()) {
+            } else if (BuildConfig.DEBUG && isSamsungGalaxyS21()) {
                 SAMSUNG_S21
             } else {
                 DEFAULT

@@ -64,7 +64,7 @@ fun SettingsScreen(
             textAlign = TextAlign.Center,
         )
         ReportRows(modifier = Modifier.padding(top = 28.dp))
-        if (SamsungHighRes.isSamsung()) {
+        if (BuildConfig.DEBUG && SamsungHighRes.isSamsung()) {
             SamsungRows(modifier = Modifier.padding(top = 20.dp))
         }
         TextButton(onClick = onBack, modifier = Modifier.padding(top = 12.dp)) {
