@@ -7,6 +7,8 @@ import org.opencv.core.Rect
 import org.opencv.core.Scalar
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
+import org.opencv.photo.Photo
+import com.n30dyn4m1c.photosphere.util.Logging
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
@@ -113,6 +115,10 @@ internal object EquirectangularRenderer {
     ): Rendered {
         val canvas = Mat.zeros(canvasHeight, canvasWidth, CvType.CV_8UC3)
         var coveredPixels = 0L
+        // Full-resolution coverage mask, 255 where a frame reached. One byte
+        // per pixel, filled band by band next to the float accumulators, so
+        // the finished canvas knows exactly which pixels no frame touched.
+        val covered = Mat.zeros(canvasHeight, canvasWidth, CvType.CV_8UC1)
         // One set of scratch buffers for the whole render. A pole-covering frame
         // reaches the full canvas width, so a per-segment allocation would churn
         // tens of megabytes of float array per band across forty frames.
@@ -171,6 +177,7 @@ internal object EquirectangularRenderer {
                             scratch = scratch,
                         )
                         coveredPixels += Core.countNonZero(weight)
+                        markCovered(weight, covered, bandTop, bandHeight)
                         val normalized = MultibandBlender.normalizeColor(color, weight)
                         val region = canvas.submat(Rect(0, bandTop, canvasWidth, bandHeight))
                         try {
@@ -343,6 +350,7 @@ internal object EquirectangularRenderer {
                             scratch = scratch,
                         )
                         coveredPixels += Core.countNonZero(weight)
+                        markCovered(weight, covered, bandTop, bandHeight)
                         val band = MultibandBlender.reconstructBand(
                             colorBand = color,
                             weightBand = weight,
@@ -384,12 +392,79 @@ internal object EquirectangularRenderer {
             acc?.release()
             levelOneAcc?.release()
             canvas.release()
+            covered.release()
             throw e
         }
 
         val total = canvasWidth.toLong() * canvasHeight
-        return Rendered(canvas, coverage = (coveredPixels.toDouble() / total).toFloat())
+        val coverage = (coveredPixels.toDouble() / total).toFloat()
+        try {
+            fillSmallHoles(canvas, covered, coverage)
+        } finally {
+            covered.release()
+        }
+        return Rendered(canvas, coverage = coverage)
     }
+
+    /**
+     * Copies the covered pixels of one full-resolution weight band into the
+     * canvas-sized [covered] mask (255 = a frame reached the pixel).
+     */
+    private fun markCovered(
+        weight: Mat,
+        covered: Mat,
+        bandTop: Int,
+        bandHeight: Int,
+    ) {
+        val binary = Mat()
+        try {
+            Core.compare(weight, Scalar(0.0), binary, Core.CMP_GT)
+            val region = covered.submat(Rect(0, bandTop, covered.cols(), bandHeight))
+            try {
+                binary.copyTo(region)
+            } finally {
+                region.release()
+            }
+        } finally {
+            binary.release()
+        }
+    }
+
+    /**
+     * Paints over the small uncovered patches of an almost-complete sphere.
+     *
+     * Sensor poses drift by a degree or two between neighbouring frames, so a
+     * run where every target was captured can still come back at 99%: thin
+     * slivers between frames that no frame touched, rendered black. Inpainting
+     * grows the surrounding content into them, which reads as sphere rather
+     * than a black corner. Runs under [FILL_MIN_COVERAGE] keep their black:
+     * a half-missing sphere is an honest gap the user should re-shoot, not a
+     * smear.
+     */
+    private fun fillSmallHoles(canvas: Mat, covered: Mat, coverage: Float) {
+        if (coverage < FILL_MIN_COVERAGE || coverage >= 1f) return
+        val holes = Mat()
+        val dilated = Mat()
+        val filled = Mat()
+        try {
+            Core.bitwise_not(covered, holes)
+            // A few pixels past the hole edge so the dark fringe blends too.
+            Imgproc.dilate(
+                holes, dilated,
+                Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, Size(7.0, 7.0)),
+            )
+            Photo.inpaint(canvas, dilated, filled, 8.0, Photo.INPAINT_TELEA)
+            filled.copyTo(canvas)
+            Logging.i("Filled pinhole gaps at ${(coverage * 100).toInt()}% coverage")
+        } finally {
+            holes.release()
+            dilated.release()
+            filled.release()
+        }
+    }
+
+    /** Coverage at or above which the leftover holes are filled, not kept. */
+    private const val FILL_MIN_COVERAGE = 0.95f
 
     /**
      * Accumulates every frame that reaches one band of one pyramid level into
