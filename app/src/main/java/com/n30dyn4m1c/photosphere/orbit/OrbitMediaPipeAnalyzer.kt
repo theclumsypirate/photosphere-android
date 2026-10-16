@@ -266,35 +266,74 @@ class OrbitMediaPipeAnalyzer(
     }
 
     /**
-     * Converts YUV ImageProxy to a rotated bitmap.
+     * Converts an ImageProxy frame to a rotated bitmap.
+     *
+     * JPEG frames decode straight from plane 0 (the camera-samples
+     * pattern). YUV_420_888 frames are packed to NV21 row by row
+     * honouring row and pixel strides: assuming tight packing skews
+     * the image on lenses whose rows carry stride padding.
      *
      * @param imageProxy source frame.
      * @param rotationDegrees rotation to apply.
      * @return bitmap or null on failure.
      */
     private fun imageProxyToBitmap(imageProxy: ImageProxy, rotationDegrees: Int): Bitmap? {
-        val yBuffer = imageProxy.planes[0].buffer
-        val uBuffer = imageProxy.planes[1].buffer
-        val vBuffer = imageProxy.planes[2].buffer
-        val ySize = yBuffer.remaining()
-        val uSize = uBuffer.remaining()
-        val vSize = vBuffer.remaining()
-        val nv21 = ByteArray(ySize + uSize + vSize)
-        yBuffer.get(nv21, 0, ySize)
-        vBuffer.get(nv21, ySize, vSize)
-        uBuffer.get(nv21, ySize + vSize, uSize)
-        val yuvImage = YuvImage(nv21, ImageFormat.NV21, imageProxy.width, imageProxy.height, null)
-        val out = ByteArrayOutputStream()
-        if (!yuvImage.compressToJpeg(Rect(0, 0, imageProxy.width, imageProxy.height), 90, out)) {
-            return null
-        }
-        val bytes = out.toByteArray()
-        val raw = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+        val raw = if (imageProxy.format == ImageFormat.JPEG) {
+            val buffer = imageProxy.planes[0].buffer
+            val bytes = ByteArray(buffer.remaining())
+            buffer.get(bytes)
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        } else {
+            val nv21 = yuv420ToNv21(imageProxy) ?: return null
+            val yuvImage = YuvImage(nv21, ImageFormat.NV21, imageProxy.width, imageProxy.height, null)
+            val out = ByteArrayOutputStream()
+            if (!yuvImage.compressToJpeg(Rect(0, 0, imageProxy.width, imageProxy.height), 90, out)) {
+                return null
+            }
+            val bytes = out.toByteArray()
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        } ?: return null
         if (rotationDegrees == 0) return raw
         val matrix = Matrix()
         matrix.postRotate(rotationDegrees.toFloat())
         val rotated = Bitmap.createBitmap(raw, 0, 0, raw.width, raw.height, matrix, true)
         if (rotated !== raw) raw.recycle()
         return rotated
+    }
+
+    /**
+     * Packs YUV_420_888 planes into tight NV21, honouring strides.
+     *
+     * @return NV21 bytes sized width * height * 3 / 2, or null.
+     */
+    private fun yuv420ToNv21(imageProxy: ImageProxy): ByteArray? {
+        val width = imageProxy.width
+        val height = imageProxy.height
+        val yPlane = imageProxy.planes[0]
+        val uPlane = imageProxy.planes[1]
+        val vPlane = imageProxy.planes[2]
+        val yRowStride = yPlane.rowStride
+        val uvRowStride = uPlane.rowStride
+        val uvPixelStride = uPlane.pixelStride
+        if (uvPixelStride != vPlane.pixelStride) return null
+        val nv21 = ByteArray(width * height * 3 / 2)
+        val yBuffer = yPlane.buffer
+        val yStart = yBuffer.position()
+        for (row in 0 until height) {
+            yBuffer.position(yStart + row * yRowStride)
+            yBuffer.get(nv21, row * width, width)
+        }
+        val uBuffer = uPlane.buffer
+        val vBuffer = vPlane.buffer
+        val uStart = uBuffer.position()
+        val vStart = vBuffer.position()
+        var dest = width * height
+        for (row in 0 until height / 2) {
+            for (col in 0 until width / 2) {
+                nv21[dest++] = vBuffer.get(vStart + row * uvRowStride + col * uvPixelStride)
+                nv21[dest++] = uBuffer.get(uStart + row * uvRowStride + col * uvPixelStride)
+            }
+        }
+        return nv21
     }
 }
