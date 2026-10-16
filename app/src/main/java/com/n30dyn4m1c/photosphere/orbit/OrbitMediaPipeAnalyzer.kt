@@ -84,7 +84,8 @@ class OrbitMediaPipeAnalyzer(
                 .setResultListener { result, _ ->
                     try {
                         onReading(mapResult(result))
-                    } catch (_: Exception) {
+                    } catch (e: Exception) {
+                        Logging.e("Orbit MediaPipe result callback failed", e)
                         onReading(null)
                     }
                 }
@@ -92,8 +93,8 @@ class OrbitMediaPipeAnalyzer(
                     Logging.e("Orbit MediaPipe Pose landmarker error: " + error.message)
                     try {
                         onReading(null)
-                    } catch (_: Exception) {
-                        // Ignore callback failures.
+                    } catch (e: Exception) {
+                        Logging.e("Orbit MediaPipe error callback failed", e)
                     }
                 }
                 .build()
@@ -137,8 +138,8 @@ class OrbitMediaPipeAnalyzer(
             Logging.e("Orbit MediaPipe detectAsync failed: " + e.message)
             try {
                 onReading(null)
-            } catch (_: Exception) {
-                // Ignore callback failures.
+            } catch (callbackError: Exception) {
+                Logging.e("Orbit MediaPipe error callback failed", callbackError)
             }
         } finally {
             imageProxy.close()
