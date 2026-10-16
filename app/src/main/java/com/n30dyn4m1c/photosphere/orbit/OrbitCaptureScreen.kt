@@ -539,7 +539,7 @@ fun OrbitCaptureScreen(
             } else if (currentPlan != null) {
                 OrbitHud(
                     capturedCount = captured.size,
-                    totalTargets = currentPlan.angles.size,
+                    totalTargets = currentPlan.targets.size,
                     hint = buildString {
                         append(hint)
                         if (personHint != null) {
@@ -551,7 +551,7 @@ fun OrbitCaptureScreen(
                     },
                     canFinish = captured.size >= ORBIT_MIN_FINISH && activeTarget != null,
                     onFinish = {
-                        val files = currentPlan.angles.indices
+                        val files = currentPlan.targets.indices
                             .map { OrbitStore.angleFile(walkDirectory, it) }
                             .filter { it.exists() }
                         if (files.isNotEmpty()) onDone(files)
@@ -587,7 +587,7 @@ fun OrbitCaptureScreen(
                     frameCount = captured.size,
                     canSaveFrames = captured.isNotEmpty(),
                     onSaveFrames = {
-                        val files = currentPlan.angles.indices
+                        val files = currentPlan.targets.indices
                             .map { OrbitStore.angleFile(walkDirectory, it) }
                             .filter { it.exists() }
                         if (files.isNotEmpty()) {
