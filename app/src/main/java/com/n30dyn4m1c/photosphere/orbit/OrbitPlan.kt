@@ -1,5 +1,6 @@
 package com.n30dyn4m1c.photosphere.orbit
 
+import com.n30dyn4m1c.photosphere.util.Logging
 import kotlin.math.abs
 
 /**
@@ -32,6 +33,7 @@ data class OrbitPlan(
 fun orbitPlan(count: Int = DEFAULT_ANGLE_COUNT, startYaw: Float = 0f): OrbitPlan {
     require(count in 3..36) { "orbit needs 3..36 angles, was $count" }
     val step = 360f / count
+    Logging.i("Orbit yaw plan: $count angles from $startYaw")
     return OrbitPlan(List(count) { i -> wrapAngle(startYaw + i * step) })
 }
 

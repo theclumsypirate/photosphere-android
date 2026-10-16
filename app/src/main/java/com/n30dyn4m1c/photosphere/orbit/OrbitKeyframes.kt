@@ -1,5 +1,6 @@
 package com.n30dyn4m1c.photosphere.orbit
 
+import com.n30dyn4m1c.photosphere.util.Logging
 import org.opencv.core.Mat
 import org.opencv.core.MatOfDMatch
 import org.opencv.features2d.DescriptorMatcher
@@ -53,6 +54,7 @@ class OrbitKeyframes {
             dropped.descriptors.release()
         }
         keyframes.addLast(StoredKeyframe(id, descriptors.clone()))
+        Logging.i("Orbit keyframe $id stored")
         return id
     }
 
@@ -83,7 +85,9 @@ class OrbitKeyframes {
                     bestId = keyframe.id
                 }
             }
-            return if (bestCount >= minGoodMatches) bestId else null
+            val result = if (bestCount >= minGoodMatches) bestId else null
+            if (result != null) Logging.i("Orbit loop closed on keyframe $result")
+            return result
         } finally {
             matcher.clear()
         }

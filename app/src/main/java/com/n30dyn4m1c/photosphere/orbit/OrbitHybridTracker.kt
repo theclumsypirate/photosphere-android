@@ -1,6 +1,7 @@
 package com.n30dyn4m1c.photosphere.orbit
 
 import android.hardware.SensorManager
+import com.n30dyn4m1c.photosphere.util.Logging
 
 /**
  * Extracts absolute yaw from a rotation vector reading.
@@ -36,6 +37,7 @@ class RelativeRotationTracker {
      */
     fun anchor(rotationVector: FloatArray) {
         anchorYawDegrees = absoluteYawDegrees(rotationVector)
+        Logging.i("Orbit gyro anchored")
     }
 
     /**
@@ -92,6 +94,7 @@ class HybridOrbitEngine(
         require(anchorGain in 0f..1f) { "anchorGain must be 0..1, was $anchorGain" }
         val error = wrapDelta(absoluteYawDegrees - currentYawDegrees)
         currentYawDegrees = wrapAngle(currentYawDegrees + anchorGain * error)
+        Logging.i("Orbit hybrid reanchored, error $error")
     }
 
     /** Resets the estimate to zero. */

@@ -25,7 +25,10 @@ object OrbitStore {
     fun newWalkDirectory(context: Context): File {
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         return File(File(context.cacheDir, WALKS_DIRECTORY), "walk_$stamp")
-            .apply { mkdirs() }
+            .apply {
+                mkdirs()
+                Logging.i("Orbit walk directory $name")
+            }
     }
 
     /** Where angle [index] of a walk is written. */

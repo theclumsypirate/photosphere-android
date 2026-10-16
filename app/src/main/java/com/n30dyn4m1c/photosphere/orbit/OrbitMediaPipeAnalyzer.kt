@@ -8,7 +8,7 @@ import android.graphics.Matrix
 import android.graphics.Rect
 import android.graphics.YuvImage
 import android.os.SystemClock
-import android.util.Log
+import com.n30dyn4m1c.photosphere.util.Logging
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import com.google.mediapipe.framework.image.BitmapImageBuilder
@@ -36,7 +36,6 @@ class OrbitMediaPipeAnalyzer(
         const val MODEL_ASSET_PATH = "pose_landmarker_lite.task"
 
         /** Tag used for error logging. */
-        private const val TAG = "OrbitMediaPipe"
 
         /** Minimum normalized landmark visibility treated as present. */
         private const val VISIBILITY_THRESHOLD = 0.5f
@@ -90,7 +89,7 @@ class OrbitMediaPipeAnalyzer(
                     }
                 }
                 .setErrorListener { error ->
-                    Log.e(TAG, "Pose landmarker error: " + error.message)
+                    Logging.e("Orbit MediaPipe Pose landmarker error: " + error.message)
                     try {
                         onReading(null)
                     } catch (_: Exception) {
@@ -100,8 +99,9 @@ class OrbitMediaPipeAnalyzer(
                 .build()
             landmarker = PoseLandmarker.createFromOptions(appContext, options)
             ready = true
+            Logging.i("Orbit MediaPipe ready: " + MODEL_ASSET_PATH)
         } catch (e: Exception) {
-            Log.e(TAG, "Pose landmarker init failed, analyzer inert: " + e.message)
+            Logging.e("Orbit MediaPipe Pose landmarker init failed, analyzer inert: " + e.message)
             landmarker = null
             ready = false
         }
@@ -123,7 +123,7 @@ class OrbitMediaPipeAnalyzer(
         val bitmap: Bitmap? = try {
             imageProxyToBitmap(imageProxy, imageProxy.imageInfo.rotationDegrees)
         } catch (e: Exception) {
-            Log.e(TAG, "Frame convert failed: " + e.message)
+            Logging.e("Orbit MediaPipe Frame convert failed: " + e.message)
             null
         }
         if (bitmap == null) {
@@ -134,7 +134,7 @@ class OrbitMediaPipeAnalyzer(
             val mpImage = BitmapImageBuilder(bitmap).build()
             active.detectAsync(mpImage, SystemClock.uptimeMillis())
         } catch (e: Exception) {
-            Log.e(TAG, "detectAsync failed: " + e.message)
+            Logging.e("Orbit MediaPipe detectAsync failed: " + e.message)
             try {
                 onReading(null)
             } catch (_: Exception) {
@@ -152,7 +152,7 @@ class OrbitMediaPipeAnalyzer(
         try {
             landmarker?.close()
         } catch (e: Exception) {
-            Log.e(TAG, "Landmarker close failed: " + e.message)
+            Logging.e("Orbit MediaPipe Landmarker close failed: " + e.message)
         } finally {
             landmarker = null
             ready = false

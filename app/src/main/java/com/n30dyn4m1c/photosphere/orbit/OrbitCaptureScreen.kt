@@ -201,6 +201,7 @@ fun OrbitCaptureScreen(
                 capture,
                 analysisUseCase,
             )
+            Logging.i("Orbit camera bound with pose analyzer")
         }.onFailure { error ->
             Logging.e("Orbit camera bind failed", error)
             scope.launch {
@@ -353,7 +354,9 @@ fun OrbitCaptureScreen(
     LaunchedEffect(captured.size, currentPlan) {
         if (currentPlan != null && activeTarget == null) {
             val files = currentPlan.targets.indices.map { OrbitStore.angleFile(walkDirectory, it) }
-            onDone(files.filter { it.exists() })
+            val ready = files.filter { it.exists() }
+            Logging.i("Orbit walk finished: ${ready.size} frames")
+            onDone(ready)
         }
     }
 

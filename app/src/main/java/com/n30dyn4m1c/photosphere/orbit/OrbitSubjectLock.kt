@@ -1,5 +1,6 @@
 package com.n30dyn4m1c.photosphere.orbit
 
+import com.n30dyn4m1c.photosphere.util.Logging
 import kotlin.math.abs
 
 /**
@@ -46,6 +47,7 @@ class OrbitSubjectLock {
         val height = reading.bodyHeightFrac ?: return false
         lockedHeightFrac = height
         lockedCenterXFrac = reading.bodyCenterXFrac
+        Logging.i("Orbit subject locked at height $height")
         return true
     }
 
@@ -55,6 +57,7 @@ class OrbitSubjectLock {
     fun unlock() {
         lockedHeightFrac = null
         lockedCenterXFrac = null
+        Logging.i("Orbit subject unlocked")
     }
 
     /**

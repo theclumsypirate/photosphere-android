@@ -1,5 +1,6 @@
 package com.n30dyn4m1c.photosphere.orbit
 
+import com.n30dyn4m1c.photosphere.util.Logging
 import kotlin.math.abs
 
 /**
@@ -82,6 +83,7 @@ fun orbitPitchPlan(startYaw: Float = 0f): OrbitPitchPlan {
         ringTargets(4, PITCH_RING_BOTTOM, PITCH_RING_BOTTOM_COUNT, startYaw),
     )
     return OrbitPitchPlan(rings, yawToleranceDegrees = 2f, pitchToleranceDegrees = 2f)
+        .also { Logging.i("Orbit pitch plan: ${it.size} targets") }
 }
 
 /** Evenly spaced yaw targets for one ring starting at [startYaw], clockwise. */
