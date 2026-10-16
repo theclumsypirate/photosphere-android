@@ -21,8 +21,9 @@ data class OrbitPitchTarget(
 /**
  * Multi-ring orbit grid around a subject. Pure logic, no Android.
  * Rings: pitch 0 with 12 yaw targets, pitch +-30 with 8 each,
- * pitch +-60 with 4 each. Flat target order is ring by ring.
- * Yaw values are relative to the walk start bearing, not compass.
+ * pitch +-60 with 4 each, plus zenith and nadir caps. Flat target
+ * order is ring by ring. Yaw values are relative to the walk start
+ * bearing, not compass.
  *
  * @param rings target lists per ring, in capture order of rings.
  * @param yawToleranceDegrees how close yaw must be to count as on target.
@@ -73,7 +74,11 @@ const val PITCH_RING_LOW_COUNT = 8
 const val PITCH_RING_TOP_COUNT = 4
 const val PITCH_RING_BOTTOM_COUNT = 4
 
-/** Builds the default 36 target grid starting at relative yaw 0. */
+/** Zenith and nadir caps, one straight up and one straight down. */
+const val PITCH_RING_ZENITH = -90f
+const val PITCH_RING_NADIR = 90f
+
+/** Builds the default 38 target grid starting at relative yaw 0. */
 fun orbitPitchPlan(startYaw: Float = 0f): OrbitPitchPlan {
     val rings = listOf(
         ringTargets(0, PITCH_RING_LEVEL, PITCH_RING_LEVEL_COUNT, startYaw),
@@ -81,6 +86,8 @@ fun orbitPitchPlan(startYaw: Float = 0f): OrbitPitchPlan {
         ringTargets(2, PITCH_RING_LOW, PITCH_RING_LOW_COUNT, startYaw),
         ringTargets(3, PITCH_RING_TOP, PITCH_RING_TOP_COUNT, startYaw),
         ringTargets(4, PITCH_RING_BOTTOM, PITCH_RING_BOTTOM_COUNT, startYaw),
+        ringTargets(5, PITCH_RING_ZENITH, 1, startYaw),
+        ringTargets(6, PITCH_RING_NADIR, 1, startYaw),
     )
     return OrbitPitchPlan(rings, yawToleranceDegrees = 4f, pitchToleranceDegrees = 4f)
         .also { Logging.i("Orbit pitch plan: ${it.size} targets") }

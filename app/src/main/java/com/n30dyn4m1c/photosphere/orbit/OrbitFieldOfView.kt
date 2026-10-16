@@ -79,7 +79,10 @@ fun orbitPitchPlanForFieldOfView(fieldOfView: OrbitFieldOfView): OrbitPitchPlan 
         val ringSpacing = if (shrink <= 1e-3f) 360f else spacing / shrink
         val count = (360f / ringSpacing).roundToInt().coerceAtLeast(1)
         ringTargets(ringIndex, -elev, count)
-    }
+    } + listOf(
+        ringTargets(elevations.size, PITCH_RING_ZENITH, 1),
+        ringTargets(elevations.size + 1, PITCH_RING_NADIR, 1),
+    )
     return OrbitPitchPlan(rings, yawToleranceDegrees = 4f, pitchToleranceDegrees = 4f)
         .also { Logging.i("Orbit adaptive plan: ${it.size} targets") }
 }

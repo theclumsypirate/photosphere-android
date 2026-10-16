@@ -390,22 +390,43 @@ fun OrbitCaptureScreen(
     // Subject-relative line under the yaw hint: where the person is in
     // frame and how far, so the user walks the subject, not the compass.
     // "Stay still" moment is the dwell itself: this line only positions.
-    val personHint = subjectReading?.let { reading -> subjectHint(reading, subjectLock) }
+    val personHint = trustedReading?.let { reading -> subjectHint(reading, subjectLock) }
     // Vision-driven loop validation: person mode proves the circle from
     // seen body phases; object mode proves it from swept yaw sectors,
     // since objects have no facing to detect.
+    // Trusted reading: once locked, a passerby with a different body
+    // size must not flip phases or hints. Lock retries on every
+    // complete reading until it holds.
+    val trustedReading = subjectReading?.takeIf {
+        !subjectLock.isLocked || subjectLock.matchScore(it) >= 0.3f
+    }
+    LaunchedEffect(subjectReading) {
+        if (!subjectLock.isLocked) {
+            subjectReading?.let { subjectLock.lock(it) }
+        }
+    }
     var seenPhases by remember { mutableStateOf(setOf<OrbitPhase>()) }
     var seenSectors by remember { mutableStateOf(setOf<Int>()) }
-    LaunchedEffect(subjectReading) {
-        val phase = subjectReading?.phase
+    LaunchedEffect(trustedReading) {
+        val phase = trustedReading?.phase
         if (started && phase != null && phase != OrbitPhase.UNKNOWN) {
             if (phase !in seenPhases) {
                 seenPhases = seenPhases + phase
                 Logging.i("Orbit phase seen: $phase")
-                val jump = plan?.let { p ->
-                    p.targets.indices
-                        .filter { it !in captured }
-                        .minByOrNull { abs(wrapDelta(p.targets[it].yawDegrees - yawRel)) }
+                // Snap to the side the phase means, not to whatever index
+                // sits nearest: the walk starts facing FRONT, so BACK lives
+                // near relative +-180 and sides near +-90.
+                val expectedYaw = when (phase) {
+                    OrbitPhase.FRONT -> 0f
+                    OrbitPhase.SIDE_LEFT -> -90f
+                    OrbitPhase.SIDE_RIGHT -> 90f
+                    OrbitPhase.BACK -> if (yawRel >= 0f) 180f else -180f
+                    OrbitPhase.UNKNOWN -> null
+                }
+                val jump = expectedYaw?.let { expected ->
+                    plan?.targets?.indices
+                        ?.filter { it !in captured }
+                        ?.minByOrNull { abs(wrapDelta(plan.targets[it].yawDegrees - expected)) }
                 }
                 if (jump != null) {
                     phaseJump = jump
@@ -421,10 +442,14 @@ fun OrbitCaptureScreen(
     }
     val loopHint = when {
         !started -> null
-        subjectLock.isLocked && seenPhases.size >= 3 -> "Full circle seen"
+        subjectLock.isLocked && seenPhases.size >= 4 -> "Full circle seen"
         subjectLock.isLocked -> {
-            val missing = listOf(OrbitPhase.FRONT, OrbitPhase.PROFILE, OrbitPhase.BACK)
-                .filter { it !in seenPhases }
+            val missing = listOf(
+                OrbitPhase.FRONT,
+                OrbitPhase.SIDE_LEFT,
+                OrbitPhase.SIDE_RIGHT,
+                OrbitPhase.BACK,
+            ).filter { it !in seenPhases }
                 .joinToString { it.name.lowercase() }
             "Still missing: $missing, keep walking around"
         }
@@ -466,6 +491,10 @@ fun OrbitCaptureScreen(
                     activeIndex = activeTarget,
                     captured = captured,
                     dwellProgress = dwellProgress,
+                    halfHfovDegrees = lensFov?.hFovDegrees?.div(2f)
+                        ?: PROJECTED_HALF_HFOV,
+                    halfVfovDegrees = lensFov?.vFovDegrees?.div(2f)
+                        ?: PROJECTED_HALF_VFOV,
                 )
             }
             val square = tapPoint?.takeUnless { started }
@@ -502,13 +531,13 @@ fun OrbitCaptureScreen(
                         modifier = Modifier.padding(bottom = 12.dp),
                     ) {
                         Text(
-                            text = stringResource(
-                                if (tapPoint == null) {
-                                    R.string.orbit_tap_subject
-                                } else {
-                                    R.string.orbit_subject_locked
-                                },
-                            ),
+                            text = when {
+                                tapPoint == null ->
+                                    stringResource(R.string.orbit_tap_subject)
+                                subjectLock.isLocked || trustedReading == null ->
+                                    stringResource(R.string.orbit_subject_locked)
+                                else -> "Hold still on the person"
+                            },
                             style = MaterialTheme.typography.bodyLarge,
                             color = GlassContent,
                             modifier = Modifier.padding(horizontal = 20.dp, vertical = 13.dp),
@@ -529,7 +558,7 @@ fun OrbitCaptureScreen(
                     // needs the tap. No compass in either mode: yaw zero is
                     // the bearing faced at Confirm.
                     val canConfirm = tapPoint != null &&
-                        (subjectLock.isLocked || subjectReading == null)
+                        (subjectLock.isLocked || trustedReading == null)
                     Button(
                         enabled = canConfirm,
                         onClick = {
@@ -560,7 +589,13 @@ fun OrbitCaptureScreen(
                             append(". ").append(loopHint)
                         }
                     },
-                    canFinish = captured.size >= ORBIT_MIN_FINISH && activeTarget != null,
+                    // Finish needs a proven full circle, not just a few
+                    // frames: all four body sides in person mode, all
+                    // twelve walked sectors in object mode.
+                    canFinish = activeTarget != null && (
+                        subjectLock.isLocked && seenPhases.size >= 4 ||
+                            !subjectLock.isLocked && seenSectors.size >= 12
+                        ),
                     onFinish = {
                         val files = currentPlan.targets.indices
                             .map { OrbitStore.angleFile(walkDirectory, it) }
@@ -644,7 +679,6 @@ private fun OrbitPermissionGate(onRetry: () -> Unit) {
 private const val ORBIT_DWELL_DEGREES = 4f
 private const val ORBIT_DWELL_MILLIS = 500L
 private const val VOICE_SETTLE_MILLIS = 600L
-private const val ORBIT_MIN_FINISH = 3
 
 /**
  * Voice line for one pitch-grid target, relative to walk start.

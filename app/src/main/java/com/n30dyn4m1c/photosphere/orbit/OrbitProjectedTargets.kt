@@ -26,6 +26,8 @@ import com.n30dyn4m1c.photosphere.ui.theme.SphereActive
  * @param activeIndex flat target index being worked on, or null.
  * @param captured flat indices already shot.
  * @param dwellProgress 0..1 fill of the active dot.
+ * @param halfHfovDegrees half horizontal view the offsets scale against.
+ * @param halfVfovDegrees half vertical view the offsets scale against.
  */
 @Composable
 fun OrbitProjectedTargets(
@@ -35,14 +37,16 @@ fun OrbitProjectedTargets(
     activeIndex: Int?,
     captured: Set<Int>,
     dwellProgress: Float,
+    halfHfovDegrees: Float = PROJECTED_HALF_HFOV,
+    halfVfovDegrees: Float = PROJECTED_HALF_VFOV,
     modifier: Modifier = Modifier,
 ) {
     Canvas(modifier = modifier.fillMaxSize()) {
         val halfW = size.width / 2f
         val halfH = size.height / 2f
         plan.targets.forEachIndexed { index, target ->
-            val dx = wrapDelta(target.yawDegrees - yawDegrees) / PROJECTED_HALF_HFOV
-            val dy = (target.pitchDegrees - pitchDegrees) / PROJECTED_HALF_VFOV
+            val dx = wrapDelta(target.yawDegrees - yawDegrees) / halfHfovDegrees
+            val dy = (target.pitchDegrees - pitchDegrees) / halfVfovDegrees
             if (dx < -1.2f || dx > 1.2f || dy < -1.2f || dy > 1.2f) return@forEachIndexed
             // Sensor pitch is negative up, so plus puts above-horizon
             // targets above the centre.
@@ -81,7 +85,7 @@ fun OrbitProjectedTargets(
 }
 
 /** Half of the assumed horizontal view used to scale yaw offsets. */
-private const val PROJECTED_HALF_HFOV = 30f
+internal const val PROJECTED_HALF_HFOV = 30f
 
 /** Half of the assumed vertical view used to scale pitch offsets. */
-private const val PROJECTED_HALF_VFOV = 22.5f
+internal const val PROJECTED_HALF_VFOV = 22.5f

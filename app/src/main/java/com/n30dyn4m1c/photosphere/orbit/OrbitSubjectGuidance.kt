@@ -36,7 +36,8 @@ fun subjectHint(reading: OrbitSubjectReading, lock: OrbitSubjectLock): String {
     }
     return when (reading.phase) {
         OrbitPhase.FRONT -> "Front locked, walk around"
-        OrbitPhase.PROFILE -> "Side view, keep walking"
+        OrbitPhase.SIDE_LEFT -> "Left side, keep walking"
+        OrbitPhase.SIDE_RIGHT -> "Right side, keep walking"
         OrbitPhase.BACK -> "Back view, keep walking"
         OrbitPhase.UNKNOWN -> "Find the person in frame"
     }

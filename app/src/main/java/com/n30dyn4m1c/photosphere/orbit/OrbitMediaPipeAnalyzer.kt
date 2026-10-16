@@ -16,6 +16,7 @@ import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarker
 import java.io.ByteArrayOutputStream
+import kotlin.math.abs
 
 /**
  * CameraX analyzer that runs a MediaPipe pose landmarker in live stream mode.
@@ -52,6 +53,15 @@ class OrbitMediaPipeAnalyzer(
 
         /** Normalized landmark index of the right ankle. */
         private const val INDEX_RIGHT_ANKLE = 28
+
+        /** Normalized landmark index of the left shoulder. */
+        private const val INDEX_LEFT_SHOULDER = 11
+
+        /** Normalized landmark index of the right shoulder. */
+        private const val INDEX_RIGHT_SHOULDER = 12
+
+        /** Shoulder width fraction that still counts as a torso, not noise. */
+        private const val SHOULDER_BACK_MIN_WIDTH_FRAC = 0.15f
     }
 
     /** Asset manager holder to avoid holding the Activity context. */
@@ -221,9 +231,11 @@ class OrbitMediaPipeAnalyzer(
     }
 
     /**
-     * Classifies facing phase from nose and ear visibility.
+     * Classifies facing phase from nose, ears and shoulders.
      *
-     * Mirrors the ML Kit analyzer logic.
+     * Both ears plus nose means front. One ear means that body side.
+     * No face landmarks but wide shoulders means back. Anything else
+     * is unknown rather than a guessed side.
      *
      * @param landmarks normalized landmarks of one pose.
      * @return facing phase.
@@ -234,16 +246,23 @@ class OrbitMediaPipeAnalyzer(
         val nose = landmarks.getOrNull(INDEX_NOSE)
         val leftEar = landmarks.getOrNull(INDEX_LEFT_EAR)
         val rightEar = landmarks.getOrNull(INDEX_RIGHT_EAR)
-        if (nose == null && leftEar == null && rightEar == null) return OrbitPhase.UNKNOWN
+        val leftShoulder = landmarks.getOrNull(INDEX_LEFT_SHOULDER)
+        val rightShoulder = landmarks.getOrNull(INDEX_RIGHT_SHOULDER)
+        if (nose == null && leftEar == null && rightEar == null &&
+            leftShoulder == null && rightShoulder == null
+        ) {
+            return OrbitPhase.UNKNOWN
+        }
         val noseLikely = (nose?.visibility()?.orElse(0f) ?: 0f) > VISIBILITY_THRESHOLD
         val leftLikely = (leftEar?.visibility()?.orElse(0f) ?: 0f) > VISIBILITY_THRESHOLD
         val rightLikely = (rightEar?.visibility()?.orElse(0f) ?: 0f) > VISIBILITY_THRESHOLD
-        return when {
-            noseLikely && leftLikely && rightLikely -> OrbitPhase.FRONT
-            leftLikely xor rightLikely -> OrbitPhase.PROFILE
-            !noseLikely && !leftLikely && !rightLikely -> OrbitPhase.BACK
-            else -> OrbitPhase.UNKNOWN
-        }
+        if (noseLikely && leftLikely && rightLikely) return OrbitPhase.FRONT
+        if (leftLikely && !rightLikely) return OrbitPhase.SIDE_LEFT
+        if (rightLikely && !leftLikely) return OrbitPhase.SIDE_RIGHT
+        val shoulderWide = leftShoulder != null && rightShoulder != null &&
+            abs(leftShoulder.x() - rightShoulder.x()) > SHOULDER_BACK_MIN_WIDTH_FRAC
+        if (!noseLikely && !leftLikely && !rightLikely && shoulderWide) return OrbitPhase.BACK
+        return OrbitPhase.UNKNOWN
     }
 
     /**

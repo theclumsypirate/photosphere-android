@@ -5,7 +5,8 @@ package com.n30dyn4m1c.photosphere.orbit
  */
 enum class OrbitPhase {
     FRONT,
-    PROFILE,
+    SIDE_LEFT,
+    SIDE_RIGHT,
     BACK,
     UNKNOWN,
 }
