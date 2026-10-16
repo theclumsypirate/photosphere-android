@@ -48,3 +48,13 @@ the same; only the accuracy label is missing.
 Ultra-wide and heavily distorting lenses warp frame edges beyond the
 radial model. Debug builds can re-stitch with distortion off to isolate
 it; report the phone model if you see systematic bending.
+
+## Samsung full-sensor resolution not exposed
+
+On Samsung phones (verified on Galaxy S21+, SM-G996B) the Camera2 API
+exposes at most the binned output (4864x3648 JPEG). The full 64 MP size
+(9248x6936) appears neither in the normal output sizes nor in
+`getHighResolutionOutputSizes`, so third-party apps cannot capture it;
+only Samsung's own camera app can. The Samsung test button in Settings
+says so honestly instead of pretending. Tracked upstream:
+https://issuetracker.google.com/issues/162121234
