@@ -128,6 +128,11 @@ dependencies {
     // wiring the local SDK module — see README.md.
     implementation(libs.opencv)
 
+    // ML Kit pose detection for the orbit subject tracker (inert until wired).
+    implementation("com.google.mlkit:pose-detection-accurate:18.0.0")
+    // MediaPipe pose for the debug lab only (inert until wired).
+    implementation("com.google.mediapipe:tasks-vision:0.10.14")
+
     testImplementation(libs.junit)
     // runTest / test dispatchers, for the capture coordinator's suspending API.
     testImplementation(libs.kotlinx.coroutines.test)
