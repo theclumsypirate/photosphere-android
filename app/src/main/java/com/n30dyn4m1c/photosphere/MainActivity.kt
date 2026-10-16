@@ -63,7 +63,6 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.n30dyn4m1c.photosphere.camera.PhotoSphereCameraScreen
 import com.n30dyn4m1c.photosphere.importer.ImportPhotosScreen
 import com.n30dyn4m1c.photosphere.orbit.OrbitCaptureScreen
-import com.n30dyn4m1c.photosphere.orbit.OrbitLabCameraScreen
 import com.n30dyn4m1c.photosphere.orbit.OrbitViewerScreen
 import com.n30dyn4m1c.photosphere.storage.rememberImageBufferManager
 import com.n30dyn4m1c.photosphere.result.PanoramaResultScreen
@@ -177,7 +176,6 @@ private enum class Entry {
     Capture,
     Import,
     Orbit,
-    OrbitLab,
 }
 
 /**
@@ -320,14 +318,6 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
                 } else {
                     null
                 },
-                onOrbitLab = if (BuildConfig.DEBUG) {
-                    {
-                        Logging.i("Entry: Orbit lab (camera)")
-                        entry = Entry.OrbitLab
-                    }
-                } else {
-                    null
-                },
                 onOpenSettings = { showSettings = true },
             )
 
@@ -366,16 +356,6 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
                             },
                         )
                     }
-                }
-            }
-
-            entry == Entry.OrbitLab -> {
-                if (!BuildConfig.DEBUG) {
-                    entry = null
-                } else {
-                    OrbitLabCameraScreen(
-                        onBack = { entry = null },
-                    )
                 }
             }
 
@@ -427,7 +407,6 @@ private fun EntryChooser(
     onCapture: () -> Unit,
     onImport: () -> Unit,
     onOrbit: (() -> Unit)?,
-    onOrbitLab: (() -> Unit)?,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -501,21 +480,6 @@ private fun EntryChooser(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = stringResource(R.string.entry_orbit),
-                    style = MaterialTheme.typography.titleMedium,
-                )
-            }
-        }
-        if (onOrbitLab != null) {
-            FilledTonalButton(
-                onClick = onOrbitLab,
-                shape = PillShape,
-                modifier = Modifier
-                    .padding(top = 12.dp)
-                    .fillMaxWidth()
-                    .height(54.dp),
-            ) {
-                Text(
-                    text = "Orbit lab (camera)",
                     style = MaterialTheme.typography.titleMedium,
                 )
             }

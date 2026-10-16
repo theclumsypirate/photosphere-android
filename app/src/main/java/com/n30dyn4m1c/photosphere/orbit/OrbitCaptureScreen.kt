@@ -9,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.FocusMeteringAction
+import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
@@ -27,7 +28,9 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -139,10 +142,29 @@ fun OrbitCaptureScreen(
     }
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
     var camera by remember { mutableStateOf<Camera?>(null) }
-    LaunchedEffect(previewView) {
+    // Subject-relative guidance (markdown orbit notes): the pose analyzer
+    // watches the person while the walk runs on yaw. ML Kit by default,
+    // MediaPipe toggle for the 3D path. Both stay inert until bound here,
+    // and this whole screen is debug-only via the MainActivity entry.
+    var useMediaPipe by remember { mutableStateOf(false) }
+    var subjectReading by remember { mutableStateOf<OrbitSubjectReading?>(null) }
+    val subjectLock = remember { OrbitSubjectLock() }
+    val analysisExecutor = remember { java.util.concurrent.Executors.newSingleThreadExecutor() }
+    var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
+    var analysis by remember { mutableStateOf<ImageAnalysis?>(null) }
+    var boundAnalyzer by remember { mutableStateOf<ImageAnalysis.Analyzer?>(null) }
+    DisposableEffect(Unit) {
+        onDispose {
+            runCatching { analysis?.let { cameraProvider?.unbind(it) } }
+            runCatching { (boundAnalyzer as? AutoCloseable)?.close() }
+            analysisExecutor.shutdown()
+        }
+    }
+    LaunchedEffect(previewView, useMediaPipe) {
         val provider = withContext(Dispatchers.IO) {
             ProcessCameraProvider.getInstance(context).get()
         }
+        cameraProvider = provider
         val preview = Preview.Builder().build().also {
             it.surfaceProvider = previewView.surfaceProvider
         }
@@ -151,6 +173,19 @@ fun OrbitCaptureScreen(
             .setFlashMode(ImageCapture.FLASH_MODE_OFF)
             .build()
         imageCapture = capture
+        val analyzer: ImageAnalysis.Analyzer = if (useMediaPipe) {
+            OrbitMediaPipeAnalyzer(context) { subjectReading = it }
+        } else {
+            OrbitMlKitAnalyzer { subjectReading = it }
+        }
+        val analysisUseCase = ImageAnalysis.Builder()
+            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+            .build()
+            .also { it.setAnalyzer(analysisExecutor, analyzer) }
+        runCatching { analysis?.let { provider.unbind(it) } }
+        runCatching { (boundAnalyzer as? AutoCloseable)?.close() }
+        analysis = analysisUseCase
+        boundAnalyzer = analyzer
         runCatching {
             provider.unbindAll()
             camera = provider.bindToLifecycle(
@@ -158,6 +193,7 @@ fun OrbitCaptureScreen(
                 CameraSelector.DEFAULT_BACK_CAMERA,
                 preview,
                 capture,
+                analysisUseCase,
             )
         }.onFailure { error ->
             Logging.e("Orbit camera bind failed", error)
@@ -183,6 +219,13 @@ fun OrbitCaptureScreen(
     fun focusSubject(point: Offset) {
         val cam = camera ?: return
         tapPoint = point
+        // Lock the skeleton too when the analyzer already sees the person:
+        // the walk then guides relative to the subject, not the compass.
+        subjectReading?.let { reading ->
+            if (subjectLock.lock(reading)) {
+                Logging.i("Orbit skeleton locked")
+            }
+        }
         val factory = SurfaceOrientedMeteringPointFactory(
             previewSize.width.toFloat().coerceAtLeast(1f),
             previewSize.height.toFloat().coerceAtLeast(1f),
@@ -323,6 +366,10 @@ fun OrbitCaptureScreen(
         activeTarget == null -> "Done"
         else -> OrbitGuidance.hintFor(context, currentPlan, orientation.yawDegrees, activeTarget)
     }
+    // Subject-relative line under the yaw hint: where the person is in
+    // frame and how far, so the user walks the subject, not the compass.
+    // "Stay still" moment is the dwell itself: this line only positions.
+    val personHint = subjectReading?.let { reading -> subjectHint(reading, subjectLock) }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -421,6 +468,26 @@ fun OrbitCaptureScreen(
                             modifier = Modifier.padding(horizontal = 20.dp, vertical = 13.dp),
                         )
                     }
+                    // Live subject line from the pose analyzer plus the
+                    // ML Kit / MediaPipe switch. Debug lab only.
+                    if (personHint != null) {
+                        Text(
+                            text = personHint,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = GlassContent,
+                            modifier = Modifier.padding(bottom = 8.dp),
+                        )
+                    }
+                    TextButton(
+                        onClick = { useMediaPipe = !useMediaPipe },
+                        modifier = Modifier.padding(bottom = 4.dp),
+                    ) {
+                        Text(
+                            text = if (useMediaPipe) "Pose: MediaPipe" else "Pose: ML Kit",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = GlassContent,
+                        )
+                    }
                     Button(
                         enabled = tapPoint != null,
                         onClick = {
@@ -437,7 +504,7 @@ fun OrbitCaptureScreen(
                 OrbitHud(
                     capturedCount = captured.size,
                     totalTargets = currentPlan.angles.size,
-                    hint = hint,
+                    hint = if (personHint != null) "$hint. $personHint" else hint,
                     canFinish = captured.size >= ORBIT_MIN_FINISH && activeTarget != null,
                     onFinish = {
                         val files = currentPlan.angles.indices

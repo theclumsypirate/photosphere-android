@@ -167,9 +167,10 @@ def main(d, out, W):
 if __name__ == "__main__":
     here = os.path.dirname(os.path.abspath(__file__))
     ap = argparse.ArgumentParser()
+    ap.add_argument("--dir", default=None)
     ap.add_argument("--out", default="all36_v1")
     ap.add_argument("--w", type=int, default=2048)
     a = ap.parse_args()
     os.makedirs(os.path.join(here, "out"), exist_ok=True)
-    sys.exit(main(os.path.join(here, "ref", "all36"),
+    sys.exit(main(a.dir or os.path.join(here, "ref", "all36"),
                   os.path.join(here, "out", a.out + ".jpg"), a.w))
