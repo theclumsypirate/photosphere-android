@@ -377,12 +377,10 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
                         permissions = MainActivity.REQUIRED_PERMISSIONS,
                     ) {
                         PhotoSphereCameraVideoScreen(
-                            onSphereReady = { stitched, offer ->
-                                Logging.i("Sphere ready: ${stitched.file.name} (video)")
-                                sphere = stitched
-                                restitchOffer = offer
-                                restitchStyle = offer?.madeWith ?: StitchStyle.Balanced
-                            }
+                            onVideoSaved = { uri ->
+                                Logging.i("Video ready: $uri (video)")
+                            },
+                            onBack = { entry = null },
                         )
                     }
                 }
