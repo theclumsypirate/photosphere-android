@@ -109,7 +109,7 @@ class OrbitMediaPipeAnalyzer(
                     }
                 }
                 .setErrorListener { error ->
-                    Logging.e("Orbit MediaPipe Pose landmarker error: " + error.message)
+                    Logging.e("Orbit MediaPipe Pose landmarker error", error)
                     try {
                         onReading(null)
                     } catch (e: Exception) {
@@ -121,7 +121,7 @@ class OrbitMediaPipeAnalyzer(
             ready = true
             Logging.i("Orbit MediaPipe ready: " + MODEL_ASSET_PATH)
         } catch (e: Exception) {
-            Logging.e("Orbit MediaPipe Pose landmarker init failed, analyzer inert: " + e.message)
+            Logging.e("Orbit MediaPipe Pose landmarker init failed, analyzer inert", e)
             landmarker = null
             ready = false
         }
@@ -144,7 +144,7 @@ class OrbitMediaPipeAnalyzer(
         val bitmap: Bitmap? = try {
             imageProxyToBitmap(imageProxy, imageProxy.imageInfo.rotationDegrees)
         } catch (e: Exception) {
-            Logging.e("Orbit MediaPipe Frame convert failed: " + e.message)
+            Logging.e("Orbit MediaPipe Frame convert failed", e)
             null
         }
         if (bitmap == null) {
@@ -155,7 +155,7 @@ class OrbitMediaPipeAnalyzer(
             val mpImage = BitmapImageBuilder(bitmap).build()
             active.detectAsync(mpImage, SystemClock.uptimeMillis())
         } catch (e: Exception) {
-            Logging.e("Orbit MediaPipe detectAsync failed: " + e.message)
+            Logging.e("Orbit MediaPipe detectAsync failed", e)
             try {
                 onReading(null)
             } catch (callbackError: Exception) {
@@ -173,7 +173,7 @@ class OrbitMediaPipeAnalyzer(
         try {
             landmarker?.close()
         } catch (e: Exception) {
-            Logging.e("Orbit MediaPipe Landmarker close failed: " + e.message)
+            Logging.e("Orbit MediaPipe Landmarker close failed", e)
         } finally {
             landmarker = null
             ready = false

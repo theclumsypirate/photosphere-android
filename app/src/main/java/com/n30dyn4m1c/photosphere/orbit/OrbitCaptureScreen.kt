@@ -360,15 +360,9 @@ fun OrbitCaptureScreen(
         }
     }
 
-    // All angles shot: hand the set over in plan order.
-    LaunchedEffect(captured.size, currentPlan) {
-        if (currentPlan != null && activeTarget == null) {
-            val files = currentPlan.targets.indices.map { OrbitStore.angleFile(walkDirectory, it) }
-            val ready = files.filter { it.exists() }
-            Logging.i("Orbit walk finished: ${ready.size} frames")
-            onDone(ready)
-        }
-    }
+    // All angles shot: hand the set over in plan order. Gated on a
+    // proven full circle below; the gated check lives after the
+    // phase and sector trackers so the walk cannot end on frames alone.
 
     // System back abandons the walk: half a circle is not a product.
     BackHandler(onBack = onBack)
@@ -390,21 +384,15 @@ fun OrbitCaptureScreen(
     // Subject-relative line under the yaw hint: where the person is in
     // frame and how far, so the user walks the subject, not the compass.
     // "Stay still" moment is the dwell itself: this line only positions.
+    // Trusted reading: once locked, a passerby with a different body
+    // size must not flip phases or hints. Lock happens only on tap.
+    val trustedReading = subjectReading?.takeIf {
+        !subjectLock.isLocked || subjectLock.matchScore(it) >= 0.3f
+    }
     val personHint = trustedReading?.let { reading -> subjectHint(reading, subjectLock) }
     // Vision-driven loop validation: person mode proves the circle from
     // seen body phases; object mode proves it from swept yaw sectors,
     // since objects have no facing to detect.
-    // Trusted reading: once locked, a passerby with a different body
-    // size must not flip phases or hints. Lock retries on every
-    // complete reading until it holds.
-    val trustedReading = subjectReading?.takeIf {
-        !subjectLock.isLocked || subjectLock.matchScore(it) >= 0.3f
-    }
-    LaunchedEffect(subjectReading) {
-        if (!subjectLock.isLocked) {
-            subjectReading?.let { subjectLock.lock(it) }
-        }
-    }
     var seenPhases by remember { mutableStateOf(setOf<OrbitPhase>()) }
     var seenSectors by remember { mutableStateOf(setOf<Int>()) }
     LaunchedEffect(trustedReading) {
@@ -456,6 +444,19 @@ fun OrbitCaptureScreen(
         seenSectors.size >= 12 -> "Full circle walked"
         else -> "Walked ${seenSectors.size} of 12 sectors, keep going around"
     }
+    val loopComplete = if (subjectLock.isLocked) seenPhases.size >= 4 else seenSectors.size >= 12
+    val allCaptured = currentPlan != null && activeTarget == null
+    // Auto finish on a full grid; the loop proof additionally unlocks
+    // the manual Finish early, but never traps the walk when a phase
+    // or a cap refuses to register in bad light.
+    LaunchedEffect(captured.size, currentPlan, allCaptured) {
+        if (currentPlan != null && allCaptured && started) {
+            val files = currentPlan.targets.indices.map { OrbitStore.angleFile(walkDirectory, it) }
+            val ready = files.filter { it.exists() }
+            Logging.i("Orbit walk finished: ${ready.size} frames")
+            onDone(ready)
+        }
+    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -491,6 +492,23 @@ fun OrbitCaptureScreen(
                     activeIndex = activeTarget,
                     captured = captured,
                     dwellProgress = dwellProgress,
+                    halfHfovDegrees = lensFov?.hFovDegrees?.div(2f)
+                        ?: PROJECTED_HALF_HFOV,
+                    halfVfovDegrees = lensFov?.vFovDegrees?.div(2f)
+                        ?: PROJECTED_HALF_VFOV,
+                )
+            }
+            if (!started) {
+                // Preview grid before Confirm, like the normal camera
+                // always shows its targets: the same dots stay on screen
+                // through "Hold still on the person" into the walk.
+                OrbitProjectedTargets(
+                    plan = remember { orbitPitchPlan() },
+                    yawDegrees = yawRel,
+                    pitchDegrees = pitchNow,
+                    activeIndex = null,
+                    captured = emptySet(),
+                    dwellProgress = 0f,
                     halfHfovDegrees = lensFov?.hFovDegrees?.div(2f)
                         ?: PROJECTED_HALF_HFOV,
                     halfVfovDegrees = lensFov?.vFovDegrees?.div(2f)
@@ -591,11 +609,9 @@ fun OrbitCaptureScreen(
                     },
                     // Finish needs a proven full circle, not just a few
                     // frames: all four body sides in person mode, all
-                    // twelve walked sectors in object mode.
-                    canFinish = activeTarget != null && (
-                        subjectLock.isLocked && seenPhases.size >= 4 ||
-                            !subjectLock.isLocked && seenSectors.size >= 12
-                        ),
+                    // twelve walked sectors in object mode. A completed
+                    // grid always qualifies, so the walk cannot trap.
+                    canFinish = captured.isNotEmpty() && (allCaptured || loopComplete),
                     onFinish = {
                         val files = currentPlan.targets.indices
                             .map { OrbitStore.angleFile(walkDirectory, it) }

@@ -13,7 +13,7 @@ import java.util.Locale
  * One directory per walk under the cache: intermediate data, like sphere
  * sessions. Only photos the user saves to the gallery leave the app (see
  * the viewer screen). Starting a new walk deletes the previous one, and
- * abandoned walks are cleared on demand — a dozen full-resolution JPEGs
+ * abandoned walks are cleared on demand - a dozen full-resolution JPEGs
  * each, never left to pile up.
  */
 object OrbitStore {

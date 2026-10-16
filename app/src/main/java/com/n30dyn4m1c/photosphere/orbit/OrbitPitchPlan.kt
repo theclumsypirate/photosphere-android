@@ -31,8 +31,8 @@ data class OrbitPitchTarget(
  */
 data class OrbitPitchPlan(
     val rings: List<List<OrbitPitchTarget>>,
-    val yawToleranceDegrees: Float = 6f,
-    val pitchToleranceDegrees: Float = 6f,
+    val yawToleranceDegrees: Float = 4f,
+    val pitchToleranceDegrees: Float = 4f,
 ) {
     /** All targets in capture order. */
     val targets: List<OrbitPitchTarget> = rings.flatten()
