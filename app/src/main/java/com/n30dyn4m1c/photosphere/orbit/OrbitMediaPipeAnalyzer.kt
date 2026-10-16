@@ -35,8 +35,6 @@ class OrbitMediaPipeAnalyzer(
         /** Asset path of the pose landmarker bundle. */
         const val MODEL_ASSET_PATH = "pose_landmarker_lite.task"
 
-        /** Tag used for error logging. */
-
         /** Minimum normalized landmark visibility treated as present. */
         private const val VISIBILITY_THRESHOLD = 0.5f
 
@@ -69,7 +67,18 @@ class OrbitMediaPipeAnalyzer(
     /** Backing pose landmarker, null when init failed. */
     private var landmarker: PoseLandmarker? = null
 
-    init {
+    /** True once init ran, so analyze() on the worker thread creates once. */
+    private var initAttempted = false
+
+    /**
+     * Creates the landmarker on first use, not in init.
+     *
+     * analyze() runs on the CameraX worker thread, so the ~1s native
+     * load never freezes the UI. The constructor stays cheap.
+     */
+    private fun ensureLandmarker() {
+        if (initAttempted) return
+        initAttempted = true
         try {
             val baseOptions = BaseOptions.builder()
                 .setModelAssetPath(MODEL_ASSET_PATH)
@@ -116,6 +125,7 @@ class OrbitMediaPipeAnalyzer(
      * @param imageProxy frame to analyze.
      */
     override fun analyze(imageProxy: ImageProxy) {
+        ensureLandmarker()
         val active = landmarker
         if (!ready || active == null) {
             imageProxy.close()

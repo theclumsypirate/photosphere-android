@@ -82,7 +82,7 @@ fun orbitPitchPlan(startYaw: Float = 0f): OrbitPitchPlan {
         ringTargets(3, PITCH_RING_TOP, PITCH_RING_TOP_COUNT, startYaw),
         ringTargets(4, PITCH_RING_BOTTOM, PITCH_RING_BOTTOM_COUNT, startYaw),
     )
-    return OrbitPitchPlan(rings, yawToleranceDegrees = 2f, pitchToleranceDegrees = 2f)
+    return OrbitPitchPlan(rings, yawToleranceDegrees = 4f, pitchToleranceDegrees = 4f)
         .also { Logging.i("Orbit pitch plan: ${it.size} targets") }
 }
 

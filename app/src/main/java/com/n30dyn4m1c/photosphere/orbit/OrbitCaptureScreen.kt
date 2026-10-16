@@ -630,8 +630,8 @@ private fun OrbitPermissionGate(onRetry: () -> Unit) {
     }
 }
 
-private const val ORBIT_DWELL_DEGREES = 2f
-private const val ORBIT_DWELL_MILLIS = 300L
+private const val ORBIT_DWELL_DEGREES = 4f
+private const val ORBIT_DWELL_MILLIS = 500L
 private const val VOICE_SETTLE_MILLIS = 600L
 private const val ORBIT_MIN_FINISH = 3
 
