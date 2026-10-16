@@ -162,6 +162,9 @@ fun OrbitCaptureScreen(
     var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
     var analysis by remember { mutableStateOf<ImageAnalysis?>(null) }
     var boundAnalyzer by remember { mutableStateOf<ImageAnalysis.Analyzer?>(null) }
+    // Lens FOV read after bind; the Confirm builds an adaptive grid from
+    // it and falls back to the fixed 36 grid when the lens stays silent.
+    var lensFov by remember { mutableStateOf<OrbitFieldOfView?>(null) }
     DisposableEffect(Unit) {
         onDispose {
             runCatching { analysis?.let { cameraProvider?.unbind(it) } }
@@ -202,6 +205,13 @@ fun OrbitCaptureScreen(
                 analysisUseCase,
             )
             Logging.i("Orbit camera bound with pose analyzer")
+            runCatching {
+                val cameraId = androidx.camera.camera2.interop.Camera2CameraInfo
+                    .from(camera?.cameraInfo!!).cameraId
+                lensFov = orbitCameraFieldOfView(context, cameraId)
+            }.onFailure { error ->
+                Logging.w("Orbit FOV unread, fixed grid fallback", error)
+            }
         }.onFailure { error ->
             Logging.e("Orbit camera bind failed", error)
             scope.launch {
@@ -523,7 +533,8 @@ fun OrbitCaptureScreen(
                     Button(
                         enabled = canConfirm,
                         onClick = {
-                            plan = orbitPitchPlan()
+                            plan = lensFov?.let { orbitPitchPlanForFieldOfView(it) }
+                                ?: orbitPitchPlan()
                             startYawAbs = orientation.yawDegrees
                             started = true
                             Logging.i(
