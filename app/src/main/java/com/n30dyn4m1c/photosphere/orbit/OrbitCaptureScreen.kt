@@ -133,7 +133,12 @@ fun OrbitCaptureScreen(
     var plan by remember { mutableStateOf<OrbitPitchPlan?>(null) }
     var startYawAbs by remember { mutableStateOf<Float?>(null) }
     var captured by remember { mutableStateOf(setOf<Int>()) }
-    val target = plan?.nextTarget(captured)
+    // Phase snap: when the analyzer sees a new body side for the first
+    // time, the active target jumps to the nearest uncaptured target to
+    // the live aim, so BACK actually means the back targets.
+    var phaseJump by remember { mutableStateOf<Int?>(null) }
+    val target = phaseJump?.takeIf { plan != null && it !in captured }
+        ?: plan?.nextTarget(captured)
     val orientation by rememberOrientationData()
     val yawRel = startYawAbs?.let { wrapDelta(orientation.yawDegrees - it) } ?: 0f
     val pitchNow = orientation.pitchDegrees
@@ -373,29 +378,45 @@ fun OrbitCaptureScreen(
     // frame and how far, so the user walks the subject, not the compass.
     // "Stay still" moment is the dwell itself: this line only positions.
     val personHint = subjectReading?.let { reading -> subjectHint(reading, subjectLock) }
-    // Vision-driven loop validation (markdown orbit notes): the walk is
-    // only a real 360 once the analyzer has seen front, side and back.
-    // Yaw still drives the targets; this set proves the circle closed.
+    // Vision-driven loop validation: person mode proves the circle from
+    // seen body phases; object mode proves it from swept yaw sectors,
+    // since objects have no facing to detect.
     var seenPhases by remember { mutableStateOf(setOf<OrbitPhase>()) }
+    var seenSectors by remember { mutableStateOf(setOf<Int>()) }
     LaunchedEffect(subjectReading) {
         val phase = subjectReading?.phase
         if (started && phase != null && phase != OrbitPhase.UNKNOWN) {
             if (phase !in seenPhases) {
                 seenPhases = seenPhases + phase
                 Logging.i("Orbit phase seen: $phase")
+                val jump = plan?.let { p ->
+                    p.targets.indices
+                        .filter { it !in captured }
+                        .minByOrNull { abs(wrapDelta(p.targets[it].yawDegrees - yawRel)) }
+                }
+                if (jump != null) {
+                    phaseJump = jump
+                    Logging.i("Orbit target snapped to $jump on $phase")
+                }
             }
         }
     }
+    LaunchedEffect(started, yawRel) {
+        if (!started || subjectLock.isLocked) return@LaunchedEffect
+        val sector = ((wrapDelta(yawRel) + 180f) / 30f).toInt().coerceIn(0, 11)
+        if (sector !in seenSectors) seenSectors = seenSectors + sector
+    }
     val loopHint = when {
         !started -> null
-        !subjectLock.isLocked -> null
-        seenPhases.size >= 3 -> "Full circle seen"
-        else -> {
+        subjectLock.isLocked && seenPhases.size >= 3 -> "Full circle seen"
+        subjectLock.isLocked -> {
             val missing = listOf(OrbitPhase.FRONT, OrbitPhase.PROFILE, OrbitPhase.BACK)
                 .filter { it !in seenPhases }
                 .joinToString { it.name.lowercase() }
             "Still missing: $missing, keep walking around"
         }
+        seenSectors.size >= 12 -> "Full circle walked"
+        else -> "Walked ${seenSectors.size} of 12 sectors, keep going around"
     }
 
     Scaffold(
