@@ -61,6 +61,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.n30dyn4m1c.photosphere.camera.PhotoSphereCameraScreen
+import com.n30dyn4m1c.photosphere.camera.PhotoSphereCameraVideoScreen
 import com.n30dyn4m1c.photosphere.importer.ImportPhotosScreen
 import com.n30dyn4m1c.photosphere.orbit.OrbitCaptureScreen
 import com.n30dyn4m1c.photosphere.orbit.OrbitViewerScreen
@@ -176,6 +177,7 @@ private enum class Entry {
     Capture,
     Import,
     Orbit,
+    Video,
 }
 
 /**
@@ -318,6 +320,14 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
                 } else {
                     null
                 },
+                onVideo = if (BuildConfig.DEBUG) {
+                    {
+                        Logging.i("Entry: Video")
+                        entry = Entry.Video
+                    }
+                } else {
+                    null
+                },
                 onOpenSettings = { showSettings = true },
             )
 
@@ -354,6 +364,25 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
                                 sphere = stitched
                                 restitchOffer = null
                             },
+                        )
+                    }
+                }
+            }
+
+            entry == Entry.Video -> {
+                if (!BuildConfig.DEBUG) {
+                    entry = null
+                } else {
+                    RequirePermissions(
+                        permissions = MainActivity.REQUIRED_PERMISSIONS,
+                    ) {
+                        PhotoSphereCameraVideoScreen(
+                            onSphereReady = { stitched, offer ->
+                                Logging.i("Sphere ready: ${stitched.file.name} (video)")
+                                sphere = stitched
+                                restitchOffer = offer
+                                restitchStyle = offer?.madeWith ?: StitchStyle.Balanced
+                            }
                         )
                     }
                 }
@@ -407,6 +436,7 @@ private fun EntryChooser(
     onCapture: () -> Unit,
     onImport: () -> Unit,
     onOrbit: (() -> Unit)?,
+    onVideo: (() -> Unit)?,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -480,6 +510,21 @@ private fun EntryChooser(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = stringResource(R.string.entry_orbit),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+            }
+        }
+        if (onVideo != null) {
+            FilledTonalButton(
+                onClick = onVideo,
+                shape = PillShape,
+                modifier = Modifier
+                    .padding(top = 12.dp)
+                    .fillMaxWidth()
+                    .height(54.dp),
+            ) {
+                Text(
+                    text = "Video (debug)",
                     style = MaterialTheme.typography.titleMedium,
                 )
             }
