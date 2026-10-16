@@ -28,7 +28,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -67,6 +66,7 @@ import com.n30dyn4m1c.photosphere.ui.theme.GlassSurface
 import com.n30dyn4m1c.photosphere.ui.theme.PillShape
 import com.n30dyn4m1c.photosphere.util.Logging
 import java.io.File
+import kotlin.math.abs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -79,7 +79,7 @@ import kotlinx.coroutines.withContext
  *
  * Two phases. First tap the subject (person, apple, anything): the lens
  * meters on it and the walk starts from the bearing faced right then.
- * Then walk around it through [angleCount] bearings while the screen
+ * Then walk around it through the 36 point pitch grid while the screen
  * guides each step. When the set is complete the files go to [onDone]
  * in plan order for the orbit viewer.
  *
@@ -125,12 +125,18 @@ fun OrbitCaptureScreen(
         withContext(Dispatchers.IO) { OrbitStore.pruneWalks(context, walkDirectory) }
     }
 
-    // Phase one: no plan yet. The first tap chooses the subject and the
-    // bearing faced at that moment becomes angle zero.
+    // Phase one: no plan yet. The first tap chooses the subject; Confirm
+    // anchors relative yaw zero there. No compass anywhere in this mode:
+    // every bearing is measured from walk start, and targets come from
+    // the 36 point pitch grid, not magnetic north.
     var started by remember { mutableStateOf(false) }
-    var plan by remember { mutableStateOf<OrbitPlan?>(null) }
+    var plan by remember { mutableStateOf<OrbitPitchPlan?>(null) }
+    var startYawAbs by remember { mutableStateOf<Float?>(null) }
     var captured by remember { mutableStateOf(setOf<Int>()) }
     val target = plan?.nextTarget(captured)
+    val orientation by rememberOrientationData()
+    val yawRel = startYawAbs?.let { wrapDelta(orientation.yawDegrees - it) } ?: 0f
+    val pitchNow = orientation.pitchDegrees
 
     val guidance: GuidanceFeedback = rememberGuidanceFeedback()
     val shutterSound = rememberCaptureFeedback()
@@ -142,11 +148,9 @@ fun OrbitCaptureScreen(
     }
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
     var camera by remember { mutableStateOf<Camera?>(null) }
-    // Subject-relative guidance (markdown orbit notes): the pose analyzer
-    // watches the person while the walk runs on yaw. ML Kit by default,
-    // MediaPipe toggle for the 3D path. Both stay inert until bound here,
-    // and this whole screen is debug-only via the MainActivity entry.
-    var useMediaPipe by remember { mutableStateOf(false) }
+    // Subject-relative guidance: the MediaPipe pose analyzer watches the
+    // person while the walk runs on relative yaw, never the compass.
+    // This whole screen is debug-only via the MainActivity entry.
     var subjectReading by remember { mutableStateOf<OrbitSubjectReading?>(null) }
     val subjectLock = remember { OrbitSubjectLock() }
     val analysisExecutor = remember { java.util.concurrent.Executors.newSingleThreadExecutor() }
@@ -160,7 +164,7 @@ fun OrbitCaptureScreen(
             analysisExecutor.shutdown()
         }
     }
-    LaunchedEffect(previewView, useMediaPipe) {
+    LaunchedEffect(previewView) {
         val provider = withContext(Dispatchers.IO) {
             ProcessCameraProvider.getInstance(context).get()
         }
@@ -173,11 +177,8 @@ fun OrbitCaptureScreen(
             .setFlashMode(ImageCapture.FLASH_MODE_OFF)
             .build()
         imageCapture = capture
-        val analyzer: ImageAnalysis.Analyzer = if (useMediaPipe) {
+        val analyzer: ImageAnalysis.Analyzer =
             OrbitMediaPipeAnalyzer(context) { subjectReading = it }
-        } else {
-            OrbitMlKitAnalyzer { subjectReading = it }
-        }
         val analysisUseCase = ImageAnalysis.Builder()
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
             .build()
@@ -203,8 +204,6 @@ fun OrbitCaptureScreen(
         }
     }
 
-    val orientation by rememberOrientationData()
-
     // Subject tap point, preview-normalised. The square follows it until
     // the walk starts, then returns to the centre.
     var tapPoint by remember { mutableStateOf<Offset?>(null) }
@@ -212,7 +211,8 @@ fun OrbitCaptureScreen(
 
     // The tap only locks the subject; the walk starts from the Confirm
     // button below, so the choice is deliberate, never blind.
-    val gate = remember(angleCount) { AlignmentGate(ORBIT_DWELL_DEGREES, ORBIT_DWELL_MILLIS) }
+    // Same dwell as the normal camera: inside 2 degrees for 300 ms.
+    val gate = remember { AlignmentGate(ORBIT_DWELL_DEGREES, ORBIT_DWELL_MILLIS) }
     var capturing by remember { mutableStateOf(false) }
     var dwellProgress by remember { mutableFloatStateOf(0f) }
 
@@ -302,19 +302,22 @@ fun OrbitCaptureScreen(
         }
     }
 
-    // Dwell shutter: the gate fires once the aim holds on target.
+    // Dwell shutter: the gate fires once the aim holds on target in
+    // yaw and pitch, measured from walk start.
     val currentPlan = plan
     val activeTarget = target
-    LaunchedEffect(orientation.yawDegrees, activeTarget, currentPlan) {
+    LaunchedEffect(yawRel, pitchNow, activeTarget, currentPlan) {
         if (currentPlan == null || activeTarget == null) return@LaunchedEffect
-        val distance = OrbitGuidance.distanceDegrees(currentPlan, orientation.yawDegrees, activeTarget)
+        val turn = currentPlan.turnTo(yawRel, activeTarget)
+        val tilt = currentPlan.tiltTo(pitchNow, activeTarget)
+        val distance = maxOf(abs(turn), abs(tilt))
         val reading = gate.update(distance, SystemClock.elapsedRealtime())
         val previous = dwellProgress
         dwellProgress = reading.dwellProgress
         if (GuidanceProfile.crossedDwellMilestone(previous, reading.dwellProgress)) {
             guidance.dwellTick()
         }
-        if (reading.isAligned && currentPlan.isOnTarget(orientation.yawDegrees, activeTarget)) {
+        if (reading.isAligned && currentPlan.isOnTarget(yawRel, pitchNow, activeTarget)) {
             takePhoto(activeTarget)
         }
     }
@@ -324,7 +327,7 @@ fun OrbitCaptureScreen(
         if (currentPlan == null || activeTarget == null) return@LaunchedEffect
         delay(VOICE_SETTLE_MILLIS)
         guidance.announce(
-            OrbitGuidance.announceFor(context, currentPlan, orientation.yawDegrees, activeTarget),
+            orbitVoiceFor(currentPlan, activeTarget),
         )
     }
 
@@ -332,9 +335,9 @@ fun OrbitCaptureScreen(
     var guidanceEnabled by remember { mutableStateOf(true) }
     LaunchedEffect(activeTarget, capturing, guidanceEnabled, currentPlan) {
         while (currentPlan != null && activeTarget != null && !capturing && guidanceEnabled) {
-            val distance = OrbitGuidance.distanceDegrees(
-                currentPlan, orientation.yawDegrees, activeTarget,
-            )
+            val turn = currentPlan.turnTo(yawRel, activeTarget)
+            val tilt = currentPlan.tiltTo(pitchNow, activeTarget)
+            val distance = maxOf(abs(turn), abs(tilt))
             val interval = GuidanceProfile.beepIntervalMillis(distance) ?: break
             guidance.beep()
             delay(interval)
@@ -344,7 +347,7 @@ fun OrbitCaptureScreen(
     // All angles shot: hand the set over in plan order.
     LaunchedEffect(captured.size, currentPlan) {
         if (currentPlan != null && activeTarget == null) {
-            val files = currentPlan.angles.indices.map { OrbitStore.angleFile(walkDirectory, it) }
+            val files = currentPlan.targets.indices.map { OrbitStore.angleFile(walkDirectory, it) }
             onDone(files.filter { it.exists() })
         }
     }
@@ -364,7 +367,7 @@ fun OrbitCaptureScreen(
         currentPlan == null ->
             context.getString(R.string.orbit_tap_subject)
         activeTarget == null -> "Done"
-        else -> OrbitGuidance.hintFor(context, currentPlan, orientation.yawDegrees, activeTarget)
+        else -> orbitHintFor(currentPlan, yawRel, pitchNow, activeTarget)
     }
     // Subject-relative line under the yaw hint: where the person is in
     // frame and how far, so the user walks the subject, not the compass.
@@ -385,6 +388,7 @@ fun OrbitCaptureScreen(
     }
     val loopHint = when {
         !started -> null
+        !subjectLock.isLocked -> null
         seenPhases.size >= 3 -> "Full circle seen"
         else -> {
             val missing = listOf(OrbitPhase.FRONT, OrbitPhase.PROFILE, OrbitPhase.BACK)
@@ -414,35 +418,20 @@ fun OrbitCaptureScreen(
                 factory = { previewView },
                 modifier = Modifier.fillMaxSize(),
             )
-            // Same aim point and focus square as the sphere capture: the
-            // ring warms as the aim closes in and fills with the dwell,
-            // the square sits centred and locks green on target. Before
-            // the walk starts the square follows the subject tap instead.
-            val aimDistance = if (currentPlan == null || activeTarget == null) {
-                0f
-            } else {
-                OrbitGuidance.distanceDegrees(currentPlan, orientation.yawDegrees, activeTarget)
-            }
+            // Projected pitch-grid dots plus the centre square. The dots sit
+            // where the targets are relative to walk start; the square
+            // locks green while the dwell holds.
             val onTarget = currentPlan != null && activeTarget != null &&
-                currentPlan.isOnTarget(orientation.yawDegrees, activeTarget)
-            val turn = if (currentPlan == null || activeTarget == null) {
-                null
-            } else {
-                currentPlan.turnTo(orientation.yawDegrees, activeTarget)
-            }
+                currentPlan.isOnTarget(yawRel, pitchNow, activeTarget)
             val walkPlan = currentPlan
             if (started && walkPlan != null) {
-                OrbitReticleOverlay(
-                    distanceDegrees = aimDistance,
-                    thresholdDegrees = ORBIT_DWELL_DEGREES,
-                    dwellProgress = dwellProgress,
-                    turnDegrees = turn,
-                )
-                OrbitTargetsOverlay(
+                OrbitProjectedTargets(
                     plan = walkPlan,
-                    currentYawDegrees = orientation.yawDegrees,
+                    yawDegrees = yawRel,
+                    pitchDegrees = pitchNow,
                     activeIndex = activeTarget,
                     captured = captured,
+                    dwellProgress = dwellProgress,
                 )
             }
             val square = tapPoint?.takeUnless { started }
@@ -501,22 +490,22 @@ fun OrbitCaptureScreen(
                             modifier = Modifier.padding(bottom = 8.dp),
                         )
                     }
-                    TextButton(
-                        onClick = { useMediaPipe = !useMediaPipe },
-                        modifier = Modifier.padding(bottom = 4.dp),
-                    ) {
-                        Text(
-                            text = if (useMediaPipe) "Pose: MediaPipe" else "Pose: ML Kit",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = GlassContent,
-                        )
-                    }
+                    // Pose source is fixed to MediaPipe; no switcher.
+                    // Person needs its skeleton locked first; an object only
+                    // needs the tap. No compass in either mode: yaw zero is
+                    // the bearing faced at Confirm.
+                    val canConfirm = tapPoint != null &&
+                        (subjectLock.isLocked || subjectReading == null)
                     Button(
-                        enabled = tapPoint != null,
+                        enabled = canConfirm,
                         onClick = {
-                            plan = orbitPlan(angleCount, orientation.yawDegrees)
+                            plan = orbitPitchPlan()
+                            startYawAbs = orientation.yawDegrees
                             started = true
-                            Logging.i("Orbit walk started")
+                            Logging.i(
+                                "Orbit walk started " +
+                                    if (subjectLock.isLocked) "on person" else "on object",
+                            )
                         },
                         modifier = Modifier.padding(bottom = 32.dp),
                     ) {
@@ -617,7 +606,45 @@ private fun OrbitPermissionGate(onRetry: () -> Unit) {
     }
 }
 
-private const val ORBIT_DWELL_DEGREES = 6f
-private const val ORBIT_DWELL_MILLIS = 800L
+private const val ORBIT_DWELL_DEGREES = 2f
+private const val ORBIT_DWELL_MILLIS = 300L
 private const val VOICE_SETTLE_MILLIS = 600L
 private const val ORBIT_MIN_FINISH = 3
+
+/**
+ * Voice line for one pitch-grid target, relative to walk start.
+ *
+ * Names the target number, the yaw direction and the tilt, so the user
+ * walks the subject instead of a compass bearing.
+ */
+private fun orbitVoiceFor(plan: OrbitPitchPlan, activeTarget: Int): String {
+    val target = plan.targets[activeTarget]
+    val yawWord = if (target.yawDegrees >= 0) "right" else "left"
+    val tiltWord = when {
+        target.pitchDegrees > 0 -> "tilt up"
+        target.pitchDegrees < 0 -> "tilt down"
+        else -> "hold level"
+    }
+    return "Target ${activeTarget + 1} of ${plan.size}. Go $yawWord, $tiltWord."
+}
+
+/**
+ * Short hint for one pitch-grid target, relative to walk start.
+ */
+private fun orbitHintFor(
+    plan: OrbitPitchPlan,
+    yawDegrees: Float,
+    pitchDegrees: Float,
+    activeTarget: Int,
+): String {
+    val target = plan.targets[activeTarget]
+    val turn = plan.turnTo(yawDegrees, activeTarget)
+    val tilt = plan.tiltTo(pitchDegrees, activeTarget)
+    val yawWord = if (turn >= 0) "Right" else "Left"
+    val tiltWord = when {
+        tilt > 1f -> ", up ${tilt.toInt()}"
+        tilt < -1f -> ", down ${(-tilt).toInt()}"
+        else -> ""
+    }
+    return "Target ${activeTarget + 1} of ${plan.size}: $yawWord ${abs(turn).toInt()}$tiltWord"
+}

@@ -7,7 +7,7 @@ import kotlin.math.abs
  *
  * @param ringIndex which ring holds the target (0, 1, 2).
  * @param targetIndex index inside the ring.
- * @param yawDegrees compass bearing, degrees -180..180.
+ * @param yawDegrees relative bearing from walk start, degrees -180..180.
  * @param pitchDegrees ring pitch, degrees.
  */
 data class OrbitPitchTarget(
@@ -19,8 +19,9 @@ data class OrbitPitchTarget(
 
 /**
  * Multi-ring orbit grid around a subject. Pure logic, no Android.
- * Rings: pitch 0 with 12 yaw targets, pitch +30 with 8, pitch -30 with 8.
- * Flat target order is ring by ring: ring 0 first, then ring 1, then ring 2.
+ * Rings: pitch 0 with 12 yaw targets, pitch +-30 with 8 each,
+ * pitch +-60 with 4 each. Flat target order is ring by ring.
+ * Yaw values are relative to the walk start bearing, not compass.
  *
  * @param rings target lists per ring, in capture order of rings.
  * @param yawToleranceDegrees how close yaw must be to count as on target.
@@ -61,20 +62,26 @@ data class OrbitPitchPlan(
 const val PITCH_RING_HIGH = 30f
 const val PITCH_RING_LEVEL = 0f
 const val PITCH_RING_LOW = -30f
+const val PITCH_RING_TOP = 60f
+const val PITCH_RING_BOTTOM = -60f
 
-/** Target counts per ring: level 12, high 8, low 8. */
+/** Target counts per ring: level 12, +-30 eight each, +-60 four each. */
 const val PITCH_RING_LEVEL_COUNT = 12
 const val PITCH_RING_HIGH_COUNT = 8
 const val PITCH_RING_LOW_COUNT = 8
+const val PITCH_RING_TOP_COUNT = 4
+const val PITCH_RING_BOTTOM_COUNT = 4
 
-/** Builds the default 28 target grid starting at [startYaw], clockwise. */
+/** Builds the default 36 target grid starting at relative yaw 0. */
 fun orbitPitchPlan(startYaw: Float = 0f): OrbitPitchPlan {
     val rings = listOf(
         ringTargets(0, PITCH_RING_LEVEL, PITCH_RING_LEVEL_COUNT, startYaw),
         ringTargets(1, PITCH_RING_HIGH, PITCH_RING_HIGH_COUNT, startYaw),
         ringTargets(2, PITCH_RING_LOW, PITCH_RING_LOW_COUNT, startYaw),
+        ringTargets(3, PITCH_RING_TOP, PITCH_RING_TOP_COUNT, startYaw),
+        ringTargets(4, PITCH_RING_BOTTOM, PITCH_RING_BOTTOM_COUNT, startYaw),
     )
-    return OrbitPitchPlan(rings)
+    return OrbitPitchPlan(rings, yawToleranceDegrees = 2f, pitchToleranceDegrees = 2f)
 }
 
 /** Evenly spaced yaw targets for one ring starting at [startYaw], clockwise. */
