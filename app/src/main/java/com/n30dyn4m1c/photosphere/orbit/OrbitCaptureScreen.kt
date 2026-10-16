@@ -654,6 +654,8 @@ private fun orbitVoiceFor(plan: OrbitPitchPlan, activeTarget: Int): String {
 
 /**
  * Short hint for one pitch-grid target, relative to walk start.
+ *
+ * Words only, no degrees: the numbers stay in the logs, not the UI.
  */
 private fun orbitHintFor(
     plan: OrbitPitchPlan,
@@ -661,14 +663,13 @@ private fun orbitHintFor(
     pitchDegrees: Float,
     activeTarget: Int,
 ): String {
-    val target = plan.targets[activeTarget]
     val turn = plan.turnTo(yawDegrees, activeTarget)
     val tilt = plan.tiltTo(pitchDegrees, activeTarget)
     val yawWord = if (turn >= 0) "Right" else "Left"
     val tiltWord = when {
-        tilt < -1f -> ", up ${(-tilt).toInt()}"
-        tilt > 1f -> ", down ${tilt.toInt()}"
+        tilt < -1f -> ", up"
+        tilt > 1f -> ", down"
         else -> ""
     }
-    return "Target ${activeTarget + 1} of ${plan.size}: $yawWord ${abs(turn).toInt()}$tiltWord"
+    return "Target ${activeTarget + 1} of ${plan.size}: $yawWord$tiltWord"
 }
