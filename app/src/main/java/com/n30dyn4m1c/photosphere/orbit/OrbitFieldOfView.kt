@@ -43,8 +43,8 @@ fun orbitCameraFieldOfView(context: Context, cameraId: String): OrbitFieldOfView
         .get(android.hardware.camera2.CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
         ?: return null
     return OrbitFieldOfView(
-        hFovDegrees = 2f * Math.toDegrees(atan(size.width / (2f * focal))).toFloat(),
-        vFovDegrees = 2f * Math.toDegrees(atan(size.height / (2f * focal))).toFloat(),
+        hFovDegrees = 2f * Math.toDegrees(atan((size.width / (2f * focal)).toDouble())).toFloat(),
+        vFovDegrees = 2f * Math.toDegrees(atan((size.height / (2f * focal)).toDouble())).toFloat(),
     ).also {
         Logging.i("Orbit lens FOV: ${it.hFovDegrees}x${it.vFovDegrees}")
     }

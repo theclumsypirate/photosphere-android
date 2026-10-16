@@ -412,9 +412,10 @@ fun OrbitCaptureScreen(
                     OrbitPhase.UNKNOWN -> null
                 }
                 val jump = expectedYaw?.let { expected ->
-                    plan?.targets?.indices
+                    val cur = plan
+                    cur?.targets?.indices
                         ?.filter { it !in captured }
-                        ?.minByOrNull { abs(wrapDelta(plan.targets[it].yawDegrees - expected)) }
+                        ?.minByOrNull { abs(wrapDelta(cur.targets[it].yawDegrees - expected)) }
                 }
                 if (jump != null) {
                     phaseJump = jump
