@@ -370,6 +370,29 @@ fun OrbitCaptureScreen(
     // frame and how far, so the user walks the subject, not the compass.
     // "Stay still" moment is the dwell itself: this line only positions.
     val personHint = subjectReading?.let { reading -> subjectHint(reading, subjectLock) }
+    // Vision-driven loop validation (markdown orbit notes): the walk is
+    // only a real 360 once the analyzer has seen front, side and back.
+    // Yaw still drives the targets; this set proves the circle closed.
+    var seenPhases by remember { mutableStateOf(setOf<OrbitPhase>()) }
+    LaunchedEffect(subjectReading) {
+        val phase = subjectReading?.phase
+        if (started && phase != null && phase != OrbitPhase.UNKNOWN) {
+            if (phase !in seenPhases) {
+                seenPhases = seenPhases + phase
+                Logging.i("Orbit phase seen: $phase")
+            }
+        }
+    }
+    val loopHint = when {
+        !started -> null
+        seenPhases.size >= 3 -> "Full circle seen"
+        else -> {
+            val missing = listOf(OrbitPhase.FRONT, OrbitPhase.PROFILE, OrbitPhase.BACK)
+                .filter { it !in seenPhases }
+                .joinToString { it.name.lowercase() }
+            "Still missing: $missing, keep walking around"
+        }
+    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -504,7 +527,15 @@ fun OrbitCaptureScreen(
                 OrbitHud(
                     capturedCount = captured.size,
                     totalTargets = currentPlan.angles.size,
-                    hint = if (personHint != null) "$hint. $personHint" else hint,
+                    hint = buildString {
+                        append(hint)
+                        if (personHint != null) {
+                            append(". ").append(personHint)
+                        }
+                        if (loopHint != null) {
+                            append(". ").append(loopHint)
+                        }
+                    },
                     canFinish = captured.size >= ORBIT_MIN_FINISH && activeTarget != null,
                     onFinish = {
                         val files = currentPlan.angles.indices
