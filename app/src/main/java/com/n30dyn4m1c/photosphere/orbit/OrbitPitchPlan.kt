@@ -6,7 +6,7 @@ import kotlin.math.abs
 /**
  * A target on the multi-ring orbit grid. Pure data.
  *
- * @param ringIndex which ring holds the target (0, 1, 2).
+ * @param ringIndex which ring holds the target (0..4).
  * @param targetIndex index inside the ring.
  * @param yawDegrees relative bearing from walk start, degrees -180..180.
  * @param pitchDegrees ring pitch, degrees.
@@ -54,17 +54,17 @@ data class OrbitPitchPlan(
     fun turnTo(fromYaw: Float, index: Int): Float =
         wrapDelta(targets[index].yawDegrees - fromYaw)
 
-    /** Pitch move from [fromPitch] to [targets[index]]. Positive means tilt up. */
+    /** Pitch move from [fromPitch] to [targets[index]]. Negative means tilt up. */
     fun tiltTo(fromPitch: Float, index: Int): Float =
         targets[index].pitchDegrees - fromPitch
 }
 
-/** Ring pitch values in capture order. */
-const val PITCH_RING_HIGH = 30f
+/** Ring pitch values in capture order, sensor convention: negative is up. */
+const val PITCH_RING_HIGH = -30f
 const val PITCH_RING_LEVEL = 0f
-const val PITCH_RING_LOW = -30f
-const val PITCH_RING_TOP = 60f
-const val PITCH_RING_BOTTOM = -60f
+const val PITCH_RING_LOW = 30f
+const val PITCH_RING_TOP = -60f
+const val PITCH_RING_BOTTOM = 60f
 
 /** Target counts per ring: level 12, +-30 eight each, +-60 four each. */
 const val PITCH_RING_LEVEL_COUNT = 12

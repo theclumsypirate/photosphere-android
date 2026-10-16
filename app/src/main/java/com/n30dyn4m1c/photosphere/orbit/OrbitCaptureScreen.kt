@@ -645,8 +645,8 @@ private fun orbitVoiceFor(plan: OrbitPitchPlan, activeTarget: Int): String {
     val target = plan.targets[activeTarget]
     val yawWord = if (target.yawDegrees >= 0) "right" else "left"
     val tiltWord = when {
-        target.pitchDegrees > 0 -> "tilt up"
-        target.pitchDegrees < 0 -> "tilt down"
+        target.pitchDegrees < 0 -> "tilt up"
+        target.pitchDegrees > 0 -> "tilt down"
         else -> "hold level"
     }
     return "Target ${activeTarget + 1} of ${plan.size}. Go $yawWord, $tiltWord."
@@ -666,8 +666,8 @@ private fun orbitHintFor(
     val tilt = plan.tiltTo(pitchDegrees, activeTarget)
     val yawWord = if (turn >= 0) "Right" else "Left"
     val tiltWord = when {
-        tilt > 1f -> ", up ${tilt.toInt()}"
-        tilt < -1f -> ", down ${(-tilt).toInt()}"
+        tilt < -1f -> ", up ${(-tilt).toInt()}"
+        tilt > 1f -> ", down ${tilt.toInt()}"
         else -> ""
     }
     return "Target ${activeTarget + 1} of ${plan.size}: $yawWord ${abs(turn).toInt()}$tiltWord"

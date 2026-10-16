@@ -44,9 +44,11 @@ fun OrbitProjectedTargets(
             val dx = wrapDelta(target.yawDegrees - yawDegrees) / PROJECTED_HALF_HFOV
             val dy = (target.pitchDegrees - pitchDegrees) / PROJECTED_HALF_VFOV
             if (dx < -1.2f || dx > 1.2f || dy < -1.2f || dy > 1.2f) return@forEachIndexed
+            // Sensor pitch is negative up, so plus puts above-horizon
+            // targets above the centre.
             val pos = Offset(
                 x = center.x + dx * halfW,
-                y = center.y - dy * halfH,
+                y = center.y + dy * halfH,
             )
             when {
                 index in captured -> drawCircle(
