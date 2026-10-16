@@ -129,7 +129,7 @@ dependencies {
     implementation(libs.opencv)
 
     // ML Kit pose detection for the orbit subject tracker (inert until wired).
-    implementation("com.google.mlkit:pose-detection:18.0.0")
+    implementation("com.google.mlkit:pose-detection-accurate:17.0.0")
     // MediaPipe pose for the debug lab only (inert until wired).
     implementation("com.google.mediapipe:tasks-vision:0.10.14")
 

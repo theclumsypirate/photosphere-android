@@ -6,7 +6,7 @@ import androidx.camera.core.ImageProxy
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.pose.PoseDetection
 import com.google.mlkit.vision.pose.PoseLandmark
-import com.google.mlkit.vision.pose.defaults.PoseDetectorOptions
+import com.google.mlkit.vision.pose.accurate.AccuratePoseDetectorOptions
 
 /**
  * Phase of the subject relative to the camera.
@@ -46,8 +46,8 @@ class OrbitMlKitAnalyzer(
 ) : ImageAnalysis.Analyzer {
 
     private val detector = PoseDetection.getClient(
-        PoseDetectorOptions.Builder()
-            .setDetectorMode(PoseDetectorOptions.STREAM_MODE)
+        AccuratePoseDetectorOptions.Builder()
+            .setDetectorMode(AccuratePoseDetectorOptions.STREAM_MODE)
             .build(),
     )
 
