@@ -107,9 +107,7 @@ object StairsStitch {
      */
     private fun readFrames(directory: File): List<SphereFrame> =
         directory.listFiles()
-            ?.filter {
-                it.isFile && it.name.startsWith(FRAME_PREFIX) && it.name.endsWith(FRAME_SUFFIX)
-            }
+            ?.filter { it.isFile && FRAME_NAME.matches(it.name) }
             ?.sortedBy { it.name }
             .orEmpty()
             .mapNotNull { jpeg ->
@@ -144,7 +142,8 @@ object StairsStitch {
      */
     private const val STAIRS_MAX_INPUT_DIMENSION = 1024
 
-    private const val FRAME_PREFIX = "stairs_"
-    private const val FRAME_SUFFIX = ".jpg"
+    /** `stairs_NN.jpg` exactly: burst scratch files must never be stitched. */
+    private val FRAME_NAME = Regex("""stairs_\d{2}\.jpg""")
+
     private const val POSE_SUFFIX = ".pose"
 }

@@ -1,6 +1,7 @@
 package com.n30dyn4m1c.photosphere.stairstest
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
@@ -14,7 +15,6 @@ import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
-import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import androidx.camera.core.resolutionselector.ResolutionSelector
@@ -22,6 +22,7 @@ import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -48,30 +49,47 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.n30dyn4m1c.photosphere.R
 import com.n30dyn4m1c.photosphere.camera.AlignmentGate
+import com.n30dyn4m1c.photosphere.camera.AlignmentState
+import com.n30dyn4m1c.photosphere.camera.FocusReticle
+import com.n30dyn4m1c.photosphere.camera.FocusReticleOverlay
+import com.n30dyn4m1c.photosphere.camera.GuidanceProfile
+import com.n30dyn4m1c.photosphere.camera.SphereTarget
+import com.n30dyn4m1c.photosphere.camera.SphereTargetPlan
+import com.n30dyn4m1c.photosphere.camera.TargetOverlay
+import com.n30dyn4m1c.photosphere.camera.TargetRelation
+import com.n30dyn4m1c.photosphere.camera.rememberGuidanceFeedback
 import com.n30dyn4m1c.photosphere.camera.rememberSphereOptics
 import com.n30dyn4m1c.photosphere.orbit.OrbitFieldOfView
 import com.n30dyn4m1c.photosphere.orbit.orbitCameraFieldOfView
 import com.n30dyn4m1c.photosphere.orbit.wrapDelta
+import com.n30dyn4m1c.photosphere.sensor.OrientationAccuracy
 import com.n30dyn4m1c.photosphere.sensor.rememberOrientationData
 import com.n30dyn4m1c.photosphere.storage.SphereImageStore
 import com.n30dyn4m1c.photosphere.ui.theme.PillShape
 import com.n30dyn4m1c.photosphere.util.Logging
 import java.io.File
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** Dwell the aim must hold on a target before the shutter fires. */
@@ -87,6 +105,34 @@ private const val STREAM_ASPECT_RATIO = 4f / 3f
 
 /** Fewest posed frames worth handing to the stitcher. */
 private const val MIN_FRAMES_TO_STITCH = 2
+
+/**
+ * Stills taken per target, of which the sharpest is kept.
+ *
+ * The same idea as the normal path's burst: a frame blurred by handheld shake
+ * is a soft patch in the sphere. Three is what the reference device profile
+ * uses, and it is the point where another shot buys less than the shake it
+ * invites.
+ */
+private const val BURST_SHOTS = 3
+
+/**
+ * How long a new target settles before it is announced.
+ *
+ * The announcement exists to get the user facing the right way, so it must not
+ * fire for a bearing the plan only passed through: a hand-over that is still
+ * moving is not yet a decision about where to stand.
+ */
+private const val ANNOUNCE_SETTLE_MILLIS = 600L
+
+/**
+ * How long the stitch waits for pose sidecars still being written.
+ *
+ * A frame saved a moment before the button press is on disk before its pose
+ * is; stitching without it would drop a frame the user just shot. The wait is
+ * bounded so a stuck write cannot wedge the screen forever.
+ */
+private const val POSE_WRITE_WAIT_MILLIS = 5_000L
 
 /**
  * Guided capture on the proven 62 point grid, debug only.
@@ -134,7 +180,13 @@ fun StairsCaptureScreen(
         return
     }
 
-    val gridDirectory = remember { StairsStore.newGridDirectory(context) }
+    // The run directory is saveable, so a recreation (a call, a rotation, a
+    // process death and restore) comes back to the same folder with the frames
+    // already shot still in it, instead of starting a second run beside it.
+    val gridPath = rememberSaveable {
+        StairsStore.newGridDirectory(context).absolutePath
+    }
+    val gridDirectory = remember(gridPath) { File(gridPath) }
 
     val previewView = remember {
         PreviewView(context).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
@@ -148,16 +200,24 @@ fun StairsCaptureScreen(
     // Bound lens id, so the optics estimate describes the lens that is really
     // streaming rather than whichever one the profile would guess.
     var boundCameraId by remember { mutableStateOf<String?>(null) }
+    // Set when the session refuses to bind, so a black viewfinder has an
+    // explanation on screen instead of looking like a frozen app.
+    var cameraError by remember { mutableStateOf<String?>(null) }
     // On phone stitching of the finished run.
     var stitching by remember { mutableStateOf(false) }
     var stitchProgress by remember { mutableStateOf<Float?>(null) }
     var stitchedFile by remember { mutableStateOf<File?>(null) }
+    // Pose sidecars are written off the main thread. The stitch waits on this
+    // counter so a frame saved a moment before the button press cannot be
+    // dropped for want of its attitude.
+    val pendingWrites = remember { AtomicInteger(0) }
 
     LaunchedEffect(previewView) {
         val provider = runCatching {
             ProcessCameraProvider.getInstance(context).get()
         }.getOrNull()
         if (provider == null) {
+            cameraError = "Camera provider unavailable"
             Logging.e("Stairs: camera provider unavailable", null)
             return@LaunchedEffect
         }
@@ -198,11 +258,13 @@ fun StairsCaptureScreen(
             val cameraId = Camera2CameraInfo.from(camera!!.cameraInfo).cameraId
             boundCameraId = cameraId
             lensFov = orbitCameraFieldOfView(context, cameraId)
+            cameraError = null
             Logging.i(
                 "Stairs camera bound id=$cameraId " +
                     "fov=${lensFov?.hFovDegrees}x${lensFov?.vFovDegrees}",
             )
         }.onFailure { error ->
+            cameraError = error.message ?: error.javaClass.simpleName
             Logging.e("Stairs: camera bind failed", error)
         }
     }
@@ -214,15 +276,32 @@ fun StairsCaptureScreen(
         }
     }
 
-    val orientation by rememberOrientationData()
+    val orientationState = rememberOrientationData()
+    val orientation by orientationState
     val pitchNow = orientation.pitchDegrees
 
-    var started by remember { mutableStateOf(false) }
-    var startYawAbs by remember { mutableStateOf<Float?>(null) }
-    var captured by remember { mutableStateOf(setOf<Int>()) }
+    // Beeps and speech: the walker is holding the phone at arm's length and
+    // looking at the room, so the cues the normal path plays are worth having
+    // here too.
+    val guidance = rememberGuidanceFeedback()
+
+    var started by rememberSaveable { mutableStateOf(false) }
+    // Kept as NaN rather than null: a Bundle round-trips a float, and the
+    // bearing the walk is anchored on is exactly the kind of one-off value a
+    // recreation would otherwise drop.
+    var startYawStored by rememberSaveable { mutableStateOf(Float.NaN) }
+    val startYawAbs = startYawStored.takeIf { !it.isNaN() }
+    // Read back from the run directory rather than built up in memory, so a
+    // walk that was interrupted knows which frames it already has.
+    var captured by remember { mutableStateOf(StairsStore.savedIndices(gridDirectory)) }
     var manualTarget by remember { mutableStateOf<Int?>(null) }
     var capturing by remember { mutableStateOf(false) }
     var dwellProgress by remember { mutableFloatStateOf(0f) }
+    var alignmentState by remember { mutableStateOf(AlignmentState()) }
+    var focusReticle by remember { mutableStateOf<FocusReticle?>(null) }
+    var lastBeepAt by remember { mutableStateOf(0L) }
+    var previousDwell by remember { mutableFloatStateOf(0f) }
+    var guidanceMuted by remember { mutableStateOf(false) }
     var showList by remember { mutableStateOf(false) }
     var statusLine by remember { mutableStateOf("") }
 
@@ -231,7 +310,46 @@ fun StairsCaptureScreen(
     val activeTarget = manualTarget?.takeIf { it !in captured && it in plan.targets.indices }
         ?: plan.nextTarget(captured)
 
+    // The same grid in the app's own target type, anchored on the bearing the
+    // walk started at. The overlay draws markers by projecting each target
+    // against the live absolute attitude, so it needs absolute bearings; the
+    // walk's own plan stays relative and is untouched by this.
+    val spherePlan = remember(plan, startYawAbs) {
+        val anchor = startYawAbs ?: 0f
+        SphereTargetPlan(
+            targets = plan.targets.map {
+                SphereTarget(it.yawDegrees + anchor, it.pitchDegrees)
+            },
+            rings = plan.rings.map { ring -> ring.first().index..ring.last().index },
+        )
+    }
+
     val gate = remember { AlignmentGate(DWELL_DEGREES, DWELL_MILLIS) }
+
+    // The compass gate of the normal path. Only Unreliable blocks: the plan is
+    // anchored on the walk's own starting bearing, so an uncalibrated
+    // magnetometer shifts every target together and costs the sphere nothing,
+    // while a fusion that says its own output cannot be believed would put the
+    // markers in the wrong place entirely.
+    val accuracyWarning = when (orientation.accuracy) {
+        OrientationAccuracy.Unreliable -> context.getString(R.string.capture_accuracy_blocked)
+        OrientationAccuracy.Low -> context.getString(R.string.capture_low_accuracy)
+        else -> null
+    }
+    val compassBlocked = !orientation.accuracy.allowsCapture
+
+    // Which ring the active target belongs to, and how far through it the walk
+    // is. A ring is the unit that matters: a run stopped at a ring boundary is
+    // a complete band of sphere rather than a walk with a gap in it.
+    val ringText = plan.rings
+        .indexOfFirst { ring -> ring.any { it.index == activeTarget } }
+        .takeIf { it >= 0 && activeTarget != null }
+        ?.let { ringIndex ->
+            val ring = plan.rings[ringIndex]
+            val done = ring.count { it.index in captured }
+            "Ring ${ringIndex + 1} of ${plan.rings.size}: $done/${ring.size}"
+        }
+        .orEmpty()
 
     // The device's real optics, from the lens the session bound, so the on
     // phone stitch gets the same field of view, distortion model and EXIF
@@ -255,74 +373,131 @@ fun StairsCaptureScreen(
         }
     }
 
-    fun takePhoto(index: Int) {
+    /**
+     * Shoots one target as a burst and keeps the sharpest frame.
+     *
+     * The whole burst runs in one coroutine on the main thread: the shutter
+     * callbacks all arrive on the main executor, and the pose of each shot is
+     * read from the sensor's own state at the moment it is taken rather than
+     * from whatever the composition last saw.
+     */
+    fun shutter(index: Int) {
         val capture = imageCapture ?: return
         if (capturing || index in captured) return
         capturing = true
         gate.reset()
-        val shotYaw = yawRel
-        val shotPitch = pitchNow
-        val shotRoll = orientation.rollDegrees
-        val file = StairsStore.frameFile(gridDirectory, index)
-        val output = ImageCapture.OutputFileOptions.Builder(file).build()
-        capture.takePicture(
-            output,
-            ContextCompat.getMainExecutor(context),
-            object : ImageCapture.OnImageSavedCallback {
-                override fun onImageSaved(results: ImageCapture.OutputFileResults) {
-                    capturing = false
-                    captured = captured + index
-                    statusLine = "Saved frame $index (${captured.size}/${plan.size})"
-                    Logging.i(
-                        "Stairs frame $index saved (${captured.size}/${plan.size}) " +
-                            "yaw=%.2f pitch=%.2f roll=%.2f".format(
-                                Locale.US,
-                                shotYaw,
-                                shotPitch,
-                                shotRoll,
-                            ),
-                    )
-                    val writeOpticsNow = !opticsWritten
-                    opticsWritten = true
-                    val fov = lensFov
-                    val framePath = file.absolutePath
-                    val directory = gridDirectory
-                    val total = plan.size
-                    scope.launch(Dispatchers.IO) {
-                        StairsStore.writePose(directory, index, shotYaw, shotPitch, shotRoll)
-                        if (writeOpticsNow) {
-                            // Read the real pixel size off the first saved
-                            // frame, so the note matches the files on disk.
-                            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                            BitmapFactory.decodeFile(framePath, bounds)
-                            StairsStore.writeOptics(
-                                directory = directory,
-                                hFovDegrees = fov?.hFovDegrees,
-                                vFovDegrees = fov?.vFovDegrees,
-                                frameWidth = bounds.outWidth,
-                                frameHeight = bounds.outHeight,
-                                frameCount = total,
-                            )
-                        }
-                    }
+        val anchor = startYawAbs
+        val target = index
+        scope.launch {
+            val winner = try {
+                captureSharpestBurst(
+                    capture = capture,
+                    directory = gridDirectory,
+                    index = target,
+                    shots = BURST_SHOTS,
+                    executor = ContextCompat.getMainExecutor(context),
+                    poseAt = {
+                        val sample = orientationState.value
+                        StairsShotPose(
+                            yawDegrees = anchor?.let { wrapDelta(sample.yawDegrees - it) } ?: 0f,
+                            pitchDegrees = sample.pitchDegrees,
+                            rollDegrees = sample.rollDegrees,
+                        )
+                    },
+                )
+            } catch (cancelled: CancellationException) {
+                // Leaving the screen mid-burst is not a capture failure; let the
+                // cancellation travel instead of reporting it as one. Whatever
+                // candidates were written are scratch names, and the frame is
+                // simply still uncaptured.
+                capturing = false
+                throw cancelled
+            } catch (error: Exception) {
+                // Half a burst written is none of it: clear the candidates so
+                // the directory keeps its one file per target shape.
+                capturing = false
+                scope.launch(Dispatchers.IO) {
+                    discardBurst(gridDirectory, target, BURST_SHOTS)
                 }
+                statusLine = "Frame $target failed: ${error.message}"
+                Logging.e("Stairs frame $target failed", error)
+                return@launch
+            }
 
-                override fun onError(error: ImageCaptureException) {
-                    capturing = false
-                    statusLine = "Frame $index failed: ${error.message}"
-                    Logging.e("Stairs frame $index failed", error)
+            capturing = false
+            captured = captured + target
+            statusLine = "Saved frame $target (${captured.size}/${plan.size})"
+            Logging.i(
+                "Stairs frame $target saved (${captured.size}/${plan.size}) " +
+                    "yaw=%.2f pitch=%.2f roll=%.2f".format(
+                        Locale.US,
+                        winner.pose.yawDegrees,
+                        winner.pose.pitchDegrees,
+                        winner.pose.rollDegrees,
+                    ),
+            )
+            val writeOpticsNow = !opticsWritten
+            opticsWritten = true
+            val fov = lensFov
+            val framePath = winner.file.absolutePath
+            val pose = winner.pose
+            val directory = gridDirectory
+            val total = plan.size
+            pendingWrites.incrementAndGet()
+            scope.launch(Dispatchers.IO) {
+                try {
+                    StairsStore.writePose(
+                        directory = directory,
+                        index = target,
+                        yawDegrees = pose.yawDegrees,
+                        pitchDegrees = pose.pitchDegrees,
+                        rollDegrees = pose.rollDegrees,
+                    )
+                    if (writeOpticsNow) {
+                        // Read the real pixel size off the first saved frame,
+                        // so the note matches the files on disk.
+                        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        BitmapFactory.decodeFile(framePath, bounds)
+                        StairsStore.writeOptics(
+                            directory = directory,
+                            hFovDegrees = fov?.hFovDegrees,
+                            vFovDegrees = fov?.vFovDegrees,
+                            frameWidth = bounds.outWidth,
+                            frameHeight = bounds.outHeight,
+                            frameCount = total,
+                        )
+                    }
+                } finally {
+                    pendingWrites.decrementAndGet()
                 }
-            },
-        )
+            }
+        }
     }
 
     fun stitchOnPhone() {
         if (stitching) return
         stitching = true
         stitchProgress = null
-        statusLine = "Stitching ${captured.size} frames on the phone..."
+        statusLine = "Stitching on the phone..."
         Logging.i("Stairs stitch requested with ${captured.size} frames")
         scope.launch {
+            // A frame saved a moment before the press may still be waiting for
+            // its pose sidecar; stitching without it would silently drop the
+            // frame, and the stitch has no way to place a frame without one.
+            val drained = awaitPendingWrites(pendingWrites)
+            val posed = StairsStore.savedIndices(gridDirectory)
+            if (!drained) {
+                Logging.w(
+                    "Stairs stitch started with pose writes still in flight: " +
+                        "${posed.size} posed frames on disk",
+                )
+            }
+            if (posed.size < MIN_FRAMES_TO_STITCH) {
+                statusLine = "Only ${posed.size} posed frames on disk, nothing to stitch"
+                stitching = false
+                return@launch
+            }
+            statusLine = "Stitching ${posed.size} frames on the phone..."
             runCatching {
                 StairsStitch.stitch(
                     context = context,
@@ -366,37 +541,143 @@ fun StairsCaptureScreen(
         }
     }
 
-    // The shutter: hold the aim on target and it fires by itself.
-    LaunchedEffect(yawRel, pitchNow, activeTarget, started) {
+    // The shutter: hold the aim on target and it fires by itself. Skipped
+    // entirely while the compass is unreliable, for the same reason the normal
+    // path refuses there: the markers are drawn from that attitude, so a
+    // bearing the fusion says cannot be believed is not a bearing to shoot at.
+    LaunchedEffect(yawRel, pitchNow, activeTarget, started, compassBlocked) {
         if (!started || activeTarget == null) return@LaunchedEffect
         val turn = plan.turnTo(yawRel, activeTarget)
         val tilt = plan.tiltTo(pitchNow, activeTarget)
         val distance = maxOf(abs(turn), abs(tilt))
-        val reading = gate.update(distance, SystemClock.elapsedRealtime())
+        if (compassBlocked) {
+            // Blocked, but the distance is still reported: the reticle keeps
+            // telling the user how close the aim is while they recalibrate.
+            gate.reset()
+            dwellProgress = 0f
+            previousDwell = 0f
+            alignmentState = AlignmentState(distanceDegrees = distance)
+            return@LaunchedEffect
+        }
+        val now = SystemClock.elapsedRealtime()
+        val reading = gate.update(distance, now)
         dwellProgress = reading.dwellProgress
+        alignmentState = AlignmentState(
+            distanceDegrees = distance,
+            dwellProgress = reading.dwellProgress,
+            isAligned = reading.isAligned,
+            isCapturing = capturing,
+        )
+
+        // The beep cadence is the distance: faster as the aim closes, silent
+        // once the target is far enough off to be somewhere behind the user.
+        if (!guidanceMuted) {
+            val interval = GuidanceProfile.beepIntervalMillis(distance)
+            if (interval != null && now - lastBeepAt >= interval) {
+                lastBeepAt = now
+                guidance.beep()
+            }
+            // Halfway through the dwell, felt rather than seen: the shutter is
+            // about to fire.
+            if (GuidanceProfile.crossedDwellMilestone(previousDwell, reading.dwellProgress)) {
+                guidance.dwellTick()
+            }
+        }
+        previousDwell = reading.dwellProgress
+
         if (reading.isAligned && reading.isTriggered &&
             plan.isOnTarget(yawRel, pitchNow, activeTarget)
         ) {
-            takePhoto(activeTarget)
+            shutter(activeTarget)
         }
+    }
+
+    // The spoken hand-over, as on the normal path: "next: above you, to your
+    // left". Delayed by a settle so a bearing the walk merely passed through is
+    // not announced, and skipped for the first target, which sits wherever the
+    // user is already facing.
+    LaunchedEffect(activeTarget, started) {
+        val target = activeTarget ?: return@LaunchedEffect
+        if (!started || captured.isEmpty()) return@LaunchedEffect
+        if (guidanceMuted) return@LaunchedEffect
+        delay(ANNOUNCE_SETTLE_MILLIS)
+        val relation = GuidanceProfile.targetRelation(
+            orientationState.value,
+            spherePlan.targets[target],
+        )
+        guidance.announce(
+            context.getString(R.string.guidance_target, targetPhrase(context, relation)),
+        )
     }
 
     Box(modifier = modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
 
+        // Tap-to-focus on the preview. It sits above the viewfinder so it
+        // receives the taps, and below the HUD so the buttons still win their
+        // own corners of the screen.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(camera) {
+                    detectTapGestures { offset ->
+                        if (size.width <= 0 || size.height <= 0) return@detectTapGestures
+                        val nx = offset.x / size.width
+                        val ny = offset.y / size.height
+                        focusReticle = FocusReticle(nx, ny, isWorking = true, isLocked = false)
+                        scope.launch {
+                            val locked = runCatching {
+                                camera?.focusAtPoint(nx, ny, previewView) ?: false
+                            }.getOrDefault(false)
+                            focusReticle = FocusReticle(nx, ny, isWorking = false, isLocked = locked)
+                        }
+                    }
+                },
+        )
+
+        if (started) {
+            // The production overlay: the grid's targets projected onto the
+            // preview, with the live one pulsing and the capture reticle in the
+            // middle. The text arrows below say the same thing in words, which
+            // is what the walk is judged on, but the dots are what make a
+            // 62-frame grid walkable without counting.
+            TargetOverlay(
+                orientation = { orientationState.value },
+                alignment = { alignmentState },
+                plan = spherePlan,
+                activeIndex = activeTarget ?: -1,
+                captured = captured,
+                fieldOfView = optics.fieldOfView,
+            )
+        }
+
+        FocusReticleOverlay(focus = focusReticle)
+
         if (!started) {
             StartOverlay(
+                savedCount = captured.size,
                 onStart = {
-                    startYawAbs = orientation.yawDegrees
+                    startYawStored = orientation.yawDegrees
                     manualTarget = null
+                    // The run directory may already hold frames (a resumed
+                    // walk), so the count comes from disk rather than memory.
+                    captured = StairsStore.savedIndices(gridDirectory)
                     started = true
-                    Logging.i(
-                        "Stairs grid walk started at yaw=%.2f pitch=%.2f".format(
+                    // One format over the whole line: a `.format` on the second
+                    // literal of a concatenation would bind only to that half
+                    // and misalign the arguments.
+                    val startText = (
+                        "Stairs grid walk started at yaw=%.2f pitch=%.2f " +
+                            "accuracy=%s gyroAssisted=%s framesOnDisk=%d"
+                        ).format(
                             Locale.US,
                             orientation.yawDegrees,
                             orientation.pitchDegrees,
-                        ),
-                    )
+                            orientation.accuracy,
+                            orientation.isGyroAssisted,
+                            captured.size,
+                        )
+                    Logging.i(startText)
                 },
                 onExit = onExit,
             )
@@ -406,12 +687,21 @@ fun StairsCaptureScreen(
                 captured = captured,
                 statusLine = statusLine,
                 opticsText = lensFovText,
+                ringText = ringText,
+                accuracyWarning = accuracyWarning,
+                cameraError = cameraError,
                 yawRel = yawRel,
                 pitchNow = pitchNow,
                 activeTarget = activeTarget,
                 dwellProgress = dwellProgress,
                 capturing = capturing,
                 exposureLocked = exposureLocked,
+                guidanceMuted = guidanceMuted,
+                onToggleGuidance = {
+                    guidanceMuted = !guidanceMuted
+                    statusLine = if (guidanceMuted) "Guidance muted" else "Guidance on"
+                    Logging.i("Stairs guidance muted=$guidanceMuted")
+                },
                 showList = showList,
                 onToggleList = { showList = !showList },
                 onRetakeLast = {
@@ -419,8 +709,10 @@ fun StairsCaptureScreen(
                     if (last != null) {
                         captured = captured - last
                         runCatching {
-                            StairsStore.frameFile(gridDirectory, last).delete()
-                            StairsStore.poseFile(gridDirectory, last).delete()
+                            // The frame, its pose and any burst candidate left
+                            // behind by an interrupted burst all go together.
+                            StairsStore.frameFiles(gridDirectory, last)
+                                .forEach { it.delete() }
                         }
                         manualTarget = last
                         statusLine = "Cleared frame $last for retake"
@@ -478,12 +770,17 @@ private fun StairsWalkHud(
     captured: Set<Int>,
     statusLine: String,
     opticsText: String,
+    ringText: String,
+    accuracyWarning: String?,
+    cameraError: String?,
     yawRel: Float,
     pitchNow: Float,
     activeTarget: Int?,
     dwellProgress: Float,
     capturing: Boolean,
     exposureLocked: Boolean,
+    guidanceMuted: Boolean,
+    onToggleGuidance: () -> Unit,
     showList: Boolean,
     onToggleList: () -> Unit,
     onRetakeLast: () -> Unit,
@@ -515,6 +812,27 @@ private fun StairsWalkHud(
                         color = Color.White,
                         style = MaterialTheme.typography.titleMedium,
                     )
+                    if (ringText.isNotEmpty()) {
+                        Text(
+                            text = ringText,
+                            color = Color.White.copy(alpha = 0.9f),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    if (accuracyWarning != null) {
+                        Text(
+                            text = accuracyWarning,
+                            color = Color(0xFFFFC107),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    if (cameraError != null) {
+                        Text(
+                            text = "Camera unavailable: $cameraError",
+                            color = Color(0xFFEF5350),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
                     if (statusLine.isNotEmpty()) {
                         Text(
                             text = statusLine,
@@ -585,6 +903,21 @@ private fun StairsWalkHud(
                         Text(if (exposureLocked) "Unlock exposure" else "Lock exposure")
                     }
                     OutlinedButton(
+                        onClick = onToggleGuidance,
+                        shape = PillShape,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(
+                            stringResource(
+                                if (guidanceMuted) {
+                                    R.string.guidance_toggle_show
+                                } else {
+                                    R.string.guidance_toggle_hide
+                                },
+                            ),
+                        )
+                    }
+                    OutlinedButton(
                         onClick = onDone,
                         shape = PillShape,
                         modifier = Modifier.weight(1f),
@@ -634,7 +967,7 @@ private fun StairsWalkHud(
 
 /** The pre-walk card: one clear instruction and a deliberate start. */
 @Composable
-private fun StartOverlay(onStart: () -> Unit, onExit: () -> Unit) {
+private fun StartOverlay(savedCount: Int, onStart: () -> Unit, onExit: () -> Unit) {
     Surface(
         color = Color.Black.copy(alpha = 0.7f),
         shape = RoundedCornerShape(16.dp),
@@ -662,6 +995,15 @@ private fun StartOverlay(onStart: () -> Unit, onExit: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 12.dp, bottom = 24.dp),
             )
+            if (savedCount > 0) {
+                Text(
+                    text = "This run already holds $savedCount frames: it will pick " +
+                        "up where it stopped.",
+                    color = Color(0xFFFFC107),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(bottom = 16.dp),
+                )
+            }
             Button(onClick = onStart, shape = PillShape, modifier = Modifier.fillMaxWidth()) {
                 Text("Start")
             }
@@ -726,6 +1068,44 @@ private fun stitchLabel(stitching: Boolean, progress: Float?): String {
     if (!stitching) return "Stitch on phone"
     val percent = progress?.let { " ${(it * 100f).roundToInt()}%" } ?: ""
     return "Stitching$percent"
+}
+
+/**
+ * "behind you, above you, to your left": the spoken direction of a target.
+ *
+ * The same phrasing the normal path speaks, so the cues sound identical in
+ * both walks. The plan's own text arrows stay relative, which is why this reads
+ * the forward projection rather than the turn and tilt numbers.
+ */
+private fun targetPhrase(context: Context, relation: TargetRelation): String {
+    val parts = buildList {
+        if (relation.isBehind) add(context.getString(R.string.guidance_behind))
+        when (relation.vertical) {
+            TargetRelation.Vertical.Above -> add(context.getString(R.string.guidance_above))
+            TargetRelation.Vertical.Below -> add(context.getString(R.string.guidance_below))
+            TargetRelation.Vertical.Level -> {}
+        }
+        when (relation.horizontal) {
+            TargetRelation.Horizontal.Left -> add(context.getString(R.string.guidance_left))
+            TargetRelation.Horizontal.Right -> add(context.getString(R.string.guidance_right))
+            TargetRelation.Horizontal.Centre -> {}
+        }
+    }
+    return parts.joinToString(", ")
+}
+
+/**
+ * Waits for the pose writers to drain, up to [POSE_WRITE_WAIT_MILLIS].
+ *
+ * @return true when nothing is left in flight, false when the wait expired and
+ * the caller has to carry on with whatever reached the disk.
+ */
+private suspend fun awaitPendingWrites(pending: AtomicInteger): Boolean {
+    val deadline = SystemClock.elapsedRealtime() + POSE_WRITE_WAIT_MILLIS
+    while (pending.get() > 0 && SystemClock.elapsedRealtime() < deadline) {
+        delay(50)
+    }
+    return pending.get() == 0
 }
 
 /** Arrow glyph plus the degrees left to move, or "on" when close. */

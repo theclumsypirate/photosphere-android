@@ -49,6 +49,39 @@ object StairsStore {
     fun poseFile(directory: File, index: Int): File =
         File(directory, "stairs_%02d.pose".format(index))
 
+    /** Where one shot of a burst is written, before the sharpest is promoted. */
+    fun burstFrameFile(directory: File, index: Int, burst: Int): File =
+        File(directory, "stairs_%02d_t%d.jpg".format(index, burst))
+
+    /**
+     * Every file belonging to frame [index]: the frame, its pose, and any burst
+     * candidate left behind by a run that was interrupted mid-burst.
+     */
+    fun frameFiles(directory: File, index: Int): List<File> {
+        val prefix = "stairs_%02d".format(index)
+        return directory.listFiles().orEmpty().filter { it.name.startsWith(prefix) }
+    }
+
+    /**
+     * Indices that already have both a frame and its pose on disk.
+     *
+     * The directory is the truth about how far a sweep got, so the screen reads
+     * it back instead of trusting state that a recreation would drop: a run
+     * interrupted halfway can be picked up where it stopped. Burst scratch files
+     * are not counted, only the promoted `stairs_NN.jpg` of each target.
+     */
+    fun savedIndices(directory: File): Set<Int> =
+        directory.listFiles().orEmpty()
+            .mapNotNull { file ->
+                val match = FRAME_NAME.matchEntire(file.name) ?: return@mapNotNull null
+                val index = match.groupValues[1].toInt()
+                index.takeIf { poseFile(directory, index).isFile }
+            }
+            .toSet()
+
+    /** `stairs_NN.jpg` exactly, so burst scratch names never match. */
+    private val FRAME_NAME = Regex("""stairs_(\d{2})\.jpg""")
+
     /** Where one run's optics note is written. */
     fun opticsFile(directory: File): File = File(directory, "optics.txt")
 
