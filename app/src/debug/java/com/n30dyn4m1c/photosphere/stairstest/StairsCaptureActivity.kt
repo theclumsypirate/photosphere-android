@@ -41,4 +41,19 @@ class StairsCaptureActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onStart() {
+        super.onStart()
+        Logging.i("StairsCaptureActivity.onStart")
+    }
+
+    override fun onStop() {
+        super.onStop()
+        Logging.i("StairsCaptureActivity.onStop")
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        Logging.i("StairsCaptureActivity.onDestroy")
+    }
 }

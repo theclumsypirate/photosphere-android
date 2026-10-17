@@ -106,7 +106,10 @@ fun StairsCaptureScreen(
     }
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
-    ) { granted -> hasPermission = granted }
+    ) { granted ->
+        hasPermission = granted
+        Logging.i("Stairs camera permission granted=$granted")
+    }
     LaunchedEffect(Unit) {
         if (!hasPermission) permissionLauncher.launch(Manifest.permission.CAMERA)
     }
@@ -173,14 +176,20 @@ fun StairsCaptureScreen(
             // view the way the virtual set's defaults do.
             val cameraId = Camera2CameraInfo.from(camera!!.cameraInfo).cameraId
             lensFov = orbitCameraFieldOfView(context, cameraId)
-            Logging.i("Stairs grid camera bound")
+            Logging.i(
+                "Stairs camera bound id=$cameraId " +
+                    "fov=${lensFov?.hFovDegrees}x${lensFov?.vFovDegrees}",
+            )
         }.onFailure { error ->
             Logging.e("Stairs: camera bind failed", error)
         }
     }
 
     DisposableEffect(Unit) {
-        onDispose { runCatching { imageCapture = null } }
+        onDispose {
+            Logging.i("Stairs capture screen disposed")
+            runCatching { imageCapture = null }
+        }
     }
 
     val orientation by rememberOrientationData()
@@ -206,6 +215,19 @@ fun StairsCaptureScreen(
         "lens %.1f x %.1f deg".format(Locale.US, it.hFovDegrees, it.vFovDegrees)
     } ?: ""
 
+    // One line per target change, not per sensor sample: the guidance itself
+    // stays silent so the 50 Hz attitude stream never reaches the log file.
+    LaunchedEffect(activeTarget, started) {
+        val target = activeTarget
+        if (started && target != null) {
+            val t = plan.targets[target]
+            Logging.i(
+                "Stairs target $target (${captured.size}/${plan.size}) " +
+                    "yaw=${t.yawDegrees} pitch=${t.pitchDegrees}",
+            )
+        }
+    }
+
     fun takePhoto(index: Int) {
         val capture = imageCapture ?: return
         if (capturing || index in captured) return
@@ -224,7 +246,15 @@ fun StairsCaptureScreen(
                     capturing = false
                     captured = captured + index
                     statusLine = "Saved frame $index (${captured.size}/${plan.size})"
-                    Logging.i("Stairs frame $index captured")
+                    Logging.i(
+                        "Stairs frame $index saved (${captured.size}/${plan.size}) " +
+                            "yaw=%.2f pitch=%.2f roll=%.2f".format(
+                                Locale.US,
+                                shotYaw,
+                                shotPitch,
+                                shotRoll,
+                            ),
+                    )
                     val writeOpticsNow = !opticsWritten
                     opticsWritten = true
                     val fov = lensFov
@@ -283,7 +313,13 @@ fun StairsCaptureScreen(
                     startYawAbs = orientation.yawDegrees
                     manualTarget = null
                     started = true
-                    Logging.i("Stairs grid walk started")
+                    Logging.i(
+                        "Stairs grid walk started at yaw=%.2f pitch=%.2f".format(
+                            Locale.US,
+                            orientation.yawDegrees,
+                            orientation.pitchDegrees,
+                        ),
+                    )
                 },
                 onExit = onExit,
             )
@@ -329,18 +365,23 @@ fun StairsCaptureScreen(
                             )
                             exposureLocked = lock
                             statusLine = if (lock) "Exposure locked" else "Exposure auto"
+                            Logging.i("Stairs exposure locked=$lock")
                         }.onFailure { error ->
                             Logging.w("Stairs exposure lock failed", error)
                         }
                     }
                 },
                 onDone = {
-                    Logging.i("Stairs walk finished at ${gridDirectory.absolutePath}")
+                    Logging.i(
+                        "Stairs walk finished: ${captured.size}/${plan.size} frames " +
+                            "at ${gridDirectory.absolutePath}",
+                    )
                     onExit()
                 },
                 onPickTarget = { index ->
                     manualTarget = index
                     gate.reset()
+                    Logging.i("Stairs target picked manually: $index")
                 },
                 modifier = Modifier.fillMaxSize(),
             )

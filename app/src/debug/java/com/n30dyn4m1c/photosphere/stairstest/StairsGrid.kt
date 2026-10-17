@@ -1,6 +1,7 @@
 package com.n30dyn4m1c.photosphere.stairstest
 
 import com.n30dyn4m1c.photosphere.orbit.wrapDelta
+import com.n30dyn4m1c.photosphere.util.Logging
 import kotlin.math.abs
 
 /**
@@ -115,7 +116,12 @@ fun stairsPlan(startYaw: Float = 0f): StairsPlan {
     val numbered = rings.map { ring ->
         ring.map { target -> target.copy(index = index++) }
     }
-    return StairsPlan(numbered)
+    val plan = StairsPlan(numbered)
+    Logging.i(
+        "Stairs grid plan: ${plan.size} targets, ${plan.rings.size} rings, " +
+            "start yaw $startYaw",
+    )
+    return plan
 }
 
 /** Evenly spaced bearings for one ring starting at [startYaw], clockwise. */
