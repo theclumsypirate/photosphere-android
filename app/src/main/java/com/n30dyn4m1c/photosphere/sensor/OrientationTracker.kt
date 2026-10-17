@@ -73,6 +73,15 @@ data class OrientationData(
      * frame. Null for a sample that never saw the sensor.
      */
     val cameraBasis: FloatArray? = null,
+
+    /**
+     * True when this sample came from a gyro-assisted fusion (the game rotation
+     * vector). False when the phone has no gyroscope, so the attitude is
+     * magnetometer-only and its yaw is far noisier; the display smoother reads
+     * this to filter that noise harder. Never part of the captured pose, which
+     * is why it is a plain flag rather than a sensor type.
+     */
+    val isGyroAssisted: Boolean = true,
 ) {
     /** False for the initial placeholder, before the first sensor event lands. */
     val hasFix: Boolean get() = timestampNanos > 0L
@@ -385,6 +394,7 @@ class OrientationTracker(
             timestampNanos = event.timestamp,
             // A copy: the scratch buffer is reused by the next event.
             cameraBasis = basis.copyOf(),
+            isGyroAssisted = isMagnetometerFree,
         )
         Logging.v(
             "attitude yaw=%.1f pitch=%.1f roll=%.1f acc=%s".format(
