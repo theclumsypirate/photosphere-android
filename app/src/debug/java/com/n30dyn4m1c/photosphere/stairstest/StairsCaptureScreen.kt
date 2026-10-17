@@ -1,6 +1,7 @@
 package com.n30dyn4m1c.photosphere.stairstest
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.os.SystemClock
@@ -58,12 +59,15 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.n30dyn4m1c.photosphere.camera.AlignmentGate
+import com.n30dyn4m1c.photosphere.camera.rememberSphereOptics
 import com.n30dyn4m1c.photosphere.orbit.OrbitFieldOfView
 import com.n30dyn4m1c.photosphere.orbit.orbitCameraFieldOfView
 import com.n30dyn4m1c.photosphere.orbit.wrapDelta
 import com.n30dyn4m1c.photosphere.sensor.rememberOrientationData
+import com.n30dyn4m1c.photosphere.storage.SphereImageStore
 import com.n30dyn4m1c.photosphere.ui.theme.PillShape
 import com.n30dyn4m1c.photosphere.util.Logging
+import java.io.File
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -73,6 +77,16 @@ import kotlinx.coroutines.launch
 /** Dwell the aim must hold on a target before the shutter fires. */
 private const val DWELL_DEGREES = 3f
 private const val DWELL_MILLIS = 600L
+
+/**
+ * Aspect ratio of the buffer the capture selector asks for (4:3). The optics
+ * estimate is scaled by it, so the stitch is not told the frame sees more or
+ * less of the world than it does.
+ */
+private const val STREAM_ASPECT_RATIO = 4f / 3f
+
+/** Fewest posed frames worth handing to the stitcher. */
+private const val MIN_FRAMES_TO_STITCH = 2
 
 /**
  * Guided capture on the proven 62 point grid, debug only.
@@ -131,6 +145,13 @@ fun StairsCaptureScreen(
     var exposureLocked by remember { mutableStateOf(false) }
     var lensFov by remember { mutableStateOf<OrbitFieldOfView?>(null) }
     var opticsWritten by remember { mutableStateOf(false) }
+    // Bound lens id, so the optics estimate describes the lens that is really
+    // streaming rather than whichever one the profile would guess.
+    var boundCameraId by remember { mutableStateOf<String?>(null) }
+    // On phone stitching of the finished run.
+    var stitching by remember { mutableStateOf(false) }
+    var stitchProgress by remember { mutableStateOf<Float?>(null) }
+    var stitchedFile by remember { mutableStateOf<File?>(null) }
 
     LaunchedEffect(previewView) {
         val provider = runCatching {
@@ -175,6 +196,7 @@ fun StairsCaptureScreen(
             // frames so the offline stitch is not guessing at the field of
             // view the way the virtual set's defaults do.
             val cameraId = Camera2CameraInfo.from(camera!!.cameraInfo).cameraId
+            boundCameraId = cameraId
             lensFov = orbitCameraFieldOfView(context, cameraId)
             Logging.i(
                 "Stairs camera bound id=$cameraId " +
@@ -210,6 +232,11 @@ fun StairsCaptureScreen(
         ?: plan.nextTarget(captured)
 
     val gate = remember { AlignmentGate(DWELL_DEGREES, DWELL_MILLIS) }
+
+    // The device's real optics, from the lens the session bound, so the on
+    // phone stitch gets the same field of view, distortion model and EXIF
+    // fallback the normal camera feeds it.
+    val optics = rememberSphereOptics(boundCameraId, streamAspectRatio = STREAM_ASPECT_RATIO)
 
     val lensFovText = lensFov?.let {
         "lens %.1f x %.1f deg".format(Locale.US, it.hFovDegrees, it.vFovDegrees)
@@ -287,6 +314,56 @@ fun StairsCaptureScreen(
                 }
             },
         )
+    }
+
+    fun stitchOnPhone() {
+        if (stitching) return
+        stitching = true
+        stitchProgress = null
+        statusLine = "Stitching ${captured.size} frames on the phone..."
+        Logging.i("Stairs stitch requested with ${captured.size} frames")
+        scope.launch {
+            runCatching {
+                StairsStitch.stitch(
+                    context = context,
+                    directory = gridDirectory,
+                    optics = optics,
+                    // Called from the stitching thread, so hop back to the main
+                    // one before touching Compose state.
+                    onProgress = { progress ->
+                        scope.launch { stitchProgress = progress.fraction }
+                    },
+                )
+            }.onSuccess { result ->
+                stitchedFile = result.file
+                statusLine = "Stitched ${result.width}x${result.height}: ${result.file.name}"
+                Logging.i(
+                    "Stairs stitch done ${result.file.name} ${result.width}x${result.height}",
+                )
+            }.onFailure { error ->
+                statusLine = "Stitch failed: ${error.message}"
+                Logging.e("Stairs stitch failed", error)
+            }
+            stitching = false
+            stitchProgress = null
+        }
+    }
+
+    fun shareStitched() {
+        val file = stitchedFile ?: return
+        runCatching {
+            val uri = SphereImageStore.shareUri(context, file)
+            val send = Intent(Intent.ACTION_SEND)
+                .setType("image/jpeg")
+                .putExtra(Intent.EXTRA_STREAM, uri)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            context.startActivity(
+                Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+            Logging.i("Stairs stitch shared: ${file.name}")
+        }.onFailure { error ->
+            Logging.w("Stairs stitch share failed", error)
+        }
     }
 
     // The shutter: hold the aim on target and it fires by itself.
@@ -383,6 +460,11 @@ fun StairsCaptureScreen(
                     gate.reset()
                     Logging.i("Stairs target picked manually: $index")
                 },
+                stitching = stitching,
+                stitchProgress = stitchProgress,
+                hasStitched = stitchedFile != null,
+                onStitch = { stitchOnPhone() },
+                onShare = { shareStitched() },
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -408,6 +490,11 @@ private fun StairsWalkHud(
     onToggleExposure: () -> Unit,
     onDone: () -> Unit,
     onPickTarget: (Int) -> Unit,
+    stitching: Boolean,
+    stitchProgress: Float?,
+    hasStitched: Boolean,
+    onStitch: () -> Unit,
+    onShare: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier) {
@@ -456,7 +543,8 @@ private fun StairsWalkHud(
                 )
             } else {
                 Text(
-                    text = "All ${plan.size} frames captured. Pull the folder and stitch.",
+                    text = "All ${plan.size} frames captured. Stitch on the phone, " +
+                        "or pull the folder.",
                     color = Color.White,
                     modifier = Modifier
                         .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
@@ -502,6 +590,29 @@ private fun StairsWalkHud(
                         modifier = Modifier.weight(1f),
                     ) {
                         Text("Done")
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Button(
+                        onClick = onStitch,
+                        enabled = !stitching && captured.size >= MIN_FRAMES_TO_STITCH,
+                        shape = PillShape,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(stitchLabel(stitching, stitchProgress))
+                    }
+                    if (hasStitched) {
+                        OutlinedButton(
+                            onClick = onShare,
+                            shape = PillShape,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text("Share sphere")
+                        }
                     }
                 }
             }
@@ -608,6 +719,13 @@ private fun GuideOverlay(
             )
         }
     }
+}
+
+/** Label on the on phone stitch button, with progress while it runs. */
+private fun stitchLabel(stitching: Boolean, progress: Float?): String {
+    if (!stitching) return "Stitch on phone"
+    val percent = progress?.let { " ${(it * 100f).roundToInt()}%" } ?: ""
+    return "Stitching$percent"
 }
 
 /** Arrow glyph plus the degrees left to move, or "on" when close. */
