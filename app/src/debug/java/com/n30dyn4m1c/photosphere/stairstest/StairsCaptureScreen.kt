@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.BitmapFactory
 import android.os.SystemClock
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -74,8 +73,6 @@ import com.n30dyn4m1c.photosphere.camera.TargetOverlay
 import com.n30dyn4m1c.photosphere.camera.TargetRelation
 import com.n30dyn4m1c.photosphere.camera.rememberGuidanceFeedback
 import com.n30dyn4m1c.photosphere.camera.rememberSphereOptics
-import com.n30dyn4m1c.photosphere.orbit.OrbitFieldOfView
-import com.n30dyn4m1c.photosphere.orbit.orbitCameraFieldOfView
 import com.n30dyn4m1c.photosphere.orbit.wrapDelta
 import com.n30dyn4m1c.photosphere.sensor.OrientationAccuracy
 import com.n30dyn4m1c.photosphere.sensor.rememberOrientationData
@@ -195,7 +192,6 @@ fun StairsCaptureScreen(
     var camera by remember { mutableStateOf<Camera?>(null) }
     var camera2Control by remember { mutableStateOf<Camera2CameraControl?>(null) }
     var exposureLocked by remember { mutableStateOf(false) }
-    var lensFov by remember { mutableStateOf<OrbitFieldOfView?>(null) }
     var opticsWritten by remember { mutableStateOf(false) }
     // Bound lens id, so the optics estimate describes the lens that is really
     // streaming rather than whichever one the profile would guess.
@@ -252,17 +248,12 @@ fun StairsCaptureScreen(
                 capture,
             )
             camera2Control = Camera2CameraControl.from(camera!!.cameraControl)
-            // The lens geometry this run is shot at, recorded beside the
-            // frames so the offline stitch is not guessing at the field of
-            // view the way the virtual set's defaults do.
-            val cameraId = Camera2CameraInfo.from(camera!!.cameraInfo).cameraId
-            boundCameraId = cameraId
-            lensFov = orbitCameraFieldOfView(context, cameraId)
+            // The lens the session bound, so the optics estimate describes the
+            // lens that is really streaming rather than whichever one the
+            // profile would guess.
+            boundCameraId = Camera2CameraInfo.from(camera!!.cameraInfo).cameraId
             cameraError = null
-            Logging.i(
-                "Stairs camera bound id=$cameraId " +
-                    "fov=${lensFov?.hFovDegrees}x${lensFov?.vFovDegrees}",
-            )
+            Logging.i("Stairs camera bound id=$boundCameraId")
         }.onFailure { error ->
             cameraError = error.message ?: error.javaClass.simpleName
             Logging.e("Stairs: camera bind failed", error)
@@ -353,12 +344,31 @@ fun StairsCaptureScreen(
 
     // The device's real optics, from the lens the session bound, so the on
     // phone stitch gets the same field of view, distortion model and EXIF
-    // fallback the normal camera feeds it.
+    // fallback the normal camera feeds it. Its field of view is already in the
+    // frame's own axes as displayed, and it reconciles a multi camera's lens
+    // list against the profile, which the orbit package's estimate does not: a
+    // logical rear camera lists every lens it fronts and the shortest one is
+    // the ultrawide, so that estimate can describe a lens this session never
+    // bound.
     val optics = rememberSphereOptics(boundCameraId, streamAspectRatio = STREAM_ASPECT_RATIO)
 
-    val lensFovText = lensFov?.let {
-        "lens %.1f x %.1f deg".format(Locale.US, it.hFovDegrees, it.vFovDegrees)
-    } ?: ""
+    // One line per change of optics, not per frame, for the log file.
+    LaunchedEffect(optics) {
+        Logging.i(
+            "Stairs optics: fov=%.2f x %.2f deg portraitRotation=%d".format(
+                Locale.US,
+                optics.fieldOfView.horizontalDegrees,
+                optics.fieldOfView.verticalDegrees,
+                optics.portraitRotationDegrees,
+            ),
+        )
+    }
+
+    val opticsText = "lens %.1f x %.1f deg".format(
+        Locale.US,
+        optics.fieldOfView.horizontalDegrees,
+        optics.fieldOfView.verticalDegrees,
+    )
 
     // One line per target change, not per sensor sample: the guidance itself
     // stays silent so the 50 Hz attitude stream never reaches the log file.
@@ -438,11 +448,11 @@ fun StairsCaptureScreen(
             )
             val writeOpticsNow = !opticsWritten
             opticsWritten = true
-            val fov = lensFov
             val framePath = winner.file.absolutePath
             val pose = winner.pose
             val directory = gridDirectory
             val total = plan.size
+            val opticsNow = optics
             pendingWrites.incrementAndGet()
             scope.launch(Dispatchers.IO) {
                 try {
@@ -454,18 +464,29 @@ fun StairsCaptureScreen(
                         rollDegrees = pose.rollDegrees,
                     )
                     if (writeOpticsNow) {
-                        // Read the real pixel size off the first saved frame,
-                        // so the note matches the files on disk.
-                        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                        BitmapFactory.decodeFile(framePath, bounds)
-                        StairsStore.writeOptics(
-                            directory = directory,
-                            hFovDegrees = fov?.hFovDegrees,
-                            vFovDegrees = fov?.vFovDegrees,
-                            frameWidth = bounds.outWidth,
-                            frameHeight = bounds.outHeight,
-                            frameCount = total,
-                        )
+                        // The note describes this frame, so its size comes off
+                        // the file, upright, and its field of view from the
+                        // same estimate the stitch is handed.
+                        val size = StairsStore.uprightFrameSize(framePath)
+                        if (size == null) {
+                            Logging.w(
+                                "Stairs: could not read ${winner.file.name}, " +
+                                    "optics not written",
+                            )
+                        } else {
+                            val (frameWidth, frameHeight) = size
+                            StairsStore.writeOptics(
+                                directory = directory,
+                                widthFovDegrees = opticsNow.fieldOfView.horizontalDegrees,
+                                heightFovDegrees = opticsNow.fieldOfView.verticalDegrees,
+                                frameWidth = frameWidth,
+                                frameHeight = frameHeight,
+                                frameCount = total,
+                                pivotLeverMeters = StairsStitch.PIVOT.leverArmMeters,
+                                pivotSceneMeters = StairsStitch.PIVOT.sceneDistanceMeters,
+                                decodeMaxDimension = StairsStitch.STAIRS_MAX_INPUT_DIMENSION,
+                            )
+                        }
                     }
                 } finally {
                     pendingWrites.decrementAndGet()
@@ -686,7 +707,7 @@ fun StairsCaptureScreen(
                 plan = plan,
                 captured = captured,
                 statusLine = statusLine,
-                opticsText = lensFovText,
+                opticsText = opticsText,
                 ringText = ringText,
                 accuracyWarning = accuracyWarning,
                 cameraError = cameraError,

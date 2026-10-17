@@ -6,6 +6,7 @@ import com.n30dyn4m1c.photosphere.camera.SphereOptics
 import com.n30dyn4m1c.photosphere.metadata.GPanoMetadata
 import com.n30dyn4m1c.photosphere.stitching.CameraPose
 import com.n30dyn4m1c.photosphere.stitching.PhotoSphereStitcher
+import com.n30dyn4m1c.photosphere.stitching.PivotModel
 import com.n30dyn4m1c.photosphere.stitching.SeamMode
 import com.n30dyn4m1c.photosphere.stitching.SphereFrame
 import com.n30dyn4m1c.photosphere.stitching.StitchProgress
@@ -62,7 +63,7 @@ object StairsStitch {
                 maxInputDimension = STAIRS_MAX_INPUT_DIMENSION,
                 maxOutputWidth = profile.stitchMaxOutputWidth,
                 unsharpAmount = profile.unsharpAmount,
-                pivot = profile.pivot,
+                pivot = PIVOT,
                 portraitRotationDegrees = optics.portraitRotationDegrees,
                 // The prototype's scheme, and the sensor poses it was proven
                 // with. A grid that only stitches when the poses are refined is
@@ -130,6 +131,23 @@ object StairsStitch {
         Regex("""yaw=(-?\d+(?:\.\d+)?);pitch=(-?\d+(?:\.\d+)?);roll=(-?\d+(?:\.\d+)?)""")
 
     /**
+     * The pivot the grid was proven with: a phone held out in front of a
+     * standing person, in a scene taken to sit 3.5 m away.
+     *
+     * Not [PivotModel.HandheldBodySwivel], which production uses and which
+     * assumes the scene sits at 10 m. That ratio is deliberately cautious, and
+     * it is cautious because the production pipeline is free to refine the
+     * poses afterwards: the class docs are explicit that the under correction
+     * of a close scene stays "comfortably inside what PoseRefiner absorbs".
+     * This stitch turns the refinement off on purpose, so nothing absorbs it,
+     * and a room shot with the cautious ratio would bend at the seams for a
+     * reason that has nothing to do with the grid. 3.5 m is both what the
+     * prototype used and what a room actually is, and it is recorded in
+     * `optics.txt` so the offline replay can match.
+     */
+    internal val PIVOT = PivotModel(leverArmMeters = 0.35f, sceneDistanceMeters = 3.5f)
+
+    /**
      * Long edge each frame is decoded to before stitching, deliberately smaller
      * than the device profile's 2000.
      *
@@ -140,7 +158,7 @@ object StairsStitch {
      * about 7500 px of width around the 360 degrees that render into a canvas
      * of about 5500 px. The full size stays the production path's job.
      */
-    private const val STAIRS_MAX_INPUT_DIMENSION = 1024
+    internal const val STAIRS_MAX_INPUT_DIMENSION = 1024
 
     /** `stairs_NN.jpg` exactly: burst scratch files must never be stitched. */
     private val FRAME_NAME = Regex("""stairs_\d{2}\.jpg""")

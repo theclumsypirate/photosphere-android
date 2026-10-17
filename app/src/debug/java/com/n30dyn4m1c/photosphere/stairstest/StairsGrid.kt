@@ -24,11 +24,18 @@ data class StairsTarget(
  * The 62 point sphere grid proven in `tools/pano_proto`.
  *
  * Five pitch rows of ten bearings each, thirty six degrees apart, plus six
- * zenith and six nadir caps. The layout, the sign convention (negative is
+ * zenith and six nadir caps. The coordinates, the sign convention (negative is
  * up) and the yaw anchoring at walk start all mirror the Python side
  * (`virtual_frames_stairs.py`), which closed the loop against the source
  * panorama to 1.8/255 with no structural defects. This screen exists so a
- * real capture can be aimed frame by frame at the same coordinates.
+ * real capture can be aimed at exactly those coordinates.
+ *
+ * The walk order is not the Python cut order: that script starts its rows at
+ * -45 degrees and its caps at the nadir, while [stairsPlan] walks level first
+ * for a hand, so frame NN of a real run is not vframe NN of the virtual set.
+ * The stitch is unaffected, because every frame is placed by its own pose
+ * sidecar rather than by its position in the list; only a frame by frame
+ * comparison of the two sets has to account for it.
  *
  * Debug only: only referenced from `app/src/debug`.
  */

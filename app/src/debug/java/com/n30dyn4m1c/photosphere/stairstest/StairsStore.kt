@@ -1,6 +1,8 @@
 package com.n30dyn4m1c.photosphere.stairstest
 
 import android.content.Context
+import android.graphics.BitmapFactory
+import androidx.exifinterface.media.ExifInterface
 import com.n30dyn4m1c.photosphere.util.Logging
 import java.io.File
 import java.text.SimpleDateFormat
@@ -112,54 +114,94 @@ object StairsStore {
     }
 
     /**
-     * Records one run's lens geometry and frame size, plus the exact stitch
-     * command to replay it offline.
+     * A frame's pixel size as it is displayed, with any EXIF rotation applied,
+     * or null when the file will not describe itself.
      *
-     * The offline stitcher needs to know the field of view the frames were
-     * shot at. Its defaults (49 by 63 degrees) belong to the virtual set cut
-     * from a source panorama, not to any particular phone lens, so a real run
-     * must carry its own. [hFovDegrees] and [vFovDegrees] are the sensor's
-     * horizontal and vertical field of view, which is the landscape reading;
-     * the file assigns them to whichever image axis is longer, because the
-     * field of view grows with the physical axis, so a portrait frame is
-     * simply the landscape one rotated.
+     * `stitch_closed.py` turns each frame upright on its EXIF orientation and
+     * then resizes it to half of `--fw` by `--fh`, so the numbers in the note
+     * have to be the upright ones. A portrait capture whose pixels CameraX left
+     * landscape would otherwise be resized on the wrong axes and come out
+     * sheared. The rotation read here is the same tag the Kotlin stitcher
+     * applies through `portraitRotationDegrees`.
+     */
+    fun uprightFrameSize(framePath: String): Pair<Int, Int>? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(framePath, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        val orientation = runCatching {
+            ExifInterface(framePath).getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL,
+            )
+        }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+        val rotated = orientation == ExifInterface.ORIENTATION_ROTATE_90 ||
+            orientation == ExifInterface.ORIENTATION_ROTATE_270
+        return if (rotated) {
+            bounds.outHeight to bounds.outWidth
+        } else {
+            bounds.outWidth to bounds.outHeight
+        }
+    }
+
+    /**
+     * Records one run's lens geometry, frame size and stitch settings, plus the
+     * exact command to replay it offline.
+     *
+     * The offline stitcher needs the field of view the frames were shot at. Its
+     * defaults (49 by 63 degrees) belong to the virtual set cut from a source
+     * panorama, not to any particular phone lens, so a real run has to carry its
+     * own. [widthFovDegrees] and [heightFovDegrees] are the two the on phone
+     * stitch was handed, which are already the angles across the frame's width
+     * and height as displayed, so they go into `--hfov` and `--vfov` as they
+     * are. They describe the same frame as [frameWidth] by [frameHeight], which
+     * is why that pair has to be the upright one.
+     *
+     * [pivotLeverMeters] and [pivotSceneMeters] are recorded because the offline
+     * replay has to use the same ratio to be comparable, and
+     * [decodeMaxDimension] because it is a deliberate step down from production
+     * that the replay shares.
      */
     fun writeOptics(
         directory: File,
-        hFovDegrees: Float?,
-        vFovDegrees: Float?,
+        widthFovDegrees: Float,
+        heightFovDegrees: Float,
         frameWidth: Int,
         frameHeight: Int,
         frameCount: Int,
+        pivotLeverMeters: Float,
+        pivotSceneMeters: Float,
+        decodeMaxDimension: Int,
     ) {
         runCatching {
-            val portrait = frameHeight >= frameWidth
-            val sensorLong = listOfNotNull(hFovDegrees, vFovDegrees).maxOrNull()
-            val sensorShort = listOfNotNull(hFovDegrees, vFovDegrees).minOrNull()
-            val widthFov = if (portrait) sensorShort else sensorLong
-            val heightFov = if (portrait) sensorLong else sensorShort
+            val portrait = frameHeight > frameWidth
             val command = buildString {
                 append(
-                    "python3 stitch_closed.py --dir %s --out stairs_real --fw %d --fh %d"
+                    "python3 stitch_closed.py --dir out/%s --out stairs_real --fw %d --fh %d"
                         .format(Locale.US, directory.name, frameWidth, frameHeight),
                 )
-                if (widthFov != null && heightFov != null) {
-                    append(
-                        " --hfov %.2f --vfov %.2f".format(Locale.US, widthFov, heightFov),
-                    )
-                }
+                append(
+                    " --hfov %.2f --vfov %.2f".format(
+                        Locale.US,
+                        widthFovDegrees,
+                        heightFovDegrees,
+                    ),
+                )
             }
             val text = buildString {
                 appendLine("frames=$frameCount")
                 appendLine("frame_width=$frameWidth")
                 appendLine("frame_height=$frameHeight")
-                appendLine("$PORTRAIT_KEY=${portrait}")
-                appendLine("sensor_hfov_degrees=${hFovDegrees ?: "unknown"}")
-                appendLine("sensor_vfov_degrees=${vFovDegrees ?: "unknown"}")
-                appendLine("width_axis_fov_degrees=${widthFov ?: "unknown"}")
-                appendLine("height_axis_fov_degrees=${heightFov ?: "unknown"}")
+                appendLine("$PORTRAIT_KEY=$portrait")
+                appendLine("width_axis_fov_degrees=%.3f".format(Locale.US, widthFovDegrees))
+                appendLine("height_axis_fov_degrees=%.3f".format(Locale.US, heightFovDegrees))
+                appendLine("pivot_lever_m=%.3f".format(Locale.US, pivotLeverMeters))
+                appendLine("pivot_scene_m=%.3f".format(Locale.US, pivotSceneMeters))
+                appendLine("decode_max_dimension=$decodeMaxDimension")
                 appendLine()
-                appendLine("# Stitch this run with the optics it was shot at.")
+                appendLine("# Pull this run into the prototype's output folder, then")
+                appendLine("# stitch it with the optics it was shot at:")
+                appendLine("#   adb pull <run dir on phone> tools/pano_proto/out/${directory.name}")
+                appendLine("#   cd tools/pano_proto")
                 appendLine(command)
             }
             opticsFile(directory).writeText(text)
