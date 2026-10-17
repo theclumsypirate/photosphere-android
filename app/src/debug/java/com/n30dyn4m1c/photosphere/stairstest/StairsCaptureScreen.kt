@@ -2,10 +2,12 @@ package com.n30dyn4m1c.photosphere.stairstest
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
 import android.os.SystemClock
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.camera2.interop.Camera2CameraControl
+import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.camera2.interop.CaptureRequestOptions
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.Camera
@@ -56,10 +58,13 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.n30dyn4m1c.photosphere.camera.AlignmentGate
+import com.n30dyn4m1c.photosphere.orbit.OrbitFieldOfView
+import com.n30dyn4m1c.photosphere.orbit.orbitCameraFieldOfView
 import com.n30dyn4m1c.photosphere.orbit.wrapDelta
 import com.n30dyn4m1c.photosphere.sensor.rememberOrientationData
 import com.n30dyn4m1c.photosphere.ui.theme.PillShape
 import com.n30dyn4m1c.photosphere.util.Logging
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
@@ -121,6 +126,8 @@ fun StairsCaptureScreen(
     var camera by remember { mutableStateOf<Camera?>(null) }
     var camera2Control by remember { mutableStateOf<Camera2CameraControl?>(null) }
     var exposureLocked by remember { mutableStateOf(false) }
+    var lensFov by remember { mutableStateOf<OrbitFieldOfView?>(null) }
+    var opticsWritten by remember { mutableStateOf(false) }
 
     LaunchedEffect(previewView) {
         val provider = runCatching {
@@ -161,6 +168,11 @@ fun StairsCaptureScreen(
                 capture,
             )
             camera2Control = Camera2CameraControl.from(camera!!.cameraControl)
+            // The lens geometry this run is shot at, recorded beside the
+            // frames so the offline stitch is not guessing at the field of
+            // view the way the virtual set's defaults do.
+            val cameraId = Camera2CameraInfo.from(camera!!.cameraInfo).cameraId
+            lensFov = orbitCameraFieldOfView(context, cameraId)
             Logging.i("Stairs grid camera bound")
         }.onFailure { error ->
             Logging.e("Stairs: camera bind failed", error)
@@ -190,6 +202,10 @@ fun StairsCaptureScreen(
 
     val gate = remember { AlignmentGate(DWELL_DEGREES, DWELL_MILLIS) }
 
+    val lensFovText = lensFov?.let {
+        "lens %.1f x %.1f deg".format(Locale.US, it.hFovDegrees, it.vFovDegrees)
+    } ?: ""
+
     fun takePhoto(index: Int) {
         val capture = imageCapture ?: return
         if (capturing || index in captured) return
@@ -209,8 +225,28 @@ fun StairsCaptureScreen(
                     captured = captured + index
                     statusLine = "Saved frame $index (${captured.size}/${plan.size})"
                     Logging.i("Stairs frame $index captured")
+                    val writeOpticsNow = !opticsWritten
+                    opticsWritten = true
+                    val fov = lensFov
+                    val framePath = file.absolutePath
+                    val directory = gridDirectory
+                    val total = plan.size
                     scope.launch(Dispatchers.IO) {
-                        StairsStore.writePose(gridDirectory, index, shotYaw, shotPitch, shotRoll)
+                        StairsStore.writePose(directory, index, shotYaw, shotPitch, shotRoll)
+                        if (writeOpticsNow) {
+                            // Read the real pixel size off the first saved
+                            // frame, so the note matches the files on disk.
+                            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                            BitmapFactory.decodeFile(framePath, bounds)
+                            StairsStore.writeOptics(
+                                directory = directory,
+                                hFovDegrees = fov?.hFovDegrees,
+                                vFovDegrees = fov?.vFovDegrees,
+                                frameWidth = bounds.outWidth,
+                                frameHeight = bounds.outHeight,
+                                frameCount = total,
+                            )
+                        }
                     }
                 }
 
@@ -256,6 +292,7 @@ fun StairsCaptureScreen(
                 plan = plan,
                 captured = captured,
                 statusLine = statusLine,
+                opticsText = lensFovText,
                 yawRel = yawRel,
                 pitchNow = pitchNow,
                 activeTarget = activeTarget,
@@ -317,6 +354,7 @@ private fun StairsWalkHud(
     plan: StairsPlan,
     captured: Set<Int>,
     statusLine: String,
+    opticsText: String,
     yawRel: Float,
     pitchNow: Float,
     activeTarget: Int?,
@@ -353,6 +391,13 @@ private fun StairsWalkHud(
                         Text(
                             text = statusLine,
                             color = Color.White.copy(alpha = 0.8f),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    if (opticsText.isNotEmpty()) {
+                        Text(
+                            text = opticsText,
+                            color = Color.White.copy(alpha = 0.6f),
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }

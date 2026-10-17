@@ -49,6 +49,9 @@ object StairsStore {
     fun poseFile(directory: File, index: Int): File =
         File(directory, "stairs_%02d.pose".format(index))
 
+    /** Where one run's optics note is written. */
+    fun opticsFile(directory: File): File = File(directory, "optics.txt")
+
     /**
      * Writes the attitude beside frame [index] in the same
      * `yaw=..;pitch=..;roll=..` form the app stamps into EXIF, so the Python
@@ -74,4 +77,65 @@ object StairsStore {
             Logging.w("Could not write pose for frame $index", error)
         }
     }
+
+    /**
+     * Records one run's lens geometry and frame size, plus the exact stitch
+     * command to replay it offline.
+     *
+     * The offline stitcher needs to know the field of view the frames were
+     * shot at. Its defaults (49 by 63 degrees) belong to the virtual set cut
+     * from a source panorama, not to any particular phone lens, so a real run
+     * must carry its own. [hFovDegrees] and [vFovDegrees] are the sensor's
+     * horizontal and vertical field of view, which is the landscape reading;
+     * the file assigns them to whichever image axis is longer, because the
+     * field of view grows with the physical axis, so a portrait frame is
+     * simply the landscape one rotated.
+     */
+    fun writeOptics(
+        directory: File,
+        hFovDegrees: Float?,
+        vFovDegrees: Float?,
+        frameWidth: Int,
+        frameHeight: Int,
+        frameCount: Int,
+    ) {
+        runCatching {
+            val portrait = frameHeight >= frameWidth
+            val sensorLong = listOfNotNull(hFovDegrees, vFovDegrees).maxOrNull()
+            val sensorShort = listOfNotNull(hFovDegrees, vFovDegrees).minOrNull()
+            val widthFov = if (portrait) sensorShort else sensorLong
+            val heightFov = if (portrait) sensorLong else sensorShort
+            val command = buildString {
+                append(
+                    "python3 stitch_closed.py --dir %s --out stairs_real --fw %d --fh %d"
+                        .format(Locale.US, directory.name, frameWidth, frameHeight),
+                )
+                if (widthFov != null && heightFov != null) {
+                    append(
+                        " --hfov %.2f --vfov %.2f".format(Locale.US, widthFov, heightFov),
+                    )
+                }
+            }
+            val text = buildString {
+                appendLine("frames=$frameCount")
+                appendLine("frame_width=$frameWidth")
+                appendLine("frame_height=$frameHeight")
+                appendLine("$PORTRAIT_KEY=${portrait}")
+                appendLine("sensor_hfov_degrees=${hFovDegrees ?: "unknown"}")
+                appendLine("sensor_vfov_degrees=${vFovDegrees ?: "unknown"}")
+                appendLine("width_axis_fov_degrees=${widthFov ?: "unknown"}")
+                appendLine("height_axis_fov_degrees=${heightFov ?: "unknown"}")
+                appendLine()
+                appendLine("# Stitch this run with the optics it was shot at.")
+                appendLine(command)
+            }
+            opticsFile(directory).writeText(text)
+            Logging.i("Stairs optics: $command")
+        }.onFailure { error ->
+            Logging.w("Could not write optics for ${directory.name}", error)
+        }
+    }
+
+    /** Key marking whether the captured frames are taller than they are wide. */
+    const val PORTRAIT_KEY = "portrait"
 }
