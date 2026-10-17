@@ -48,9 +48,9 @@ object Logging {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             try {
-                e("CRASH neprins in firul '${thread.name}'", throwable)
+                e("Uncaught crash in thread '${thread.name}'", throwable)
             } catch (_: Throwable) {
-                // nimic: nu vrem ca logging-ul sa ascunda crash-ul original
+                // Nothing: logging must never hide the original crash.
             }
             previous?.uncaughtException(thread, throwable)
         }
