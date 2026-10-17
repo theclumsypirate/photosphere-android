@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug-only strings. Merged only into the debug variant.
+-->
+<resources>
+    <string name="stairs_grid_label">Stairs grid test</string>
+</resources>

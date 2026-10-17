@@ -26,6 +26,19 @@ FEATHER_PX = 80
 
 
 def read_pose(path):
+    """Attitude for one frame.
+
+    Prefers a sidecar written beside the frame (`<name>.pose`, the debug
+    capture screen's output), so a frame whose JPEG is never rewritten still
+    carries its pose. Falls back to the EXIF UserComment the normal app
+    stamps. Both use the same `yaw=..;pitch=..;roll=..` form.
+    """
+    sidecar = os.path.splitext(path)[0] + ".pose"
+    if os.path.exists(sidecar):
+        with open(sidecar) as fh:
+            m = ATT_RE.search(fh.read())
+        if m:
+            return tuple(map(float, m.groups()))
     ex = Image.open(path).getexif()
     sub = ex.get_ifd(0x8769)
     for k, v in sub.items():
@@ -37,6 +50,26 @@ def read_pose(path):
     raw = str(sub.get(0x9286, ""))
     m = ATT_RE.search(raw)
     return tuple(map(float, m.groups())) if m else None
+
+
+def read_upright(path):
+    """cv2 image with any EXIF orientation applied, so a portrait capture
+    whose pixels are stored landscape is not stitched sideways."""
+    img = cv2.imread(path)
+    if img is None:
+        return None
+    try:
+        ex = Image.open(path).getexif()
+        orient = ex.get(274, 1)
+    except Exception:
+        orient = 1
+    if orient == 3:
+        img = cv2.rotate(img, cv2.ROTATE_180)
+    elif orient == 6:
+        img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
+    elif orient == 8:
+        img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    return img
 
 
 def camera_frame(yaw_d, pitch_d, roll_d):
@@ -53,12 +86,11 @@ def camera_frame(yaw_d, pitch_d, roll_d):
     return fwd, right, up
 
 
-def main(d, out, W):
+def main(d, out, W, fw=2448, fh=3264, h_fov=H_FOV, v_fov=V_FOV):
     H = W // 2
     files = sorted(glob.glob(os.path.join(d, "*.jpg")))
-    fw, fh = 2448, 3264
-    fx = (fw / 2) / np.tan(np.radians(H_FOV / 2))
-    fy = (fh / 2) / np.tan(np.radians(V_FOV / 2))
+    fx = (fw / 2) / np.tan(np.radians(h_fov / 2))
+    fy = (fh / 2) / np.tan(np.radians(v_fov / 2))
     cx, cy = fw / 2.0, fh / 2.0
 
     us = (np.arange(W, dtype=np.float64) / W - 0.5) * 2 * np.pi
@@ -87,7 +119,9 @@ def main(d, out, W):
         inside = front & (px >= 0) & (px < fw) & (py >= 0) & (py < fh)
         if not inside.any():
             return None
-        im = cv2.imread(path)
+        im = read_upright(path)
+        if im is None:
+            return None
         im = cv2.resize(im, (fw // 2, fh // 2), interpolation=cv2.INTER_AREA)
         s = 0.5
         sampled = cv2.remap(im, (px * s).astype(np.float32), (py * s).astype(np.float32),
@@ -175,7 +209,15 @@ if __name__ == "__main__":
     ap.add_argument("--dir", default=None)
     ap.add_argument("--out", default="stairs_perfect")
     ap.add_argument("--w", type=int, default=2048)
+    # Frame optics. The defaults match the virtual set cut from stairs_360.jpg
+    # (3:4 portrait, 49 deg horizontal, 63 deg vertical). A real phone capture
+    # has its own lens, so override these when stitching real frames.
+    ap.add_argument("--fw", type=int, default=2448)
+    ap.add_argument("--fh", type=int, default=3264)
+    ap.add_argument("--hfov", type=float, default=H_FOV)
+    ap.add_argument("--vfov", type=float, default=V_FOV)
     a = ap.parse_args()
     os.makedirs(os.path.join(here, "out"), exist_ok=True)
     sys.exit(main(a.dir or os.path.join(here, "ref", "all36"),
-                  os.path.join(here, "out", a.out + ".jpg"), a.w))
+                  os.path.join(here, "out", a.out + ".jpg"), a.w,
+                  a.fw, a.fh, a.hfov, a.vfov))

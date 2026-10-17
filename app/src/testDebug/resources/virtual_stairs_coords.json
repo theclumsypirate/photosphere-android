@@ -1,0 +1,498 @@
+[
+ {
+  "file": "vframe_01.jpg",
+  "yaw": -180.0,
+  "pitch": -45.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_02.jpg",
+  "yaw": -144.0,
+  "pitch": -45.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_03.jpg",
+  "yaw": -108.0,
+  "pitch": -45.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_04.jpg",
+  "yaw": -72.0,
+  "pitch": -45.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_05.jpg",
+  "yaw": -36.0,
+  "pitch": -45.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_06.jpg",
+  "yaw": 0.0,
+  "pitch": -45.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_07.jpg",
+  "yaw": 36.0,
+  "pitch": -45.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_08.jpg",
+  "yaw": 72.0,
+  "pitch": -45.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_09.jpg",
+  "yaw": 108.0,
+  "pitch": -45.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_10.jpg",
+  "yaw": 144.0,
+  "pitch": -45.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_11.jpg",
+  "yaw": -180.0,
+  "pitch": -20.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_12.jpg",
+  "yaw": -144.0,
+  "pitch": -20.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_13.jpg",
+  "yaw": -108.0,
+  "pitch": -20.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_14.jpg",
+  "yaw": -72.0,
+  "pitch": -20.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_15.jpg",
+  "yaw": -36.0,
+  "pitch": -20.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_16.jpg",
+  "yaw": 0.0,
+  "pitch": -20.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_17.jpg",
+  "yaw": 36.0,
+  "pitch": -20.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_18.jpg",
+  "yaw": 72.0,
+  "pitch": -20.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_19.jpg",
+  "yaw": 108.0,
+  "pitch": -20.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_20.jpg",
+  "yaw": 144.0,
+  "pitch": -20.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_21.jpg",
+  "yaw": -180.0,
+  "pitch": 0.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_22.jpg",
+  "yaw": -144.0,
+  "pitch": 0.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_23.jpg",
+  "yaw": -108.0,
+  "pitch": 0.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_24.jpg",
+  "yaw": -72.0,
+  "pitch": 0.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_25.jpg",
+  "yaw": -36.0,
+  "pitch": 0.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_26.jpg",
+  "yaw": 0.0,
+  "pitch": 0.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_27.jpg",
+  "yaw": 36.0,
+  "pitch": 0.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_28.jpg",
+  "yaw": 72.0,
+  "pitch": 0.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_29.jpg",
+  "yaw": 108.0,
+  "pitch": 0.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_30.jpg",
+  "yaw": 144.0,
+  "pitch": 0.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_31.jpg",
+  "yaw": -180.0,
+  "pitch": 20.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_32.jpg",
+  "yaw": -144.0,
+  "pitch": 20.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_33.jpg",
+  "yaw": -108.0,
+  "pitch": 20.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_34.jpg",
+  "yaw": -72.0,
+  "pitch": 20.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_35.jpg",
+  "yaw": -36.0,
+  "pitch": 20.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_36.jpg",
+  "yaw": 0.0,
+  "pitch": 20.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_37.jpg",
+  "yaw": 36.0,
+  "pitch": 20.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_38.jpg",
+  "yaw": 72.0,
+  "pitch": 20.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_39.jpg",
+  "yaw": 108.0,
+  "pitch": 20.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_40.jpg",
+  "yaw": 144.0,
+  "pitch": 20.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_41.jpg",
+  "yaw": -180.0,
+  "pitch": 45.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_42.jpg",
+  "yaw": -144.0,
+  "pitch": 45.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_43.jpg",
+  "yaw": -108.0,
+  "pitch": 45.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_44.jpg",
+  "yaw": -72.0,
+  "pitch": 45.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_45.jpg",
+  "yaw": -36.0,
+  "pitch": 45.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_46.jpg",
+  "yaw": 0.0,
+  "pitch": 45.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_47.jpg",
+  "yaw": 36.0,
+  "pitch": 45.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_48.jpg",
+  "yaw": 72.0,
+  "pitch": 45.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_49.jpg",
+  "yaw": 108.0,
+  "pitch": 45.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_50.jpg",
+  "yaw": 144.0,
+  "pitch": 45.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_51.jpg",
+  "yaw": 0.0,
+  "pitch": 75.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_52.jpg",
+  "yaw": 60.0,
+  "pitch": 75.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_53.jpg",
+  "yaw": 120.0,
+  "pitch": 75.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_54.jpg",
+  "yaw": 180.0,
+  "pitch": 75.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_55.jpg",
+  "yaw": -120.0,
+  "pitch": 75.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_56.jpg",
+  "yaw": -60.0,
+  "pitch": 75.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_57.jpg",
+  "yaw": 0.0,
+  "pitch": -75.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_58.jpg",
+  "yaw": 60.0,
+  "pitch": -75.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_59.jpg",
+  "yaw": 120.0,
+  "pitch": -75.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_60.jpg",
+  "yaw": 180.0,
+  "pitch": -75.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_61.jpg",
+  "yaw": -120.0,
+  "pitch": -75.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ },
+ {
+  "file": "vframe_62.jpg",
+  "yaw": -60.0,
+  "pitch": -75.0,
+  "roll": 0.0,
+  "hfov": 49.0,
+  "vfov": 63.0
+ }
+]

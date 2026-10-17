@@ -97,7 +97,7 @@ def main(n_ring):
             exif_d = {"Exif": {piexif.ExifIFD.UserComment: comment.encode()}}
             piexif.insert(piexif.dump(exif_d), path)
             coords.append({"file": name, "yaw": round(yaw, 1),
-                           "pitch": float(pitch), "roll": 0.0, "fov": FOV})
+                           "pitch": float(pitch), "roll": 0.0, "hfov": H_FOV, "vfov": V_FOV})
     for yaw, pitch in CAPS:
         idx += 1
         frame = render_view(pano, yaw, pitch)
@@ -108,7 +108,7 @@ def main(n_ring):
         exif_d = {"Exif": {piexif.ExifIFD.UserComment: comment.encode()}}
         piexif.insert(piexif.dump(exif_d), path)
         coords.append({"file": name, "yaw": float(yaw),
-                       "pitch": float(pitch), "roll": 0.0, "fov": FOV})
+                       "pitch": float(pitch), "roll": 0.0, "hfov": H_FOV, "vfov": V_FOV})
     with open(os.path.join(out, "coords.json"), "w") as fh:
         json.dump(coords, fh, indent=1)
     print(f"{len(coords)} virtual frames + coords.json -> {out}", flush=True)
@@ -117,6 +117,6 @@ def main(n_ring):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--n", type=int, default=35)
+    ap.add_argument("--n", type=int, default=62)
     a = ap.parse_args()
     raise SystemExit(main(a.n - len(CAPS)))
