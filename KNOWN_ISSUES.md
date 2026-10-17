@@ -49,6 +49,20 @@ Ultra-wide and heavily distorting lenses warp frame edges beyond the
 radial model. Debug builds can re-stitch with distortion off to isolate
 it; report the phone model if you see systematic bending.
 
+## Target marker drifts on phones without a gyroscope
+
+The yellow target marker moves on its own while the phone is held still
+(verified on a Honor 90 Lite, Android 15). Cause: the phone has no
+gyroscope, so it has no magnetometer-free rotation vector to fall back on.
+Android then fuses the attitude from the compass alone, and its yaw can jump
+several degrees between samples, most indoors and near metal. The overlay
+used to read every jump as a real turn, so the marker moved with it. The
+display smoother now runs magnetometer-only samples through a short median
+window first, which swallows the isolated jumps; phones with a gyroscope are
+untouched, and capture and stitching never saw this because they always use
+the raw pose. Workaround: hold the phone away from metal and move it in a
+figure eight to help the compass settle.
+
 ## Samsung full-sensor resolution not exposed
 
 On Samsung phones (verified on Galaxy S21+, SM-G996B) the Camera2 API
