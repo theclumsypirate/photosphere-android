@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import androidx.core.content.FileProvider
+import com.n30dyn4m1c.photosphere.BuildConfig
 import com.n30dyn4m1c.photosphere.util.FileLogger
 import com.n30dyn4m1c.photosphere.util.Logging
 import java.io.File
@@ -80,6 +81,19 @@ object Report {
             if (!recent.endsWith("\n")) appendLine()
             appendLine()
 
+            // Debug only: the stairs grid run leaves its optics beside the
+            // frames, and the report is the easy way to read them back off the
+            // device without adb. Skipped whole when no run exists, and absent
+            // from a release build because BuildConfig.DEBUG is a compile time
+            // false there.
+            if (BuildConfig.DEBUG) {
+                stairsOptics(context)?.let { optics ->
+                    appendLine("== Stairs grid optics (debug)")
+                    append(optics)
+                    appendLine(divider())
+                }
+            }
+
             appendLine("== What is left in the system log")
             append(log())
         }
@@ -148,6 +162,26 @@ object Report {
         else -> "other ($code)"
     }
 
+    /**
+     * Debug only: the `optics.txt` of the newest stairs grid run, so the lens
+     * geometry and the exact stitch command can be read straight out of the
+     * report instead of pulled off the device. The directory name and the
+     * prefix belong to `app/src/debug`, and the caller is already behind
+     * `BuildConfig.DEBUG`; returns null when no run exists.
+     */
+    private fun stairsOptics(context: Context): String? {
+        val root = context.getExternalFilesDir(null)?.let { File(it, STAIRS_DIR) } ?: return null
+        val run = root.listFiles()
+            ?.filter { it.isDirectory && it.name.startsWith(STAIRS_RUN_PREFIX) }
+            ?.maxByOrNull { it.name }
+            ?: return null
+        val optics = File(run, STAIRS_OPTICS_FILE)
+        if (!optics.isFile) return null
+        return runCatching {
+            "Run ${run.name}\n${optics.readText()}"
+        }.getOrElse { "Run ${run.name}: could not be read: ${it.message}\n" }
+    }
+
     private fun log(): String = runCatching {
         val process = ProcessBuilder(
             "logcat", "-d", "-v", "threadtime", "-b", "main,system,crash", "-t", LOG_LINES.toString(),
@@ -185,6 +219,9 @@ object Report {
     private const val EXITS_KEPT = 5
     private const val ANR_LINES = 400
     private const val LOG_LINES = 6000
+    private const val STAIRS_DIR = "stairs_grid"
+    private const val STAIRS_RUN_PREFIX = "run_"
+    private const val STAIRS_OPTICS_FILE = "optics.txt"
     private const val MIN_NAME = 3
     private const val DIVIDER_WIDTH = 64
 }
