@@ -163,11 +163,12 @@ object Report {
     }
 
     /**
-     * Debug only: the `optics.txt` of the newest extended capture run, so the
-     * lens geometry and the exact stitch command can be read straight out of
-     * the report instead of pulled off the device. The directory name and the
-     * prefix belong to `app/src/debug`, and the caller is already behind
-     * `BuildConfig.DEBUG`; returns null when no run exists.
+     * Debug only: the `optics.txt` of the newest extended capture run, plus how
+     * many frames are on disk and whether the OpenCV-encoded reference copy was
+     * written, so the whole run can be read straight out of the report instead
+     * of pulled off the device. The directory name and the prefixes belong to
+     * `app/src/debug`, and the caller is already behind `BuildConfig.DEBUG`;
+     * returns null when no run exists.
      */
     private fun extendedCaptureOptics(context: Context): String? {
         val root = context.getExternalFilesDir(null)?.let { File(it, EXTENDED_DIR) } ?: return null
@@ -178,7 +179,15 @@ object Report {
         val optics = File(run, EXTENDED_OPTICS_FILE)
         if (!optics.isFile) return null
         return runCatching {
-            "Run ${run.name}\n${optics.readText()}"
+            val frames = run.listFiles()
+                ?.count { it.isFile && it.name.startsWith(EXTENDED_FRAME_PREFIX) } ?: 0
+            val raw = File(run, EXTENDED_RAW_FILE)
+            val rawNote = if (raw.isFile) {
+                "${raw.name} ${raw.length() / 1024} KB"
+            } else {
+                "no ${raw.name}"
+            }
+            "Run ${run.name}\nFrames on disk: $frames, $rawNote\n${optics.readText()}"
         }.getOrElse { "Run ${run.name}: could not be read: ${it.message}\n" }
     }
 
@@ -222,6 +231,8 @@ object Report {
     private const val EXTENDED_DIR = "extended_capture"
     private const val EXTENDED_RUN_PREFIX = "run_"
     private const val EXTENDED_OPTICS_FILE = "optics.txt"
+    private const val EXTENDED_FRAME_PREFIX = "extended_"
+    private const val EXTENDED_RAW_FILE = "reference_raw.jpg"
     private const val MIN_NAME = 3
     private const val DIVIDER_WIDTH = 64
 }

@@ -1,6 +1,7 @@
 package com.n30dyn4m1c.photosphere.extendedcapture
 
 import android.content.Context
+import android.graphics.Bitmap
 import com.n30dyn4m1c.photosphere.camera.SphereDeviceProfile
 import com.n30dyn4m1c.photosphere.camera.SphereOptics
 import com.n30dyn4m1c.photosphere.metadata.GPanoMetadata
@@ -10,6 +11,7 @@ import com.n30dyn4m1c.photosphere.stitching.PivotModel
 import com.n30dyn4m1c.photosphere.stitching.SeamMode
 import com.n30dyn4m1c.photosphere.stitching.SphereFrame
 import com.n30dyn4m1c.photosphere.stitching.StitchProgress
+import com.n30dyn4m1c.photosphere.stitching.StitchStage
 import com.n30dyn4m1c.photosphere.storage.SphereImageStore
 import com.n30dyn4m1c.photosphere.util.Logging
 import java.io.File
@@ -28,7 +30,11 @@ import kotlinx.coroutines.withContext
  *   `tools/pano_proto/stitch_closed.py`. That script trusts the measured poses
  *   and paints winner takes all, and this keeps its choices on purpose, because
  *   they are the ones the grid was proven with. A grid that only stitches when
- *   the poses are refined is a grid that still needs work.
+ *   the poses are refined is a grid that still needs work. It also keeps the
+ *   script's pure-geometry pipeline: no lens distortion correction, no
+ *   sharpening, no hole filling, the script's output width and its half-size
+ *   decode. Only the grid itself and those settings are the reference's; the
+ *   warping and seam blending are the app stitcher's.
  * - [ExtendedStitch.Mode.Adaptive] walks the plan production lays out from the
  *   bound lens's field of view. Production pairs that plan with pose
  *   refinement, so this does too; measuring the plan without the refiner would
@@ -71,49 +77,107 @@ object ExtendedStitch {
         )
         check(frames.isNotEmpty()) { "No posed frames in ${directory.name}" }
 
-        val profile = SphereDeviceProfile.forDevice()
         val bitmap = try {
-            PhotoSphereStitcher.stitchPhotos(
-                frames = frames,
-                horizontalFovDegrees = optics.fieldOfView.horizontalDegrees,
-                verticalFovDegrees = optics.fieldOfView.verticalDegrees,
-                radialDistortion = optics.radialDistortion,
-                maxInputDimension = MAX_INPUT_DIMENSION,
-                maxOutputWidth = profile.stitchMaxOutputWidth,
-                unsharpAmount = profile.unsharpAmount,
-                pivot = pivotFor(mode),
-                portraitRotationDegrees = optics.portraitRotationDegrees,
-                useRefinement = mode == Mode.Adaptive,
-                seamMode = SeamMode.WinnerTakeAll,
-                longitudeSpanDegrees = 360f,
-                // The sidecar yaw is measured from where the walk started, so
-                // zero is already the bearing the user began facing: it lands
-                // in the middle of the photo, as every 360 viewer expects.
-                centerLongitudeDegrees = 0f,
-                latitudeSpanDegrees = 180f,
-                centerLatitudeDegrees = 0f,
-                onProgress = onProgress,
-            ).getOrThrow()
+            when (mode) {
+                Mode.Reference -> renderReference(frames, directory, optics, onProgress)
+                Mode.Adaptive -> renderAdaptive(frames, optics, onProgress)
+            }
         } catch (e: CancellationException) {
             throw e
         }
 
         try {
-            return withContext(Dispatchers.IO) {
+            val sphere = withContext(Dispatchers.IO) {
                 SphereImageStore.writeStitchedSphere(
                     context = context,
                     bitmap = bitmap,
                     gpano = GPanoMetadata.forFullPano(bitmap.width, bitmap.height),
-                ).copy(
-                    diagnostics = "Extended capture ($mode): ${frames.size} frames\n" +
-                        "Run: ${directory.name}\n",
                 )
             }
+            Logging.i(
+                "Extended stitch wrote ${sphere.file.name} " +
+                    "${sphere.width}x${sphere.height} mode=$mode",
+            )
+            return sphere.copy(
+                diagnostics = "Extended capture ($mode): ${frames.size} frames\n" +
+                    "Run: ${directory.name}\n",
+            )
         } catch (e: CancellationException) {
             throw e
         } finally {
             bitmap.recycle()
         }
+    }
+
+    /**
+     * Renders the reference grid the way `tools/pano_proto/stitch_closed.py`
+     * does, through [PrototypeRenderer]. The frames are decoded and warped one
+     * at a time there, so a 62-frame run does not have to fit in memory at once.
+     *
+     * A raw copy is written beside the run, encoded by OpenCV exactly as the
+     * script's `imwrite` encodes it (quality 95, no metadata), so the run can be
+     * byte-compared against `stairs_perfect.jpg` once the frames are pulled.
+     */
+    private suspend fun renderReference(
+        frames: List<SphereFrame>,
+        directory: File,
+        optics: SphereOptics,
+        onProgress: (StitchProgress) -> Unit,
+    ): Bitmap {
+        val size = ExtendedStore.uprightFrameSize(frames.first().file.absolutePath)
+            ?: error("could not read the first frame's size")
+        val (width, height) = size
+        val pivot = pivotFor(Mode.Reference)
+        val raw = File(directory, REFERENCE_RAW_NAME)
+        Logging.i("Extended reference: native=${width}x${height} raw=${raw.name}")
+        return withContext(Dispatchers.Default) {
+            PrototypeRenderer.render(
+                frames = frames,
+                nativeWidth = width,
+                nativeHeight = height,
+                horizontalFovDegrees = optics.fieldOfView.horizontalDegrees.toDouble(),
+                verticalFovDegrees = optics.fieldOfView.verticalDegrees.toDouble(),
+                leverMeters = pivot.leverArmMeters.toDouble(),
+                sceneMeters = pivot.sceneDistanceMeters.toDouble(),
+                rawJpegFile = raw,
+                onFrame = { done, total ->
+                    onProgress(StitchProgress(StitchStage.Stitching, done, total))
+                },
+            )
+        }
+    }
+
+    /**
+     * Renders the adaptive plan the way production does: the normal stitcher,
+     * pose refinement on, the profile's settings.
+     */
+    private suspend fun renderAdaptive(
+        frames: List<SphereFrame>,
+        optics: SphereOptics,
+        onProgress: (StitchProgress) -> Unit,
+    ): Bitmap {
+        val profile = SphereDeviceProfile.forDevice()
+        return PhotoSphereStitcher.stitchPhotos(
+            frames = frames,
+            horizontalFovDegrees = optics.fieldOfView.horizontalDegrees,
+            verticalFovDegrees = optics.fieldOfView.verticalDegrees,
+            radialDistortion = optics.radialDistortion,
+            maxInputDimension = MAX_INPUT_DIMENSION,
+            maxOutputWidth = profile.stitchMaxOutputWidth,
+            unsharpAmount = profile.unsharpAmount,
+            pivot = pivotFor(Mode.Adaptive),
+            portraitRotationDegrees = optics.portraitRotationDegrees,
+            useRefinement = true,
+            seamMode = SeamMode.WinnerTakeAll,
+            longitudeSpanDegrees = 360f,
+            // The sidecar yaw is measured from where the walk started, so
+            // zero is already the bearing the user began facing: it lands
+            // in the middle of the photo, as every 360 viewer expects.
+            centerLongitudeDegrees = 0f,
+            latitudeSpanDegrees = 180f,
+            centerLatitudeDegrees = 0f,
+            onProgress = onProgress,
+        ).getOrThrow()
     }
 
     /**
@@ -179,7 +243,7 @@ object ExtendedStitch {
     private val REFERENCE_PIVOT = PivotModel(leverArmMeters = 0.35f, sceneDistanceMeters = 3.5f)
 
     /**
-     * Long edge each frame is decoded to before stitching, deliberately smaller
+     * Long edge the adaptive plan decodes each frame to. Deliberately smaller
      * than the device profile's 2000.
      *
      * The stitcher holds every decoded frame at once, and a grid run is up to 62
@@ -187,7 +251,9 @@ object ExtendedStitch {
      * be roughly twice the production footprint (about 560 MB of pixels against
      * 140 MB here) for no visible gain: the ten frames of a ring still carry
      * about 7500 px of width around the 360 degrees that render into a canvas
-     * of about 5500 px. The full size stays the production path's job.
+     * of about 5500 px. The full size stays the production path's job. The
+     * reference grid does not use this: it is decoded and stitched by
+     * [PrototypeRenderer], one frame at a time.
      */
     internal const val MAX_INPUT_DIMENSION = 1024
 
@@ -195,4 +261,7 @@ object ExtendedStitch {
     private val FRAME_NAME = Regex("""extended_\d{2}\.jpg""")
 
     private const val POSE_SUFFIX = ".pose"
+
+    /** Raw OpenCV-encoded reference copy written beside a run. */
+    private const val REFERENCE_RAW_NAME = "reference_raw.jpg"
 }

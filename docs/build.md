@@ -112,11 +112,12 @@ implementation(libs.opencv)   // org.opencv:opencv:4.12.0
 ```
 
 Note the coordinates: the group is `org.opencv` and the artifact is `opencv`
-(not `opencv-android`, which is an unofficial mirror). Note also what is *not*
-in it: there is no `org.opencv.stitching` — see
-[Stitching](stitching.md) for what this project does instead. The AAR is ~120 MB
-because it bundles native libraries for all four ABIs — the ABI split above
-keeps the installed APK closer to ~30 MB.
+(not `opencv-android`, which is an unofficial mirror). The AAR carries `core`,
+`imgproc`, `features2d`, `calib3d`, `photo`, `imgcodecs` and `videoio`, so both
+`imread`/`imwrite` and `inpaint` are there; what is *not* there is
+`org.opencv.stitching` - see [Stitching](stitching.md) for what this project
+does instead. The AAR is ~120 MB because it bundles native libraries for all
+four ABIs - the ABI split above keeps the installed APK closer to ~30 MB.
 
 **Option B — local SDK module.**
 

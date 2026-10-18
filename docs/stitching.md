@@ -9,12 +9,33 @@ consumed by a successful stitch) and `cancelSession()` (start over — the whole
 session directory goes) are the only two ways frames leave.
 
 **Why not OpenCV's `Stitcher`.** Because there isn't one. The stitching module
-is absent from every prebuilt OpenCV for Android: `org.opencv:opencv` ships Java
-bindings for core, imgproc, features2d, calib3d and the rest, but no
-`org.opencv.stitching` package — and `libopencv_java4.so` contains none of the
-pipeline's native symbols either, so a JNI shim would not link. Independently
-built AARs are the same. `cv::Stitcher` is, in practice, a desktop API, and the
-local OpenCV SDK ("Option B" in [build](build.md)) does not change that.
+is absent from every prebuilt OpenCV for Android, the Maven artifact included:
+`org.opencv:opencv:4.12.0` ships Java bindings for core, imgproc, features2d,
+calib3d, photo, imgcodecs and videoio, but no `org.opencv.stitching` package.
+The AAR's `prefab` tree does carry the stitching headers, which reads as "the
+module is built in", but `classes.jar` has no stitching class and
+`libopencv_java4.so` none of the pipeline's native symbols, so a JNI shim would
+not link. Independently built AARs are the same. `cv::Stitcher` is, in practice,
+a desktop API, and the local OpenCV SDK ("Option B" in [build](build.md)) does
+not change that.
+
+**What the Maven artifact does carry.** Read the AAR before assuming a module is
+missing. `org.opencv:opencv:4.12.0` contains `org.opencv.imgcodecs.Imgcodecs`
+(`imread`, `imwrite`, `imdecode`, `imencode`) with the JPEG codec compiled into
+`libopencv_java4.so`, plus `org.opencv.photo` (`inpaint`). So the debug reference
+port of `stitch_closed.py` decodes and re-encodes with the same OpenCV calls the
+script uses, instead of `BitmapFactory` and `Bitmap.compress`:
+
+- `Imgcodecs.imread(path, IMREAD_COLOR)` is `cv2.imread`: an 8-bit BGR image
+  with the EXIF orientation already applied (`IMREAD_IGNORE_ORIENTATION` turns
+  that off), so the decoded pixels are the script's pixels.
+- `Imgcodecs.imwrite(path, mat, IMWRITE_JPEG_QUALITY 95)` is `cv2.imwrite` at the
+  script's quality, so the reference copy sits next to the run for a byte
+  comparison against `stairs_perfect.jpg`.
+
+The produced sphere still goes to the gallery through `SphereImageStore`, which
+adds EXIF and GPano on top, so its own bytes are not the script's; the
+`reference_raw.jpg` beside the run is the one with no metadata.
 
 **What this does instead.** Guided capture already knows where the camera was
 pointing for every frame — the shutter only fires when the device is held on a
