@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/theclumsypirate/photosphere-android/releases/latest"><img src="https://badges.ws/github/release/theclumsypirate/photosphere-android?label=release&labelColor=555&color=007ec6" alt="Latest release"></a>
+  <a href="https://github.com/theclumsypirate/photosphere-android/releases/latest"><img src="https://badges.ws/github/release/theclumsypirate/photosphere-android?label=release&labelColor=555&color=ff9800" alt="Latest release"></a>
   <img src="docs/assets/badge-android.svg" alt="Android 8.0 or later">
   <a href="LICENSE"><img src="docs/assets/badge-license.svg" alt="License"></a>
 </p>
