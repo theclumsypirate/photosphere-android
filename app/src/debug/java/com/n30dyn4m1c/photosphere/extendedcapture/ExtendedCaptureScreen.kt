@@ -34,12 +34,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -229,6 +231,8 @@ fun ExtendedCaptureScreen(
     var stitching by remember { mutableStateOf(false) }
     var stitchProgress by remember { mutableStateOf<Float?>(null) }
     var stitchedFile by remember { mutableStateOf<File?>(null) }
+    // The higher resolution rerun is behind a warning, so it starts here.
+    var showHighResDialog by remember { mutableStateOf(false) }
     // Pose sidecars are written off the main thread. The stitch waits on this
     // counter so a frame saved a moment before the button press cannot be
     // dropped for want of its attitude.
@@ -566,12 +570,23 @@ fun ExtendedCaptureScreen(
         }
     }
 
-    fun stitchOnPhone() {
+    fun stitchOnPhone(highResolution: Boolean = false) {
         if (stitching) return
         stitching = true
         stitchProgress = null
-        statusLine = "Stitching on the phone..."
-        Logging.i("Extended stitch requested with ${captured.size} frames")
+        val outputWidth = if (highResolution) {
+            PrototypeRenderer.HIGH_RESOLUTION_OUTPUT_WIDTH
+        } else {
+            ExtendedStitch.DEFAULT_REFERENCE_WIDTH
+        }
+        statusLine = if (highResolution) {
+            "Stitching at high resolution on the phone..."
+        } else {
+            "Stitching on the phone..."
+        }
+        Logging.i(
+            "Extended stitch requested with ${captured.size} frames at width $outputWidth",
+        )
         val mode = if (usesReferenceGrid) ExtendedStitch.Mode.Reference else ExtendedStitch.Mode.Adaptive
         scope.launch {
             // A frame saved a moment before the press may still be waiting for
@@ -597,6 +612,7 @@ fun ExtendedCaptureScreen(
                     directory = captureDirectory,
                     optics = optics,
                     mode = mode,
+                    outputWidth = outputWidth,
                     // Called from the stitching thread, so hop back to the main
                     // one before touching Compose state.
                     onProgress = { progress ->
@@ -887,7 +903,37 @@ fun ExtendedCaptureScreen(
                 hasStitched = stitchedFile != null,
                 onStitch = { stitchOnPhone() },
                 onShare = { shareStitched() },
+                referenceMode = usesReferenceGrid,
+                onStitchHighRes = { showHighResDialog = true },
                 modifier = Modifier.fillMaxSize(),
+            )
+        }
+
+        if (showHighResDialog) {
+            AlertDialog(
+                onDismissRequest = { showHighResDialog = false },
+                title = { Text("Higher resolution sphere") },
+                text = {
+                    Text(
+                        "Do you want to make it higher resolution? " +
+                            "It needs a lot more RAM and more than 5 minutes.",
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showHighResDialog = false
+                            stitchOnPhone(highResolution = true)
+                        },
+                    ) {
+                        Text("Yes, make it higher")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showHighResDialog = false }) {
+                        Text("Cancel")
+                    }
+                },
             )
         }
     }
@@ -925,6 +971,8 @@ private fun ExtendedWalkHud(
     hasStitched: Boolean,
     onStitch: () -> Unit,
     onShare: () -> Unit,
+    referenceMode: Boolean,
+    onStitchHighRes: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier) {
@@ -1097,6 +1145,17 @@ private fun ExtendedWalkHud(
                         ) {
                             Text("Share sphere")
                         }
+                    }
+                }
+                if (hasStitched && referenceMode) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = onStitchHighRes,
+                        enabled = !stitching,
+                        shape = PillShape,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Make higher resolution...")
                     }
                 }
             }

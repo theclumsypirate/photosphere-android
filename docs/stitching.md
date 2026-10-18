@@ -37,6 +37,13 @@ The produced sphere still goes to the gallery through `SphereImageStore`, which
 adds EXIF and GPano on top, so its own bytes are not the script's; the
 `reference_raw.jpg` beside the run is the one with no metadata.
 
+The reference is rendered at 2048 wide by default, the quick and light pass. A
+full resolution rerun at 4096 wide sits behind a button on the walk screen,
+shown once a stitch has finished, and behind a warning: it needs far more RAM
+and more than five minutes. `stairs_perfect.jpg` is 4096 wide, so only that
+rerun writes a `reference_raw.jpg` that can be compared against it byte for
+byte.
+
 **What this does instead.** Guided capture already knows where the camera was
 pointing for every frame — the shutter only fires when the device is held on a
 known target — which turns the expensive half of stitching, solving for each

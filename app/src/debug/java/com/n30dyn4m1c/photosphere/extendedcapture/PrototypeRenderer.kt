@@ -48,13 +48,23 @@ import org.opencv.photo.Photo
  * and the JPEG is decoded by OpenCV itself, so the pixels that go in are the
  * pixels the script puts in.
  *
- * Frames are streamed one at a time. Nothing keeps every decoded frame in
- * memory: the loop holds only the running winner and the two best weights per
- * pixel, which is what keeps a 62-frame grid inside a phone's budget.
+ * Frames are streamed one at a time, twice: once for the winner pass and once
+ * for the border pass. Nothing keeps every decoded frame in memory: the loop
+ * holds the running winner and the second best per pixel, then only each
+ * frame's pixels at the ownership border, which is what keeps a 62-frame grid
+ * at 4096 inside a phone's budget.
  */
 internal object PrototypeRenderer {
 
     private const val DEFAULT_OUTPUT_WIDTH = 2048
+
+    /**
+     * The width of the higher resolution rerun the extended capture screen can
+     * ask for after a normal stitch. `tools/pano_proto/out/stairs_perfect.jpg`
+     * is rendered at this width, so a rerun here is the one that can be byte
+     * compared against it.
+     */
+    internal const val HIGH_RESOLUTION_OUTPUT_WIDTH = 4096
     private const val FEATHER_PIXELS = 80
     private const val LEVER_METERS = 0.35
     private const val SCENE_METERS = 3.5
@@ -146,13 +156,12 @@ internal object PrototypeRenderer {
         val bestIndex = ShortArray(n) { -1 }
         val winImage = ByteArray(n * 3)
 
-        // Second best, kept only because the border cross-fade needs it. t1 is
-        // always the winner (the winner is the global maximum), so only the
-        // second is read back.
+        // The second best frame, kept only because the border cross-fade needs
+        // it. Its pixels at a border pixel are read back from the per-frame
+        // border samples, so only its index and weight are kept, not a whole
+        // image copy.
         val top2Weight = FloatArray(n) { -1f }
-        val top2Image = ByteArray(n * 3)
-        val top1Weight = FloatArray(n) { -1f }
-        val top1Image = ByteArray(n * 3)
+        val top2Index = ShortArray(n) { -1 }
 
         val mapXf = FloatArray(n)
         val mapYf = FloatArray(n)
@@ -186,29 +195,17 @@ internal object PrototypeRenderer {
                     val base = p * 3
 
                     if (w > bestWeight[p]) {
+                        // The frame that was best drops to second best.
+                        top2Weight[p] = bestWeight[p]
+                        top2Index[p] = bestIndex[p]
                         bestWeight[p] = w
                         bestIndex[p] = frameIndex
                         winImage[base] = imageBytes[base]
                         winImage[base + 1] = imageBytes[base + 1]
                         winImage[base + 2] = imageBytes[base + 2]
-                    }
-
-                    if (w > ALT_MIN_WEIGHT) {
-                        if (w > top1Weight[p]) {
-                            top2Weight[p] = top1Weight[p]
-                            top2Image[base] = top1Image[base]
-                            top2Image[base + 1] = top1Image[base + 1]
-                            top2Image[base + 2] = top1Image[base + 2]
-                            top1Weight[p] = w
-                            top1Image[base] = imageBytes[base]
-                            top1Image[base + 1] = imageBytes[base + 1]
-                            top1Image[base + 2] = imageBytes[base + 2]
-                        } else if (w > top2Weight[p]) {
-                            top2Weight[p] = w
-                            top2Image[base] = imageBytes[base]
-                            top2Image[base + 1] = imageBytes[base + 1]
-                            top2Image[base + 2] = imageBytes[base + 2]
-                        }
+                    } else if (w > top2Weight[p]) {
+                        top2Weight[p] = w
+                        top2Index[p] = frameIndex
                     }
                 }
 
@@ -218,7 +215,7 @@ internal object PrototypeRenderer {
             crossfadeBorders(
                 frames, fw, fh, fx, fy, cx, cy, su, cu, sv, cv, feather,
                 leverMeters, sceneMeters, outW, outH, bestWeight, bestIndex,
-                winImage, top2Weight, top2Image, mapX, mapY, weightMat, sampled,
+                winImage, top2Weight, top2Index, mapX, mapY, weightMat, sampled,
                 mapXf, mapYf, inside, weight, imageBytes,
             )
             val canvas = buildCanvas(outW, outH, n, bestWeight, winImage, rawJpegFile)
@@ -400,7 +397,7 @@ internal object PrototypeRenderer {
         bestIndex: ShortArray,
         winImage: ByteArray,
         top2Weight: FloatArray,
-        top2Image: ByteArray,
+        top2Index: ShortArray,
         mapX: Mat,
         mapY: Mat,
         weightMat: Mat,
@@ -495,8 +492,16 @@ internal object PrototypeRenderer {
             }
         }
 
-        val canvas = FloatArray(n * 3)
-        for (i in 0 until n * 3) canvas[i] = (winImage[i].toInt() and 0xFF).toFloat()
+        // Only border pixels are ever blended, so a border-sized float buffer is
+        // enough; every other pixel stays the winner's bytes untouched.
+        val canvas = FloatArray(borderCount * 3)
+        for (k in 0 until borderCount) {
+            val base = borderIndices[k] * 3
+            val d = k * 3
+            canvas[d] = (winImage[base].toInt() and 0xFF).toFloat()
+            canvas[d + 1] = (winImage[base + 1].toInt() and 0xFF).toFloat()
+            canvas[d + 2] = (winImage[base + 2].toInt() and 0xFF).toFloat()
+        }
 
         for (idx in frames.indices) {
             if (!borderOwner[idx]) continue
@@ -507,31 +512,39 @@ internal object PrototypeRenderer {
                 val ownHere = bestIndex[p].toInt() == idx
                 val altWeight = if (ownHere) top2Weight[p] else bestWeight[p]
                 if (altWeight <= ALT_MIN_WEIGHT) continue
-                val pb = p * 3
-                val sb = posInBorder[p] * 3
-                val a0 = if (ownHere) top2Image[pb] else winImage[pb]
-                val a1 = if (ownHere) top2Image[pb + 1] else winImage[pb + 1]
-                val a2 = if (ownHere) top2Image[pb + 2] else winImage[pb + 2]
+                val k = posInBorder[p]
+                val sb = k * 3
+                val altFrame = if (ownHere) frameBorder[top2Index[p].toInt()] else winImage
+                val ab = if (ownHere) sb else p * 3
+                val a0 = altFrame[ab]
+                val a1 = altFrame[ab + 1]
+                val a2 = altFrame[ab + 2]
                 val d = (abs((img[sb].toInt() and 0xFF) - (a0.toInt() and 0xFF)) +
                     abs((img[sb + 1].toInt() and 0xFF) - (a1.toInt() and 0xFF)) +
                     abs((img[sb + 2].toInt() and 0xFF) - (a2.toInt() and 0xFF))) / 3.0
                 if (d < AGREE_DIFF) {
-                    canvas[pb] = 0.5f * canvas[pb] + 0.5f * (a0.toInt() and 0xFF)
-                    canvas[pb + 1] = 0.5f * canvas[pb + 1] + 0.5f * (a1.toInt() and 0xFF)
-                    canvas[pb + 2] = 0.5f * canvas[pb + 2] + 0.5f * (a2.toInt() and 0xFF)
+                    canvas[sb] = 0.5f * canvas[sb] + 0.5f * (a0.toInt() and 0xFF)
+                    canvas[sb + 1] = 0.5f * canvas[sb + 1] + 0.5f * (a1.toInt() and 0xFF)
+                    canvas[sb + 2] = 0.5f * canvas[sb + 2] + 0.5f * (a2.toInt() and 0xFF)
                 }
             }
         }
 
-        for (i in 0 until n * 3) {
-            val x = canvas[i]
-            winImage[i] = (when {
-                x < 0f -> 0
-                x > 255f -> 255
-                else -> x.toInt()
-            }).toByte()
+        for (k in 0 until borderCount) {
+            val base = borderIndices[k] * 3
+            val d = k * 3
+            winImage[base] = clipByte(canvas[d])
+            winImage[base + 1] = clipByte(canvas[d + 1])
+            winImage[base + 2] = clipByte(canvas[d + 2])
         }
     }
+
+    /** The script's `np.clip(x, 0, 255).astype(uint8)`: clamp, then truncate. */
+    private fun clipByte(x: Float): Byte = when {
+        x < 0f -> 0
+        x > 255f -> 255
+        else -> x.toInt()
+    }.toByte()
 
     /**
      * Builds the maps for one frame and samples its image and feather weight

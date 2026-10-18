@@ -69,6 +69,7 @@ object ExtendedStitch {
         directory: File,
         optics: SphereOptics,
         mode: Mode,
+        outputWidth: Int = DEFAULT_REFERENCE_WIDTH,
         onProgress: (StitchProgress) -> Unit = {},
     ): SphereImageStore.StitchedSphere {
         val frames = readFrames(directory)
@@ -79,7 +80,7 @@ object ExtendedStitch {
 
         val bitmap = try {
             when (mode) {
-                Mode.Reference -> renderReference(frames, directory, optics, onProgress)
+                Mode.Reference -> renderReference(frames, directory, optics, outputWidth, onProgress)
                 Mode.Adaptive -> renderAdaptive(frames, optics, onProgress)
             }
         } catch (e: CancellationException) {
@@ -122,6 +123,7 @@ object ExtendedStitch {
         frames: List<SphereFrame>,
         directory: File,
         optics: SphereOptics,
+        outputWidth: Int,
         onProgress: (StitchProgress) -> Unit,
     ): Bitmap {
         val size = ExtendedStore.uprightFrameSize(frames.first().file.absolutePath)
@@ -137,6 +139,7 @@ object ExtendedStitch {
                 nativeHeight = height,
                 horizontalFovDegrees = optics.fieldOfView.horizontalDegrees.toDouble(),
                 verticalFovDegrees = optics.fieldOfView.verticalDegrees.toDouble(),
+                outputWidth = outputWidth,
                 leverMeters = pivot.leverArmMeters.toDouble(),
                 sceneMeters = pivot.sceneDistanceMeters.toDouble(),
                 rawJpegFile = raw,
@@ -256,6 +259,13 @@ object ExtendedStitch {
      * [PrototypeRenderer], one frame at a time.
      */
     internal const val MAX_INPUT_DIMENSION = 1024
+
+    /**
+     * The width the first reference stitch uses: quick and light. The screen can
+     * ask for [PrototypeRenderer.HIGH_RESOLUTION_OUTPUT_WIDTH] afterwards, which
+     * matches the golden but needs far more RAM and minutes of compute.
+     */
+    internal const val DEFAULT_REFERENCE_WIDTH = 2048
 
     /** `extended_NN.jpg` exactly: burst scratch files must never be stitched. */
     private val FRAME_NAME = Regex("""extended_\d{2}\.jpg""")
