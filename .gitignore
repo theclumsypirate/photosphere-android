@@ -40,7 +40,11 @@ local.properties
 
 # Pano prototype corpus + outputs (sourced on demand, see tools/pano_proto/).
 /tools/pano_proto/ref/
-/tools/pano_proto/out/
+# Only the proven reference grid and its golden sphere are kept in the repo;
+# the rest of the outputs are local scratch.
+/tools/pano_proto/out/*
+!/tools/pano_proto/out/stairs_perfect.jpg
+!/tools/pano_proto/out/virtual_stairs/
 /tools/pano_proto/viewer/
 /tools/restitch_other/out/
 
