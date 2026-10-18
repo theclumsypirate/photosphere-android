@@ -1,25 +1,25 @@
-package com.n30dyn4m1c.photosphere.stairstest
+package com.n30dyn4m1c.photosphere.extendedcapture
 
+import com.n30dyn4m1c.photosphere.camera.FieldOfView
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
- * Cross-checks the Kotlin stairs grid against the coordinates the Python lab
- * proved (`tools/pano_proto/virtual_frames_stairs.py`, which wrote
+ * Cross-checks the Kotlin extended capture grid against the coordinates the
+ * Python lab proved (`tools/pano_proto/virtual_frames_stairs.py`, which wrote
  * `virtual_stairs_coords.json`).
  *
- * Debug-variant test only, in `src/testDebug`: it references `StairsGrid`
+ * Debug-variant test only, in `src/testDebug`: it references `ExtendedGrid`
  * from `src/debug`, which the release variant never compiles. It asserts the
  * two sides agree on the same 62 poses, so a later edit to either that drops
  * or moves a target fails here instead of silently changing what the screen
  * asks the walker to shoot.
  */
-class StairsGridTest {
+class ExtendedGridTest {
 
     private fun resourceText(): String =
         javaClass.classLoader!!
@@ -45,22 +45,21 @@ class StairsGridTest {
 
     @Test
     fun planHas62TargetsAcrossFiveRowsAndTwoCapSets() {
-        val plan = stairsPlan(0f)
+        val plan = extendedReferencePlan(0f)
         assertEquals(62, plan.size)
         assertEquals(7, plan.rings.size)
-        val rows = plan.rings.take(5)
-        rows.forEach { assertEquals(10, it.size) }
-        assertEquals(6, plan.rings[5].size)
-        assertEquals(6, plan.rings[6].size)
+        plan.rings.take(5).forEach { ring -> assertEquals(10, ring.count()) }
+        assertEquals(6, plan.rings[5].count())
+        assertEquals(6, plan.rings[6].count())
         // Indices are dense and in walk order.
-        assertEquals((0 until 62).toList(), plan.targets.map { it.index })
+        assertEquals((0 until 62).toList(), plan.targets.indices.toList())
     }
 
     @Test
     fun everyRowLeavesNoGapForTheLensFieldOfView() {
-        val plan = stairsPlan(0f)
+        val plan = extendedReferencePlan(0f)
         for (ring in plan.rings.take(5)) {
-            val yaws = ring.map { it.yawDegrees }.sorted()
+            val yaws = ring.map { plan.targets[it].yawDegrees }.sorted()
             for (i in yaws.indices) {
                 val next = yaws[(i + 1) % yaws.size]
                 var step = next - yaws[i]
@@ -75,7 +74,7 @@ class StairsGridTest {
 
     @Test
     fun kotlinPlanMatchesPythonCoords() {
-        val plan = stairsPlan(0f)
+        val plan = extendedReferencePlan(0f)
         val kotlinPoses = plan.targets
             .map { key(it.yawDegrees, it.pitchDegrees) }
             .toSet()
@@ -85,31 +84,40 @@ class StairsGridTest {
 
     @Test
     fun capsSitNearThePolesAndRowsSitInside() {
-        val plan = stairsPlan(0f)
-        val caps = plan.targets.filter { it.isCap }
-        assertEquals(12, caps.size)
-        assertTrue(caps.any { abs(it.pitchDegrees) >= 75f })
-        val rows = plan.targets.filterNot { it.isCap }
+        val plan = extendedReferencePlan(0f)
+        val capIndices = plan.targets.indices.filter { plan.isCap(it) }
+        assertEquals(12, capIndices.size)
+        assertTrue(capIndices.any { abs(plan.targets[it].pitchDegrees) >= 75f })
+        val rows = plan.targets.filterIndexed { index, _ -> !plan.isCap(index) }
         assertEquals(50, rows.size)
         assertTrue(rows.all { abs(it.pitchDegrees) <= 45f })
     }
 
     @Test
-    fun targetingGuidesandCompletes() {
-        val plan = stairsPlan(0f)
-        val first = plan.nextTarget(emptySet())
-        assertEquals(0, first)
+    fun targetingGuidesAndRingsComplete() {
+        val plan = extendedReferencePlan(0f)
         assertTrue(plan.isOnTarget(0f, 0f, 0))
         // One degree off is still on target, ten is not.
         assertTrue(plan.isOnTarget(1f, -1f, 0))
-        assertTrue(!plan.isOnTarget(10f, 0f, 0))
+        assertFalse(plan.isOnTarget(10f, 0f, 0))
         // Turn right to the next yaw-36 target from straight ahead.
         assertEquals(36f, plan.turnTo(0f, 1), 0.01f)
-        // Nearest pick ignores captured targets.
-        val nearest = plan.nearestTarget(0f, 0f, setOf(0))
-        assertNotNull(nearest)
-        assertTrue(nearest != 0)
-        // Complete set -> nothing left to ask for.
-        assertNull(plan.nextTarget((0 until 62).toSet()))
+        // The high ring sits twenty degrees above the horizon.
+        assertEquals(-20f, plan.tiltTo(0f, 10), 0.01f)
+        // Rings only complete when every member is captured.
+        assertEquals(0, plan.completedRings(emptySet()))
+        assertEquals(1, plan.completedRings(plan.rings[0].toSet()))
+        assertEquals(62, plan.capturedCount((0 until 62).toSet()))
+    }
+
+    @Test
+    fun referenceFieldOfViewMatchIsABand() {
+        // The lens it was proven for.
+        assertTrue(matchesReferenceFieldOfView(FieldOfView(49f, 63f)))
+        assertTrue(matchesReferenceFieldOfView(FieldOfView(52f, 60f)))
+        // An ultrawide is nowhere near it.
+        assertFalse(matchesReferenceFieldOfView(FieldOfView(95f, 115f)))
+        // Too narrow to keep the thirty six degree bearings overlapping.
+        assertFalse(matchesReferenceFieldOfView(FieldOfView(38f, 63f)))
     }
 }

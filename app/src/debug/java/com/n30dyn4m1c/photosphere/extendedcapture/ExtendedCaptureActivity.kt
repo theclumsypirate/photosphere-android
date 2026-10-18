@@ -1,4 +1,4 @@
-package com.n30dyn4m1c.photosphere.stairstest
+package com.n30dyn4m1c.photosphere.extendedcapture
 
 import android.graphics.Color
 import android.os.Bundle
@@ -14,18 +14,18 @@ import com.n30dyn4m1c.photosphere.ui.theme.PhotoSphereTheme
 import com.n30dyn4m1c.photosphere.util.Logging
 
 /**
- * Launcher entry for the stairs grid capture test, debug builds only.
+ * Launcher entry for the extended capture test, debug builds only.
  *
  * Declared in `app/src/debug/AndroidManifest.xml`, so it exists in the debug
  * variant and is absent from release, and it is never referenced by
- * `MainActivity`. It hosts [StairsCaptureScreen] and nothing else, so the
+ * `MainActivity`. It hosts [ExtendedCaptureScreen] and nothing else, so the
  * normal capture path is untouched by construction.
  */
-class StairsCaptureActivity : ComponentActivity() {
+class ExtendedCaptureActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Logging.i("StairsCaptureActivity.onCreate")
+        Logging.i("ExtendedCaptureActivity.onCreate")
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
@@ -36,7 +36,7 @@ class StairsCaptureActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,
                 ) {
-                    StairsCaptureScreen(onExit = { finish() })
+                    ExtendedCaptureScreen(onExit = { finish() })
                 }
             }
         }
@@ -44,16 +44,16 @@ class StairsCaptureActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        Logging.i("StairsCaptureActivity.onStart")
+        Logging.i("ExtendedCaptureActivity.onStart")
     }
 
     override fun onStop() {
         super.onStop()
-        Logging.i("StairsCaptureActivity.onStop")
+        Logging.i("ExtendedCaptureActivity.onStop")
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        Logging.i("StairsCaptureActivity.onDestroy")
+        Logging.i("ExtendedCaptureActivity.onDestroy")
     }
 }

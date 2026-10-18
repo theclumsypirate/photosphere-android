@@ -1,4 +1,4 @@
-package com.n30dyn4m1c.photosphere.stairstest
+package com.n30dyn4m1c.photosphere.extendedcapture
 
 import android.content.Context
 import com.n30dyn4m1c.photosphere.camera.SphereDeviceProfile
@@ -18,15 +18,21 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Stitches a finished stairs grid run on the phone, with the same stitcher the
- * normal camera uses, so the grid can be judged without a laptop in the loop.
+ * Stitches a finished extended capture run on the phone, with the same stitcher
+ * the normal camera uses, so the run can be judged without a laptop in the loop.
  *
- * This is the twin of `tools/pano_proto/stitch_closed.py`: that script proved
- * the 62 coordinates against a source panorama, and this does the same job
- * against a real capture. It keeps the script's choices on purpose, because
- * they are the ones the grid was proven with: the poses are the measured ones
- * (no image based refinement, so a bad grid cannot be quietly corrected), and
- * pixels are painted winner takes all rather than cross-faded.
+ * Two runs mean two different things, and each is stitched the way the thing it
+ * stands in for is stitched:
+ *
+ * - [ExtendedStitch.Mode.Reference] walks the 62 point grid proven by
+ *   `tools/pano_proto/stitch_closed.py`. That script trusts the measured poses
+ *   and paints winner takes all, and this keeps its choices on purpose, because
+ *   they are the ones the grid was proven with. A grid that only stitches when
+ *   the poses are refined is a grid that still needs work.
+ * - [ExtendedStitch.Mode.Adaptive] walks the plan production lays out from the
+ *   bound lens's field of view. Production pairs that plan with pose
+ *   refinement, so this does too; measuring the plan without the refiner would
+ *   be testing a combination production never runs.
  *
  * The pose comes from the `.pose` sidecar and nowhere else. The frames are
  * written untouched by design, so unlike the main camera there is no EXIF
@@ -35,7 +41,16 @@ import kotlinx.coroutines.withContext
  *
  * Debug only: only referenced from `app/src/debug`.
  */
-object StairsStitch {
+object ExtendedStitch {
+
+    /** How a run is stitched, mirroring what the run stands in for. */
+    enum class Mode {
+        /** The proven grid: measured poses, no refinement, the prototype's pivot. */
+        Reference,
+
+        /** The production plan shape: refinement on, the profile's pivot. */
+        Adaptive,
+    }
 
     /**
      * Reads [directory] and renders it into one sphere.
@@ -47,10 +62,13 @@ object StairsStitch {
         context: Context,
         directory: File,
         optics: SphereOptics,
+        mode: Mode,
         onProgress: (StitchProgress) -> Unit = {},
     ): SphereImageStore.StitchedSphere {
         val frames = readFrames(directory)
-        Logging.i("Stairs stitch: ${frames.size} posed frames in ${directory.name}")
+        Logging.i(
+            "Extended stitch: ${frames.size} posed frames in ${directory.name} mode=$mode",
+        )
         check(frames.isNotEmpty()) { "No posed frames in ${directory.name}" }
 
         val profile = SphereDeviceProfile.forDevice()
@@ -60,15 +78,12 @@ object StairsStitch {
                 horizontalFovDegrees = optics.fieldOfView.horizontalDegrees,
                 verticalFovDegrees = optics.fieldOfView.verticalDegrees,
                 radialDistortion = optics.radialDistortion,
-                maxInputDimension = STAIRS_MAX_INPUT_DIMENSION,
+                maxInputDimension = MAX_INPUT_DIMENSION,
                 maxOutputWidth = profile.stitchMaxOutputWidth,
                 unsharpAmount = profile.unsharpAmount,
-                pivot = PIVOT,
+                pivot = pivotFor(mode),
                 portraitRotationDegrees = optics.portraitRotationDegrees,
-                // The prototype's scheme, and the sensor poses it was proven
-                // with. A grid that only stitches when the poses are refined is
-                // a grid that still needs work.
-                useRefinement = false,
+                useRefinement = mode == Mode.Adaptive,
                 seamMode = SeamMode.WinnerTakeAll,
                 longitudeSpanDegrees = 360f,
                 // The sidecar yaw is measured from where the walk started, so
@@ -90,7 +105,7 @@ object StairsStitch {
                     bitmap = bitmap,
                     gpano = GPanoMetadata.forFullPano(bitmap.width, bitmap.height),
                 ).copy(
-                    diagnostics = "Stairs grid: ${frames.size} frames\n" +
+                    diagnostics = "Extended capture ($mode): ${frames.size} frames\n" +
                         "Run: ${directory.name}\n",
                 )
             }
@@ -102,9 +117,9 @@ object StairsStitch {
     }
 
     /**
-     * Every `stairs_NN.jpg` that has a `.pose` sibling, in file order. A frame
-     * whose sidecar is missing or unreadable is dropped, not defaulted: a wrong
-     * pose is worse than a missing frame.
+     * Every `extended_NN.jpg` that has a `.pose` sibling, in file order. A
+     * frame whose sidecar is missing or unreadable is dropped, not defaulted: a
+     * wrong pose is worse than a missing frame.
      */
     private fun readFrames(directory: File): List<SphereFrame> =
         directory.listFiles()
@@ -117,7 +132,7 @@ object StairsStitch {
                 SphereFrame(file = jpeg, pose = pose)
             }
 
-    /** Parses the `yaw=..;pitch=..;roll=..` sidecar `StairsStore` writes. */
+    /** Parses the `yaw=..;pitch=..;roll=..` sidecar `ExtendedStore` writes. */
     private fun readPose(file: File): CameraPose? {
         val text = runCatching { file.readText() }.getOrNull() ?: return null
         val match = POSE_RE.find(text) ?: return null
@@ -131,8 +146,24 @@ object StairsStitch {
         Regex("""yaw=(-?\d+(?:\.\d+)?);pitch=(-?\d+(?:\.\d+)?);roll=(-?\d+(?:\.\d+)?)""")
 
     /**
-     * The pivot the grid was proven with: a phone held out in front of a
-     * standing person, in a scene taken to sit 3.5 m away.
+     * The pivot a run is stitched with, which follows what the run stands in
+     * for.
+     *
+     * The reference grid was proven with [REFERENCE_PIVOT]: a phone held out in
+     * front of a standing person, in a scene taken to sit 3.5 m away. The
+     * adaptive plan is production's shape, so it uses production's pivot
+     * ([SphereDeviceProfile.pivot]), which assumes the scene sits at 10 m and is
+     * free to under correct a close one because the pose refiner absorbs it.
+     */
+    fun pivotFor(mode: Mode): PivotModel =
+        if (mode == Mode.Reference) {
+            REFERENCE_PIVOT
+        } else {
+            SphereDeviceProfile.forDevice().pivot
+        }
+
+    /**
+     * The pivot the reference grid was proven with.
      *
      * Not [PivotModel.HandheldBodySwivel], which production uses and which
      * assumes the scene sits at 10 m. That ratio is deliberately cautious, and
@@ -145,23 +176,23 @@ object StairsStitch {
      * prototype used and what a room actually is, and it is recorded in
      * `optics.txt` so the offline replay can match.
      */
-    internal val PIVOT = PivotModel(leverArmMeters = 0.35f, sceneDistanceMeters = 3.5f)
+    private val REFERENCE_PIVOT = PivotModel(leverArmMeters = 0.35f, sceneDistanceMeters = 3.5f)
 
     /**
      * Long edge each frame is decoded to before stitching, deliberately smaller
      * than the device profile's 2000.
      *
-     * The stitcher holds every decoded frame at once, and a grid run is 62
+     * The stitcher holds every decoded frame at once, and a grid run is up to 62
      * frames where the normal capture is around 33, so the profile's 2000 would
      * be roughly twice the production footprint (about 560 MB of pixels against
      * 140 MB here) for no visible gain: the ten frames of a ring still carry
      * about 7500 px of width around the 360 degrees that render into a canvas
      * of about 5500 px. The full size stays the production path's job.
      */
-    internal const val STAIRS_MAX_INPUT_DIMENSION = 1024
+    internal const val MAX_INPUT_DIMENSION = 1024
 
-    /** `stairs_NN.jpg` exactly: burst scratch files must never be stitched. */
-    private val FRAME_NAME = Regex("""stairs_\d{2}\.jpg""")
+    /** `extended_NN.jpg` exactly: burst scratch files must never be stitched. */
+    private val FRAME_NAME = Regex("""extended_\d{2}\.jpg""")
 
     private const val POSE_SUFFIX = ".pose"
 }

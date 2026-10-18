@@ -1,4 +1,4 @@
-package com.n30dyn4m1c.photosphere.stairstest
+package com.n30dyn4m1c.photosphere.extendedcapture
 
 import androidx.camera.core.Camera
 import androidx.camera.core.FocusMeteringAction
@@ -17,16 +17,16 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 
 /** Attitude of one shot, measured from where the walk started. */
-data class StairsShotPose(
+data class ExtendedShotPose(
     val yawDegrees: Float,
     val pitchDegrees: Float,
     val rollDegrees: Float,
 )
 
 /** The shot of a burst that was kept, and the attitude it was shot at. */
-data class StairsBurstWinner(
+data class ExtendedBurstWinner(
     val file: File,
-    val pose: StairsShotPose,
+    val pose: ExtendedShotPose,
     val shots: Int,
 )
 
@@ -36,12 +36,12 @@ data class StairsBurstWinner(
  * Every frame of a sphere is stitched at its measured pose, so a frame blurred
  * by handheld shake is either a soft patch in the output or a match the
  * stitcher cannot use. Shooting the target a few times and keeping the
- * sharpest is what the normal path does, and the debug walk wants the same
- * thing: the point of the run is to judge the grid against real frames, and
+ * sharpest is what the normal path does, and the extended walk wants the same
+ * thing: the point of the run is to judge the plan against real frames, and
  * soft ones would be judged instead.
  *
- * The candidates are written as `stairs_NN_tK.jpg` and never survive: the
- * winner is renamed onto the canonical `stairs_NN.jpg` and the rest are
+ * The candidates are written as `extended_NN_tK.jpg` and never survive: the
+ * winner is renamed onto the canonical `extended_NN.jpg` and the rest are
  * deleted, so the directory still holds exactly one file per target and the
  * sidecar naming does not change.
  *
@@ -57,12 +57,12 @@ suspend fun captureSharpestBurst(
     index: Int,
     shots: Int,
     executor: Executor,
-    poseAt: () -> StairsShotPose,
-): StairsBurstWinner {
+    poseAt: () -> ExtendedShotPose,
+): ExtendedBurstWinner {
     val files = ArrayList<File>(shots)
-    val poses = ArrayList<StairsShotPose>(shots)
+    val poses = ArrayList<ExtendedShotPose>(shots)
     repeat(shots) { shot ->
-        val file = StairsStore.burstFrameFile(directory, index, shot)
+        val file = ExtendedStore.burstFrameFile(directory, index, shot)
         poses += poseAt()
         capture.takeShotTo(file, executor)
         files += file
@@ -73,18 +73,18 @@ suspend fun captureSharpestBurst(
     val winner = withContext(Dispatchers.Default) {
         runCatching { SharpnessSelection.sharpestIndex(files) }.getOrDefault(0)
     }
-    val kept = StairsStore.frameFile(directory, index)
+    val kept = ExtendedStore.frameFile(directory, index)
     files.forEachIndexed { shot, file ->
         if (shot == winner) promote(file, kept) else file.delete()
     }
-    Logging.i("Stairs burst $index: kept shot $winner of $shots as ${kept.name}")
-    return StairsBurstWinner(file = kept, pose = poses[winner], shots = shots)
+    Logging.i("Extended burst $index: kept shot $winner of $shots as ${kept.name}")
+    return ExtendedBurstWinner(file = kept, pose = poses[winner], shots = shots)
 }
 
 /** Deletes every candidate of a burst that never produced a winner. */
 fun discardBurst(directory: File, index: Int, shots: Int) {
     repeat(shots) { shot ->
-        StairsStore.burstFrameFile(directory, index, shot).delete()
+        ExtendedStore.burstFrameFile(directory, index, shot).delete()
     }
 }
 

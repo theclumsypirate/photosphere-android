@@ -1,4 +1,4 @@
-package com.n30dyn4m1c.photosphere.stairstest
+package com.n30dyn4m1c.photosphere.extendedcapture
 
 import android.Manifest
 import android.content.Context
@@ -67,12 +67,15 @@ import com.n30dyn4m1c.photosphere.camera.AlignmentState
 import com.n30dyn4m1c.photosphere.camera.FocusReticle
 import com.n30dyn4m1c.photosphere.camera.FocusReticleOverlay
 import com.n30dyn4m1c.photosphere.camera.GuidanceProfile
+import com.n30dyn4m1c.photosphere.camera.SphereCaptureScope
 import com.n30dyn4m1c.photosphere.camera.SphereTarget
 import com.n30dyn4m1c.photosphere.camera.SphereTargetPlan
 import com.n30dyn4m1c.photosphere.camera.TargetOverlay
 import com.n30dyn4m1c.photosphere.camera.TargetRelation
+import com.n30dyn4m1c.photosphere.camera.TargetSelection
 import com.n30dyn4m1c.photosphere.camera.rememberGuidanceFeedback
 import com.n30dyn4m1c.photosphere.camera.rememberSphereOptics
+import com.n30dyn4m1c.photosphere.camera.widestBackCameraId
 import com.n30dyn4m1c.photosphere.orbit.wrapDelta
 import com.n30dyn4m1c.photosphere.sensor.OrientationAccuracy
 import com.n30dyn4m1c.photosphere.sensor.rememberOrientationData
@@ -132,22 +135,30 @@ private const val ANNOUNCE_SETTLE_MILLIS = 600L
 private const val POSE_WRITE_WAIT_MILLIS = 5_000L
 
 /**
- * Guided capture on the proven 62 point grid, debug only.
+ * Guided capture on a sphere grid, debug only.
  *
- * The screen tells the walker exactly where to point: the live sensor aim
- * is compared with the active target, arrows say how far to turn and tilt,
- * and a shutter fires on its own once the aim holds. Every frame is saved
- * at the highest resolution the lens offers, untouched, with its attitude
- * in a sidecar, so the offline stitch sees exactly the coordinates the
- * screen aimed at.
+ * The screen tells the walker exactly where to point: the live sensor aim is
+ * compared with the active target, arrows say how far to turn and tilt, and a
+ * shutter fires on its own once the aim holds. Every frame is saved at the
+ * highest resolution the lens offers, untouched, with its attitude in a
+ * sidecar, so the offline stitch sees exactly the coordinates the screen aimed
+ * at.
  *
- * This is a twin of the orbit screen in spirit but shares no state with the
- * normal capture path: it binds its own camera session and never imports or
- * edits anything from `PhotoSphereCameraScreen`. Debug only.
+ * Two plans are possible. On a phone with a bindable ultrawide the widest back
+ * lens is used, and the plan is laid out from that lens's own field of view:
+ * a wide frame covers far more of the scene, so the sphere needs a fraction of
+ * the frames. On the main lens, if it is the lens the 62 point grid was proven
+ * for, the proven grid is walked instead. Both are stitched with the same
+ * stitcher the normal camera uses, each the way the thing it stands in for is
+ * stitched (see [ExtendedStitch.Mode]).
+ *
+ * This shares no state with the normal capture path: it binds its own camera
+ * session and never imports or edits anything from `PhotoSphereCameraScreen`.
+ * Debug only.
  */
 @OptIn(ExperimentalCamera2Interop::class)
 @Composable
-fun StairsCaptureScreen(
+fun ExtendedCaptureScreen(
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -165,25 +176,40 @@ fun StairsCaptureScreen(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         hasPermission = granted
-        Logging.i("Stairs camera permission granted=$granted")
+        Logging.i("Extended camera permission granted=$granted")
     }
     LaunchedEffect(Unit) {
         if (!hasPermission) permissionLauncher.launch(Manifest.permission.CAMERA)
     }
     if (!hasPermission) {
-        StairsPermissionGate(onRetry = {
+        ExtendedPermissionGate(onRetry = {
             permissionLauncher.launch(Manifest.permission.CAMERA)
         })
         return
     }
 
+    // The widest bindable back lens, or null when this phone has only one. The
+    // walk prefers it: a sphere needs far fewer frames from a wide lens, which
+    // is the whole point of walking the grid on the phone rather than with a
+    // laptop in the loop.
+    val wideCameraId = remember { widestBackCameraId(context) }
+
+    // Which lens the session should bind. Only offered when there is a second
+    // lens to choose between, and only honoured before the walk starts.
+    var lensIsWide by rememberSaveable { mutableStateOf(wideCameraId != null) }
+    // Set when the wide lens could not be bound, so the walk knows it is on
+    // the main lens after all.
+    var lensNote by remember { mutableStateOf<String?>(null) }
+
     // The run directory is saveable, so a recreation (a call, a rotation, a
     // process death and restore) comes back to the same folder with the frames
-    // already shot still in it, instead of starting a second run beside it.
-    val gridPath = rememberSaveable {
-        StairsStore.newGridDirectory(context).absolutePath
+    // already shot still in it, instead of starting a second run beside it. It
+    // is mutable because switching lens starts a fresh run: two lenses have two
+    // fields of view and cannot share one.
+    var runPath by rememberSaveable {
+        mutableStateOf(ExtendedStore.newCaptureDirectory(context).absolutePath)
     }
-    val gridDirectory = remember(gridPath) { File(gridPath) }
+    val captureDirectory = remember(runPath) { File(runPath) }
 
     val previewView = remember {
         PreviewView(context).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
@@ -208,13 +234,13 @@ fun StairsCaptureScreen(
     // dropped for want of its attitude.
     val pendingWrites = remember { AtomicInteger(0) }
 
-    LaunchedEffect(previewView) {
+    LaunchedEffect(previewView, lensIsWide) {
         val provider = runCatching {
             ProcessCameraProvider.getInstance(context).get()
         }.getOrNull()
         if (provider == null) {
             cameraError = "Camera provider unavailable"
-            Logging.e("Stairs: camera provider unavailable", null)
+            Logging.e("Extended: camera provider unavailable", null)
             return@LaunchedEffect
         }
         val preview = Preview.Builder()
@@ -239,30 +265,39 @@ fun StairsCaptureScreen(
             .setTargetRotation(previewView.display?.rotation ?: android.view.Surface.ROTATION_0)
             .build()
         imageCapture = capture
-        runCatching {
+
+        fun bind(selector: CameraSelector): Camera {
             provider.unbindAll()
-            camera = provider.bindToLifecycle(
-                lifecycleOwner,
-                CameraSelector.DEFAULT_BACK_CAMERA,
-                preview,
-                capture,
-            )
-            camera2Control = Camera2CameraControl.from(camera!!.cameraControl)
-            // The lens the session bound, so the optics estimate describes the
-            // lens that is really streaming rather than whichever one the
-            // profile would guess.
-            boundCameraId = Camera2CameraInfo.from(camera!!.cameraInfo).cameraId
-            cameraError = null
-            Logging.i("Stairs camera bound id=$boundCameraId")
-        }.onFailure { error ->
-            cameraError = error.message ?: error.javaClass.simpleName
-            Logging.e("Stairs: camera bind failed", error)
+            return provider.bindToLifecycle(lifecycleOwner, selector, preview, capture)
         }
+
+        val wanted = if (lensIsWide) wideCameraId else null
+        runCatching { bind(wanted?.let { wideCameraSelector(it) } ?: CameraSelector.DEFAULT_BACK_CAMERA) }
+            .recoverCatching { error ->
+                // A filter that matches nothing makes the bind throw. Fall back
+                // to the main lens and say so, rather than leaving a black
+                // viewfinder.
+                if (wanted == null) throw error
+                Logging.w("Extended: lens $wanted would not bind, using the main lens", error)
+                lensNote = "Wide lens would not bind, using the main lens"
+                bind(CameraSelector.DEFAULT_BACK_CAMERA)
+            }
+            .onSuccess { bound ->
+                camera = bound
+                camera2Control = Camera2CameraControl.from(bound.cameraControl)
+                boundCameraId = Camera2CameraInfo.from(bound.cameraInfo).cameraId
+                cameraError = null
+                Logging.i("Extended camera bound id=$boundCameraId wide=$lensIsWide")
+            }
+            .onFailure { error ->
+                cameraError = error.message ?: error.javaClass.simpleName
+                Logging.e("Extended: camera bind failed", error)
+            }
     }
 
     DisposableEffect(Unit) {
         onDispose {
-            Logging.i("Stairs capture screen disposed")
+            Logging.i("Extended capture screen disposed")
             runCatching { imageCapture = null }
         }
     }
@@ -284,8 +319,8 @@ fun StairsCaptureScreen(
     val startYawAbs = startYawStored.takeIf { !it.isNaN() }
     // Read back from the run directory rather than built up in memory, so a
     // walk that was interrupted knows which frames it already has.
-    var captured by remember { mutableStateOf(StairsStore.savedIndices(gridDirectory)) }
-    var manualTarget by remember { mutableStateOf<Int?>(null) }
+    var captured by remember { mutableStateOf(ExtendedStore.savedIndices(captureDirectory)) }
+    var activeIndex by rememberSaveable { mutableStateOf(0) }
     var capturing by remember { mutableStateOf(false) }
     var dwellProgress by remember { mutableFloatStateOf(0f) }
     var alignmentState by remember { mutableStateOf(AlignmentState()) }
@@ -296,24 +331,49 @@ fun StairsCaptureScreen(
     var showList by remember { mutableStateOf(false) }
     var statusLine by remember { mutableStateOf("") }
 
-    val plan = remember { stairsPlan(0f) }
-    val yawRel = startYawAbs?.let { wrapDelta(orientation.yawDegrees - it) } ?: 0f
-    val activeTarget = manualTarget?.takeIf { it !in captured && it in plan.targets.indices }
-        ?: plan.nextTarget(captured)
+    // The device's real optics, from the lens the session bound, so the on
+    // phone stitch gets the same field of view, distortion model and EXIF
+    // fallback the normal camera feeds it. Its field of view is already in the
+    // frame's own axes as displayed, and it reconciles a multi camera's lens
+    // list against the profile, which the orbit package's estimate does not: a
+    // logical rear camera lists every lens it fronts and the shortest one is
+    // the ultrawide, so that estimate can describe a lens this session never
+    // bound.
+    val optics = rememberSphereOptics(boundCameraId, streamAspectRatio = STREAM_ASPECT_RATIO)
 
-    // The same grid in the app's own target type, anchored on the bearing the
-    // walk started at. The overlay draws markers by projecting each target
-    // against the live absolute attitude, so it needs absolute bearings; the
-    // walk's own plan stays relative and is untouched by this.
-    val spherePlan = remember(plan, startYawAbs) {
-        val anchor = startYawAbs ?: 0f
-        SphereTargetPlan(
-            targets = plan.targets.map {
-                SphereTarget(it.yawDegrees + anchor, it.pitchDegrees)
-            },
-            rings = plan.rings.map { ring -> ring.first().index..ring.last().index },
-        )
+    // The plan follows the lens. The reference grid was proven for one frame,
+    // and only that frame can walk it without gaps; every other lens, the
+    // ultrawide included, gets a plan laid out from its own field of view.
+    val boundIsWidest = boundCameraId != null && boundCameraId == wideCameraId
+    val usesReferenceGrid = !boundIsWidest && matchesReferenceFieldOfView(optics.fieldOfView)
+    val planName = if (usesReferenceGrid) "reference" else "adaptive"
+
+    // Rebuilt the moment the walk is anchored, so every target carries the
+    // absolute bearing to aim at, and stable for the rest of the run: the lens
+    // is fixed once started, so the field of view cannot change under it.
+    val planAnchor = startYawAbs ?: 0f
+    val plan = remember(usesReferenceGrid, planAnchor, optics) {
+        if (usesReferenceGrid) {
+            extendedReferencePlan(planAnchor)
+        } else {
+            SphereTargetPlan.createForFieldOfView(
+                startYawDegrees = planAnchor,
+                fieldOfView = optics.fieldOfView,
+                scope = SphereCaptureScope.Sphere,
+            )
+        }
     }
+
+    // Which lens is streaming, for the HUD. Only meaningful once the session
+    // has bound; before that, the profile's own pick is the best guess.
+    val lensLabel = if (boundIsWidest && wideCameraId != null && lensIsWide) "wide" else "main"
+
+    val yawRel = startYawAbs?.let { wrapDelta(orientation.yawDegrees - it) } ?: 0f
+
+    // The active target is the normal path's own selection: it follows the
+    // plan's order, hands over when the walker aims at a different uncaptured
+    // dot, and moves on by itself once one is shot.
+    val activeTarget = TargetSelection.select(plan, orientation, captured, activeIndex)
 
     val gate = remember { AlignmentGate(DWELL_DEGREES, DWELL_MILLIS) }
 
@@ -332,30 +392,25 @@ fun StairsCaptureScreen(
     // Which ring the active target belongs to, and how far through it the walk
     // is. A ring is the unit that matters: a run stopped at a ring boundary is
     // a complete band of sphere rather than a walk with a gap in it.
-    val ringText = plan.rings
-        .indexOfFirst { ring -> ring.any { it.index == activeTarget } }
-        .takeIf { it >= 0 && activeTarget != null }
+    val ringText = activeTarget
+        ?.let { index -> plan.rings.indexOfFirst { index in it } }
+        ?.takeIf { it >= 0 }
         ?.let { ringIndex ->
             val ring = plan.rings[ringIndex]
-            val done = ring.count { it.index in captured }
-            "Ring ${ringIndex + 1} of ${plan.rings.size}: $done/${ring.size}"
+            val done = ring.count { it in captured }
+            "Ring ${ringIndex + 1} of ${plan.rings.size}: $done/${ring.count()}"
         }
         .orEmpty()
 
-    // The device's real optics, from the lens the session bound, so the on
-    // phone stitch gets the same field of view, distortion model and EXIF
-    // fallback the normal camera feeds it. Its field of view is already in the
-    // frame's own axes as displayed, and it reconciles a multi camera's lens
-    // list against the profile, which the orbit package's estimate does not: a
-    // logical rear camera lists every lens it fronts and the shortest one is
-    // the ultrawide, so that estimate can describe a lens this session never
-    // bound.
-    val optics = rememberSphereOptics(boundCameraId, streamAspectRatio = STREAM_ASPECT_RATIO)
+    val closedRings = plan.completedRings(captured)
+    val ringWord = if (closedRings == 1) "ring" else "rings"
+    val stitchHint = "${captured.size} of ${plan.size} frames, " +
+        "$closedRings $ringWord closed. The rest renders black."
 
     // One line per change of optics, not per frame, for the log file.
     LaunchedEffect(optics) {
         Logging.i(
-            "Stairs optics: fov=%.2f x %.2f deg portraitRotation=%d".format(
+            "Extended optics: fov=%.2f x %.2f deg portraitRotation=%d".format(
                 Locale.US,
                 optics.fieldOfView.horizontalDegrees,
                 optics.fieldOfView.verticalDegrees,
@@ -364,11 +419,19 @@ fun StairsCaptureScreen(
         )
     }
 
-    val opticsText = "lens %.1f x %.1f deg".format(
+    LaunchedEffect(plan, planName, boundCameraId) {
+        Logging.i(
+            "Extended plan: $planName ${plan.size} targets, ${plan.rings.size} rings, " +
+                "lens=${boundCameraId ?: "?"}",
+        )
+    }
+
+    val opticsText = "lens $lensLabel %.1f x %.1f deg".format(
         Locale.US,
         optics.fieldOfView.horizontalDegrees,
         optics.fieldOfView.verticalDegrees,
     )
+    val planText = "$planName plan: ${plan.size} targets, ${plan.rings.size} rings"
 
     // One line per target change, not per sensor sample: the guidance itself
     // stays silent so the 50 Hz attitude stream never reaches the log file.
@@ -377,7 +440,7 @@ fun StairsCaptureScreen(
         if (started && target != null) {
             val t = plan.targets[target]
             Logging.i(
-                "Stairs target $target (${captured.size}/${plan.size}) " +
+                "Extended target $target (${captured.size}/${plan.size}) " +
                     "yaw=${t.yawDegrees} pitch=${t.pitchDegrees}",
             )
         }
@@ -398,17 +461,19 @@ fun StairsCaptureScreen(
         gate.reset()
         val anchor = startYawAbs
         val target = index
+        val mode = if (usesReferenceGrid) ExtendedStitch.Mode.Reference else ExtendedStitch.Mode.Adaptive
+        val directory = captureDirectory
         scope.launch {
             val winner = try {
                 captureSharpestBurst(
                     capture = capture,
-                    directory = gridDirectory,
+                    directory = directory,
                     index = target,
                     shots = BURST_SHOTS,
                     executor = ContextCompat.getMainExecutor(context),
                     poseAt = {
                         val sample = orientationState.value
-                        StairsShotPose(
+                        ExtendedShotPose(
                             yawDegrees = anchor?.let { wrapDelta(sample.yawDegrees - it) } ?: 0f,
                             pitchDegrees = sample.pitchDegrees,
                             rollDegrees = sample.rollDegrees,
@@ -427,10 +492,10 @@ fun StairsCaptureScreen(
                 // the directory keeps its one file per target shape.
                 capturing = false
                 scope.launch(Dispatchers.IO) {
-                    discardBurst(gridDirectory, target, BURST_SHOTS)
+                    discardBurst(directory, target, BURST_SHOTS)
                 }
                 statusLine = "Frame $target failed: ${error.message}"
-                Logging.e("Stairs frame $target failed", error)
+                Logging.e("Extended frame $target failed", error)
                 return@launch
             }
 
@@ -438,7 +503,7 @@ fun StairsCaptureScreen(
             captured = captured + target
             statusLine = "Saved frame $target (${captured.size}/${plan.size})"
             Logging.i(
-                "Stairs frame $target saved (${captured.size}/${plan.size}) " +
+                "Extended frame $target saved (${captured.size}/${plan.size}) " +
                     "yaw=%.2f pitch=%.2f roll=%.2f".format(
                         Locale.US,
                         winner.pose.yawDegrees,
@@ -450,13 +515,13 @@ fun StairsCaptureScreen(
             opticsWritten = true
             val framePath = winner.file.absolutePath
             val pose = winner.pose
-            val directory = gridDirectory
             val total = plan.size
             val opticsNow = optics
+            val lensId = boundCameraId ?: "?"
             pendingWrites.incrementAndGet()
             scope.launch(Dispatchers.IO) {
                 try {
-                    StairsStore.writePose(
+                    ExtendedStore.writePose(
                         directory = directory,
                         index = target,
                         yawDegrees = pose.yawDegrees,
@@ -467,24 +532,26 @@ fun StairsCaptureScreen(
                         // The note describes this frame, so its size comes off
                         // the file, upright, and its field of view from the
                         // same estimate the stitch is handed.
-                        val size = StairsStore.uprightFrameSize(framePath)
+                        val size = ExtendedStore.uprightFrameSize(framePath)
                         if (size == null) {
                             Logging.w(
-                                "Stairs: could not read ${winner.file.name}, " +
+                                "Extended: could not read ${winner.file.name}, " +
                                     "optics not written",
                             )
                         } else {
                             val (frameWidth, frameHeight) = size
-                            StairsStore.writeOptics(
+                            ExtendedStore.writeOptics(
                                 directory = directory,
-                                widthFovDegrees = opticsNow.fieldOfView.horizontalDegrees,
-                                heightFovDegrees = opticsNow.fieldOfView.verticalDegrees,
                                 frameWidth = frameWidth,
                                 frameHeight = frameHeight,
+                                widthFovDegrees = opticsNow.fieldOfView.horizontalDegrees,
+                                heightFovDegrees = opticsNow.fieldOfView.verticalDegrees,
                                 frameCount = total,
-                                pivotLeverMeters = StairsStitch.PIVOT.leverArmMeters,
-                                pivotSceneMeters = StairsStitch.PIVOT.sceneDistanceMeters,
-                                decodeMaxDimension = StairsStitch.STAIRS_MAX_INPUT_DIMENSION,
+                                pivot = ExtendedStitch.pivotFor(mode),
+                                decodeMaxDimension = ExtendedStitch.MAX_INPUT_DIMENSION,
+                                refinement = mode == ExtendedStitch.Mode.Adaptive,
+                                planName = planName,
+                                lensId = lensId,
                             )
                         }
                     }
@@ -500,16 +567,17 @@ fun StairsCaptureScreen(
         stitching = true
         stitchProgress = null
         statusLine = "Stitching on the phone..."
-        Logging.i("Stairs stitch requested with ${captured.size} frames")
+        Logging.i("Extended stitch requested with ${captured.size} frames")
+        val mode = if (usesReferenceGrid) ExtendedStitch.Mode.Reference else ExtendedStitch.Mode.Adaptive
         scope.launch {
             // A frame saved a moment before the press may still be waiting for
             // its pose sidecar; stitching without it would silently drop the
             // frame, and the stitch has no way to place a frame without one.
             val drained = awaitPendingWrites(pendingWrites)
-            val posed = StairsStore.savedIndices(gridDirectory)
+            val posed = ExtendedStore.savedIndices(captureDirectory)
             if (!drained) {
                 Logging.w(
-                    "Stairs stitch started with pose writes still in flight: " +
+                    "Extended stitch started with pose writes still in flight: " +
                         "${posed.size} posed frames on disk",
                 )
             }
@@ -518,12 +586,13 @@ fun StairsCaptureScreen(
                 stitching = false
                 return@launch
             }
-            statusLine = "Stitching ${posed.size} frames on the phone..."
+            statusLine = "Stitching ${posed.size} of ${plan.size} frames on the phone..."
             runCatching {
-                StairsStitch.stitch(
+                ExtendedStitch.stitch(
                     context = context,
-                    directory = gridDirectory,
+                    directory = captureDirectory,
                     optics = optics,
+                    mode = mode,
                     // Called from the stitching thread, so hop back to the main
                     // one before touching Compose state.
                     onProgress = { progress ->
@@ -534,11 +603,11 @@ fun StairsCaptureScreen(
                 stitchedFile = result.file
                 statusLine = "Stitched ${result.width}x${result.height}: ${result.file.name}"
                 Logging.i(
-                    "Stairs stitch done ${result.file.name} ${result.width}x${result.height}",
+                    "Extended stitch done ${result.file.name} ${result.width}x${result.height}",
                 )
             }.onFailure { error ->
                 statusLine = "Stitch failed: ${error.message}"
-                Logging.e("Stairs stitch failed", error)
+                Logging.e("Extended stitch failed", error)
             }
             stitching = false
             stitchProgress = null
@@ -556,20 +625,47 @@ fun StairsCaptureScreen(
             context.startActivity(
                 Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             )
-            Logging.i("Stairs stitch shared: ${file.name}")
+            Logging.i("Extended stitch shared: ${file.name}")
         }.onFailure { error ->
-            Logging.w("Stairs stitch share failed", error)
+            Logging.w("Extended stitch share failed", error)
         }
+    }
+
+    /**
+     * Swaps between the wide and main lens, before the walk starts.
+     *
+     * Frames already shot belong to the lens they were shot on, so switching
+     * starts a fresh run rather than stitching two fields of view together.
+     */
+    fun switchLens() {
+        if (started) return
+        lensIsWide = !lensIsWide
+        lensNote = null
+        if (captured.isNotEmpty()) {
+            runPath = ExtendedStore.newCaptureDirectory(context).absolutePath
+            captured = emptySet()
+            stitchedFile = null
+        }
+        statusLine = if (lensIsWide) "Wide lens" else "Main lens"
+        Logging.i("Extended lens switched wide=$lensIsWide run=$runPath")
     }
 
     // The shutter: hold the aim on target and it fires by itself. Skipped
     // entirely while the compass is unreliable, for the same reason the normal
     // path refuses there: the markers are drawn from that attitude, so a
     // bearing the fusion says cannot be believed is not a bearing to shoot at.
-    LaunchedEffect(yawRel, pitchNow, activeTarget, started, compassBlocked) {
-        if (!started || activeTarget == null) return@LaunchedEffect
-        val turn = plan.turnTo(yawRel, activeTarget)
-        val tilt = plan.tiltTo(pitchNow, activeTarget)
+    LaunchedEffect(
+        orientation.yawDegrees,
+        orientation.pitchDegrees,
+        activeTarget,
+        started,
+        compassBlocked,
+    ) {
+        val target = activeTarget ?: return@LaunchedEffect
+        if (target != activeIndex) activeIndex = target
+        if (!started) return@LaunchedEffect
+        val turn = plan.turnTo(orientation.yawDegrees, target)
+        val tilt = plan.tiltTo(orientation.pitchDegrees, target)
         val distance = maxOf(abs(turn), abs(tilt))
         if (compassBlocked) {
             // Blocked, but the distance is still reported: the reticle keeps
@@ -607,9 +703,9 @@ fun StairsCaptureScreen(
         previousDwell = reading.dwellProgress
 
         if (reading.isAligned && reading.isTriggered &&
-            plan.isOnTarget(yawRel, pitchNow, activeTarget)
+            plan.isOnTarget(orientation.yawDegrees, orientation.pitchDegrees, target)
         ) {
-            shutter(activeTarget)
+            shutter(target)
         }
     }
 
@@ -624,7 +720,7 @@ fun StairsCaptureScreen(
         delay(ANNOUNCE_SETTLE_MILLIS)
         val relation = GuidanceProfile.targetRelation(
             orientationState.value,
-            spherePlan.targets[target],
+            plan.targets[target],
         )
         guidance.announce(
             context.getString(R.string.guidance_target, targetPhrase(context, relation)),
@@ -660,12 +756,12 @@ fun StairsCaptureScreen(
             // The production overlay: the grid's targets projected onto the
             // preview, with the live one pulsing and the capture reticle in the
             // middle. The text arrows below say the same thing in words, which
-            // is what the walk is judged on, but the dots are what make a
-            // 62-frame grid walkable without counting.
+            // is what the walk is judged on, but the dots are what make a dense
+            // grid walkable without counting.
             TargetOverlay(
                 orientation = { orientationState.value },
                 alignment = { alignmentState },
-                plan = spherePlan,
+                plan = plan,
                 activeIndex = activeTarget ?: -1,
                 captured = captured,
                 fieldOfView = optics.fieldOfView,
@@ -677,18 +773,24 @@ fun StairsCaptureScreen(
         if (!started) {
             StartOverlay(
                 savedCount = captured.size,
+                planSize = plan.size,
+                planName = planName,
+                lensText = opticsText,
+                lensNote = lensNote,
+                canSwitchLens = wideCameraId != null,
+                onToggleLens = { switchLens() },
                 onStart = {
                     startYawStored = orientation.yawDegrees
-                    manualTarget = null
+                    activeIndex = 0
                     // The run directory may already hold frames (a resumed
                     // walk), so the count comes from disk rather than memory.
-                    captured = StairsStore.savedIndices(gridDirectory)
+                    captured = ExtendedStore.savedIndices(captureDirectory)
                     started = true
                     // One format over the whole line: a `.format` on the second
                     // literal of a concatenation would bind only to that half
                     // and misalign the arguments.
                     val startText = (
-                        "Stairs grid walk started at yaw=%.2f pitch=%.2f " +
+                        "Extended walk started at yaw=%.2f pitch=%.2f " +
                             "accuracy=%s gyroAssisted=%s framesOnDisk=%d"
                         ).format(
                             Locale.US,
@@ -703,15 +805,18 @@ fun StairsCaptureScreen(
                 onExit = onExit,
             )
         } else {
-            StairsWalkHud(
+            ExtendedWalkHud(
                 plan = plan,
                 captured = captured,
                 statusLine = statusLine,
                 opticsText = opticsText,
+                planText = planText,
+                stitchHint = stitchHint,
                 ringText = ringText,
                 accuracyWarning = accuracyWarning,
                 cameraError = cameraError,
-                yawRel = yawRel,
+                lensNote = lensNote,
+                yawNow = orientation.yawDegrees,
                 pitchNow = pitchNow,
                 activeTarget = activeTarget,
                 dwellProgress = dwellProgress,
@@ -721,7 +826,7 @@ fun StairsCaptureScreen(
                 onToggleGuidance = {
                     guidanceMuted = !guidanceMuted
                     statusLine = if (guidanceMuted) "Guidance muted" else "Guidance on"
-                    Logging.i("Stairs guidance muted=$guidanceMuted")
+                    Logging.i("Extended guidance muted=$guidanceMuted")
                 },
                 showList = showList,
                 onToggleList = { showList = !showList },
@@ -732,12 +837,12 @@ fun StairsCaptureScreen(
                         runCatching {
                             // The frame, its pose and any burst candidate left
                             // behind by an interrupted burst all go together.
-                            StairsStore.frameFiles(gridDirectory, last)
+                            ExtendedStore.frameFiles(captureDirectory, last)
                                 .forEach { it.delete() }
                         }
-                        manualTarget = last
+                        activeIndex = last
                         statusLine = "Cleared frame $last for retake"
-                        Logging.i("Stairs frame $last cleared for retake")
+                        Logging.i("Extended frame $last cleared for retake")
                     }
                 },
                 onToggleExposure = {
@@ -755,23 +860,23 @@ fun StairsCaptureScreen(
                             )
                             exposureLocked = lock
                             statusLine = if (lock) "Exposure locked" else "Exposure auto"
-                            Logging.i("Stairs exposure locked=$lock")
+                            Logging.i("Extended exposure locked=$lock")
                         }.onFailure { error ->
-                            Logging.w("Stairs exposure lock failed", error)
+                            Logging.w("Extended exposure lock failed", error)
                         }
                     }
                 },
                 onDone = {
                     Logging.i(
-                        "Stairs walk finished: ${captured.size}/${plan.size} frames " +
-                            "at ${gridDirectory.absolutePath}",
+                        "Extended walk finished: ${captured.size}/${plan.size} frames " +
+                            "at ${captureDirectory.absolutePath}",
                     )
                     onExit()
                 },
                 onPickTarget = { index ->
-                    manualTarget = index
+                    activeIndex = index
                     gate.reset()
-                    Logging.i("Stairs target picked manually: $index")
+                    Logging.i("Extended target picked manually: $index")
                 },
                 stitching = stitching,
                 stitchProgress = stitchProgress,
@@ -786,15 +891,18 @@ fun StairsCaptureScreen(
 
 /** The live walk: progress card, aim guidance, and the action row. */
 @Composable
-private fun StairsWalkHud(
-    plan: StairsPlan,
+private fun ExtendedWalkHud(
+    plan: SphereTargetPlan,
     captured: Set<Int>,
     statusLine: String,
     opticsText: String,
+    planText: String,
+    stitchHint: String,
     ringText: String,
     accuracyWarning: String?,
     cameraError: String?,
-    yawRel: Float,
+    lensNote: String?,
+    yawNow: Float,
     pitchNow: Float,
     activeTarget: Int?,
     dwellProgress: Float,
@@ -829,7 +937,7 @@ private fun StairsWalkHud(
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     Text(
-                        text = "Stairs grid: ${captured.size}/${plan.size} captured",
+                        text = "Extended capture: ${captured.size}/${plan.size} captured",
                         color = Color.White,
                         style = MaterialTheme.typography.titleMedium,
                     )
@@ -854,6 +962,13 @@ private fun StairsWalkHud(
                             style = MaterialTheme.typography.bodyMedium,
                         )
                     }
+                    if (lensNote != null) {
+                        Text(
+                            text = lensNote,
+                            color = Color(0xFFFFC107),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
                     if (statusLine.isNotEmpty()) {
                         Text(
                             text = statusLine,
@@ -861,6 +976,11 @@ private fun StairsWalkHud(
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
+                    Text(
+                        text = stitchHint,
+                        color = Color.White.copy(alpha = 0.7f),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                     if (opticsText.isNotEmpty()) {
                         Text(
                             text = opticsText,
@@ -868,14 +988,20 @@ private fun StairsWalkHud(
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
+                    Text(
+                        text = planText,
+                        color = Color.White.copy(alpha = 0.6f),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
             }
 
             val target = activeTarget
             if (target != null) {
                 GuideOverlay(
+                    index = target,
                     target = plan.targets[target],
-                    turn = plan.turnTo(yawRel, target),
+                    turn = plan.turnTo(yawNow, target),
                     tilt = plan.tiltTo(pitchNow, target),
                     dwellProgress = dwellProgress,
                     capturing = capturing,
@@ -957,7 +1083,7 @@ private fun StairsWalkHud(
                         shape = PillShape,
                         modifier = Modifier.weight(1f),
                     ) {
-                        Text(stitchLabel(stitching, stitchProgress))
+                        Text(stitchLabel(stitching, stitchProgress, captured.size, plan.size))
                     }
                     if (hasStitched) {
                         OutlinedButton(
@@ -986,9 +1112,19 @@ private fun StairsWalkHud(
     }
 }
 
-/** The pre-walk card: one clear instruction and a deliberate start. */
+/** The pre-walk card: the lens choice, one clear instruction, and a start. */
 @Composable
-private fun StartOverlay(savedCount: Int, onStart: () -> Unit, onExit: () -> Unit) {
+private fun StartOverlay(
+    savedCount: Int,
+    planSize: Int,
+    planName: String,
+    lensText: String,
+    lensNote: String?,
+    canSwitchLens: Boolean,
+    onToggleLens: () -> Unit,
+    onStart: () -> Unit,
+    onExit: () -> Unit,
+) {
     Surface(
         color = Color.Black.copy(alpha = 0.7f),
         shape = RoundedCornerShape(16.dp),
@@ -999,32 +1135,57 @@ private fun StartOverlay(savedCount: Int, onStart: () -> Unit, onExit: () -> Uni
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(20.dp),
+                .padding(20.dp)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                text = "Stairs grid test",
+                text = "Extended capture",
                 color = Color.White,
                 style = MaterialTheme.typography.headlineSmall,
             )
             Text(
                 text = "Stand in one spot. Hold the phone level facing the middle of " +
-                    "the room, then press Start. The screen asks for 62 frames and " +
-                    "shoots each one when you are aimed at it.",
+                    "the room, then press Start. The screen asks for $planSize frames " +
+                    "($planName plan) and shoots each one when you are aimed at it.",
                 color = Color.White.copy(alpha = 0.85f),
                 style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(top = 12.dp, bottom = 24.dp),
+                modifier = Modifier.padding(top = 12.dp, bottom = 12.dp),
             )
+            Text(
+                text = lensText,
+                color = Color.White.copy(alpha = 0.75f),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            if (lensNote != null) {
+                Text(
+                    text = lensNote,
+                    color = Color(0xFFFFC107),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            if (canSwitchLens) {
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = onToggleLens,
+                    shape = PillShape,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (lensText.contains("wide")) "Use the main lens" else "Use the wide lens")
+                }
+            }
             if (savedCount > 0) {
                 Text(
                     text = "This run already holds $savedCount frames: it will pick " +
                         "up where it stopped.",
                     color = Color(0xFFFFC107),
                     style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(bottom = 16.dp),
+                    modifier = Modifier.padding(top = 16.dp),
                 )
             }
+            Spacer(modifier = Modifier.height(16.dp))
             Button(onClick = onStart, shape = PillShape, modifier = Modifier.fillMaxWidth()) {
                 Text("Start")
             }
@@ -1039,7 +1200,8 @@ private fun StartOverlay(savedCount: Int, onStart: () -> Unit, onExit: () -> Uni
 /** Turn and tilt guidance for the active target. */
 @Composable
 private fun GuideOverlay(
-    target: StairsTarget,
+    index: Int,
+    target: SphereTarget,
     turn: Float,
     tilt: Float,
     dwellProgress: Float,
@@ -1055,7 +1217,7 @@ private fun GuideOverlay(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                text = "Target ${target.index}: yaw ${target.yawDegrees.roundToInt()} " +
+                text = "Target $index: yaw ${target.yawDegrees.roundToInt()} " +
                     "pitch ${target.pitchDegrees.roundToInt()}",
                 color = Color.White,
                 style = MaterialTheme.typography.titleMedium,
@@ -1084,9 +1246,14 @@ private fun GuideOverlay(
     }
 }
 
-/** Label on the on phone stitch button, with progress while it runs. */
-private fun stitchLabel(stitching: Boolean, progress: Float?): String {
-    if (!stitching) return "Stitch on phone"
+/** Label on the on phone stitch button, with the count and progress. */
+private fun stitchLabel(
+    stitching: Boolean,
+    progress: Float?,
+    capturedCount: Int,
+    planSize: Int,
+): String {
+    if (!stitching) return "Stitch on phone ($capturedCount/$planSize)"
     val percent = progress?.let { " ${(it * 100f).roundToInt()}%" } ?: ""
     return "Stitching$percent"
 }
@@ -1140,7 +1307,7 @@ private fun arrowFor(delta: Float, positiveLabel: String, negativeLabel: String)
 /** Tappable list of every target, so the walker can choose where to go. */
 @Composable
 private fun TargetListPanel(
-    plan: StairsPlan,
+    plan: SphereTargetPlan,
     captured: Set<Int>,
     active: Int?,
     onPick: (Int) -> Unit,
@@ -1162,11 +1329,11 @@ private fun TargetListPanel(
                 style = MaterialTheme.typography.titleMedium,
             )
             Spacer(modifier = Modifier.height(8.dp))
-            plan.targets.forEach { t ->
-                val mark = if (t.index in captured) "[x]" else "[ ]"
-                val isActive = t.index == active
+            plan.targets.forEachIndexed { index, t ->
+                val mark = if (index in captured) "[x]" else "[ ]"
+                val isActive = index == active
                 Text(
-                    text = "$mark ${t.index}. yaw ${t.yawDegrees.roundToInt()} " +
+                    text = "$mark $index. yaw ${t.yawDegrees.roundToInt()} " +
                         "pitch ${t.pitchDegrees.roundToInt()}" +
                         if (isActive) "  < active" else "",
                     color = if (isActive) Color.Yellow else Color.White,
@@ -1185,9 +1352,28 @@ private fun TargetListPanel(
     }
 }
 
+/**
+ * A selector for one physical back camera id.
+ *
+ * CameraX filters the available cameras down to the one whose camera2 id
+ * matches, so the preview and stills bind to the lens [widestBackCameraId]
+ * picked for the optics. A filter that matches nothing makes
+ * [ProcessCameraProvider.bindToLifecycle] throw, which the caller turns into a
+ * fall back to the default back camera.
+ */
+@OptIn(ExperimentalCamera2Interop::class)
+private fun wideCameraSelector(cameraId: String): CameraSelector =
+    CameraSelector.Builder()
+        .addCameraFilter { cameras ->
+            cameras.filter { camera ->
+                runCatching { Camera2CameraInfo.from(camera).cameraId }.getOrNull() == cameraId
+            }
+        }
+        .build()
+
 /** Permission gate for the debug screen. */
 @Composable
-private fun StairsPermissionGate(onRetry: () -> Unit) {
+private fun ExtendedPermissionGate(onRetry: () -> Unit) {
     Surface(color = Color.Black, modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
@@ -1197,7 +1383,7 @@ private fun StairsPermissionGate(onRetry: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                text = "Camera permission is needed for the grid test.",
+                text = "Camera permission is needed for extended capture.",
                 color = Color.White,
                 style = MaterialTheme.typography.bodyLarge,
             )

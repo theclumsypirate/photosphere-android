@@ -3,5 +3,5 @@
   Debug-only strings. Merged only into the debug variant.
 -->
 <resources>
-    <string name="stairs_grid_label">Stairs grid test</string>
+    <string name="extended_capture_label">Extended capture</string>
 </resources>

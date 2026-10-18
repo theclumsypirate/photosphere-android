@@ -3,18 +3,18 @@
   Debug-only additions to the manifest.
 
   This file is merged only into the debug variant, so the release APK never
-  contains StairsCaptureActivity. It is deliberately separate from the main
-  manifest and from MainActivity: the stairs grid test gets its own launcher
-  entry and shares no code with the normal capture path.
+  contains ExtendedCaptureActivity. It is deliberately separate from the main
+  manifest and from MainActivity: the extended capture test gets its own
+  launcher entry and shares no code with the normal capture path.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <application>
 
         <activity
-            android:name=".stairstest.StairsCaptureActivity"
+            android:name=".extendedcapture.ExtendedCaptureActivity"
             android:exported="true"
-            android:label="@string/stairs_grid_label"
+            android:label="@string/extended_capture_label"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.PhotoSphere">
             <intent-filter>

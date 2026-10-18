@@ -1,8 +1,9 @@
-package com.n30dyn4m1c.photosphere.stairstest
+package com.n30dyn4m1c.photosphere.extendedcapture
 
 import android.content.Context
 import android.graphics.BitmapFactory
 import androidx.exifinterface.media.ExifInterface
+import com.n30dyn4m1c.photosphere.stitching.PivotModel
 import com.n30dyn4m1c.photosphere.util.Logging
 import java.io.File
 import java.text.SimpleDateFormat
@@ -10,13 +11,13 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Where the stairs grid photos live, and their pose sidecars.
+ * Where the extended capture photos live, and their pose sidecars.
  *
  * Frames are written to the app's external files directory, which `adb pull`
  * can read on a debug build without root:
  *
  * ```
- * adb pull /sdcard/Android/data/theclumsypirate.com.photosphere.github.debug/files/stairs_grid
+ * adb pull /sdcard/Android/data/theclumsypirate.com.photosphere.github.debug/files/extended_capture
  * ```
  *
  * Each frame gets a sibling `.pose` text file holding the stamped attitude.
@@ -28,39 +29,39 @@ import java.util.Locale
  *
  * Debug only: only referenced from `app/src/debug`.
  */
-object StairsStore {
+object ExtendedStore {
 
     /** Directory name under the app's external files dir. */
-    const val GRID_DIRECTORY = "stairs_grid"
+    const val CAPTURE_DIRECTORY = "extended_capture"
 
     /** Fresh directory for one sweep, created now. */
-    fun newGridDirectory(context: Context): File {
+    fun newCaptureDirectory(context: Context): File {
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val root = context.getExternalFilesDir(null) ?: context.filesDir
-        return File(File(root, GRID_DIRECTORY), "run_$stamp").apply {
+        return File(File(root, CAPTURE_DIRECTORY), "run_$stamp").apply {
             mkdirs()
-            Logging.i("Stairs grid directory ${absolutePath}")
+            Logging.i("Extended capture directory ${absolutePath}")
         }
     }
 
     /** Where frame [index] of a sweep is written. */
     fun frameFile(directory: File, index: Int): File =
-        File(directory, "stairs_%02d.jpg".format(index))
+        File(directory, "extended_%02d.jpg".format(index))
 
     /** Where frame [index]'s pose sidecar is written. */
     fun poseFile(directory: File, index: Int): File =
-        File(directory, "stairs_%02d.pose".format(index))
+        File(directory, "extended_%02d.pose".format(index))
 
     /** Where one shot of a burst is written, before the sharpest is promoted. */
     fun burstFrameFile(directory: File, index: Int, burst: Int): File =
-        File(directory, "stairs_%02d_t%d.jpg".format(index, burst))
+        File(directory, "extended_%02d_t%d.jpg".format(index, burst))
 
     /**
      * Every file belonging to frame [index]: the frame, its pose, and any burst
      * candidate left behind by a run that was interrupted mid-burst.
      */
     fun frameFiles(directory: File, index: Int): List<File> {
-        val prefix = "stairs_%02d".format(index)
+        val prefix = "extended_%02d".format(index)
         return directory.listFiles().orEmpty().filter { it.name.startsWith(prefix) }
     }
 
@@ -70,7 +71,7 @@ object StairsStore {
      * The directory is the truth about how far a sweep got, so the screen reads
      * it back instead of trusting state that a recreation would drop: a run
      * interrupted halfway can be picked up where it stopped. Burst scratch files
-     * are not counted, only the promoted `stairs_NN.jpg` of each target.
+     * are not counted, only the promoted `extended_NN.jpg` of each target.
      */
     fun savedIndices(directory: File): Set<Int> =
         directory.listFiles().orEmpty()
@@ -81,8 +82,8 @@ object StairsStore {
             }
             .toSet()
 
-    /** `stairs_NN.jpg` exactly, so burst scratch names never match. */
-    private val FRAME_NAME = Regex("""stairs_(\d{2})\.jpg""")
+    /** `extended_NN.jpg` exactly, so burst scratch names never match. */
+    private val FRAME_NAME = Regex("""extended_(\d{2})\.jpg""")
 
     /** Where one run's optics note is written. */
     fun opticsFile(directory: File): File = File(directory, "optics.txt")
@@ -156,27 +157,31 @@ object StairsStore {
      * are. They describe the same frame as [frameWidth] by [frameHeight], which
      * is why that pair has to be the upright one.
      *
-     * [pivotLeverMeters] and [pivotSceneMeters] are recorded because the offline
-     * replay has to use the same ratio to be comparable, and
-     * [decodeMaxDimension] because it is a deliberate step down from production
-     * that the replay shares.
+     * [pivot] is recorded because the offline replay has to use the same ratio
+     * to be comparable, and [decodeMaxDimension] because it is a deliberate step
+     * down from production that the replay shares. [refinement], [planName] and
+     * [lensId] do not change the math; they make a run self describing, so a
+     * sphere stitched weeks later can say which lens shot it, which plan it
+     * walked, and whether the poses were refined.
      */
     fun writeOptics(
         directory: File,
-        widthFovDegrees: Float,
-        heightFovDegrees: Float,
         frameWidth: Int,
         frameHeight: Int,
+        widthFovDegrees: Float,
+        heightFovDegrees: Float,
         frameCount: Int,
-        pivotLeverMeters: Float,
-        pivotSceneMeters: Float,
+        pivot: PivotModel,
         decodeMaxDimension: Int,
+        refinement: Boolean,
+        planName: String,
+        lensId: String,
     ) {
         runCatching {
             val portrait = frameHeight > frameWidth
             val command = buildString {
                 append(
-                    "python3 stitch_closed.py --dir out/%s --out stairs_real --fw %d --fh %d"
+                    "python3 stitch_closed.py --dir out/%s --out extended_real --fw %d --fh %d"
                         .format(Locale.US, directory.name, frameWidth, frameHeight),
                 )
                 append(
@@ -194,9 +199,12 @@ object StairsStore {
                 appendLine("$PORTRAIT_KEY=$portrait")
                 appendLine("width_axis_fov_degrees=%.3f".format(Locale.US, widthFovDegrees))
                 appendLine("height_axis_fov_degrees=%.3f".format(Locale.US, heightFovDegrees))
-                appendLine("pivot_lever_m=%.3f".format(Locale.US, pivotLeverMeters))
-                appendLine("pivot_scene_m=%.3f".format(Locale.US, pivotSceneMeters))
+                appendLine("pivot_lever_m=%.3f".format(Locale.US, pivot.leverArmMeters))
+                appendLine("pivot_scene_m=%.3f".format(Locale.US, pivot.sceneDistanceMeters))
                 appendLine("decode_max_dimension=$decodeMaxDimension")
+                appendLine("refinement=$refinement")
+                appendLine("plan=$planName")
+                appendLine("lens=$lensId")
                 appendLine()
                 appendLine("# Pull this run into the prototype's output folder, then")
                 appendLine("# stitch it with the optics it was shot at:")
@@ -205,7 +213,7 @@ object StairsStore {
                 appendLine(command)
             }
             opticsFile(directory).writeText(text)
-            Logging.i("Stairs optics: $command")
+            Logging.i("Extended optics: $command")
         }.onFailure { error ->
             Logging.w("Could not write optics for ${directory.name}", error)
         }
