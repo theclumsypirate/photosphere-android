@@ -37,8 +37,10 @@ import org.opencv.photo.Photo
  *   off the turn axis),
  * - decode, then resize every frame to half size with `INTER_AREA`,
  * - winner takes all by feather weight (no gain, no multiband),
- * - 50/50 cross-fade across an ownership border only where the two frames
- *   disagree by less than [AGREE_DIFF] per channel,
+ * - ownership-border cross-fade: for each owner, a 50/50 blend of the owner's
+ *   frame with the best other frame on the border pixels inside a 9x9 zone of
+ *   that owner, only where the two disagree by less than [AGREE_DIFF] per
+ *   channel, accumulated in float and in ascending owner order,
  * - Telea inpainting of the slivers an almost-complete sphere leaves.
  *
  * Every operation is an OpenCV call with the same parameters the script uses
@@ -166,50 +168,17 @@ internal object PrototypeRenderer {
         var decoded = 0
         try {
             frames.forEachIndexed { index, frame ->
-                buildMaps(
-                    frame = frame,
-                    fw = fw,
-                    fh = fh,
-                    fx = fx,
-                    fy = fy,
-                    cx = cx,
-                    cy = cy,
-                    su = su,
-                    cu = cu,
-                    sv = sv,
-                    cv = cv,
-                    outW = outW,
-                    outH = outH,
-                    leverMeters = leverMeters,
-                    sceneMeters = sceneMeters,
-                    mapXf = mapXf,
-                    mapYf = mapYf,
-                    inside = inside,
-                )
-
-                mapX.put(0, 0, mapXf)
-                mapY.put(0, 0, mapYf)
-                val half = decodeHalf(frame.file, fw2, fh2)
-                if (half == null) {
+                if (!sampleFrame(
+                        frame, fw, fh, fx, fy, cx, cy, su, cu, sv, cv, outW, outH,
+                        leverMeters, sceneMeters, feather, mapX, mapY, weightMat,
+                        sampled, mapXf, mapYf, inside, weight, imageBytes,
+                    )
+                ) {
                     Logging.w("Prototype: could not decode ${frame.file.name}")
                     onFrame(index + 1, frames.size)
                     return@forEachIndexed
                 }
                 decoded++
-                try {
-                    Imgproc.remap(
-                        half, sampled, mapX, mapY, Imgproc.INTER_LINEAR,
-                        Core.BORDER_CONSTANT, Scalar(0.0),
-                    )
-                } finally {
-                    half.release()
-                }
-                Imgproc.remap(
-                    feather, weightMat, mapX, mapY, Imgproc.INTER_LINEAR,
-                    Core.BORDER_CONSTANT, Scalar(0.0),
-                )
-                weightMat.get(0, 0, weight)
-                sampled.get(0, 0, imageBytes)
 
                 val frameIndex = index.toShort()
                 for (p in 0 until n) {
@@ -246,7 +215,12 @@ internal object PrototypeRenderer {
                 onFrame(index + 1, frames.size)
             }
 
-            crossfadeBorders(outW, outH, bestIndex, top2Weight, winImage, top2Image)
+            crossfadeBorders(
+                frames, fw, fh, fx, fy, cx, cy, su, cu, sv, cv, feather,
+                leverMeters, sceneMeters, outW, outH, bestWeight, bestIndex,
+                winImage, top2Weight, top2Image, mapX, mapY, weightMat, sampled,
+                mapXf, mapYf, inside, weight, imageBytes,
+            )
             val canvas = buildCanvas(outW, outH, n, bestWeight, winImage, rawJpegFile)
             val covered = bestWeight.count { it > 0f }
             val percent = if (n == 0) 0 else covered * 100 / n
@@ -390,43 +364,235 @@ internal object PrototypeRenderer {
     }
 
     /**
-     * The script's ownership-border cross-fade: an owner paints alone except on
-     * the one-pixel border between owners, and there only a 50/50 blend with the
-     * second-best frame, and only where the two agree to within [AGREE_DIFF].
+     * The script's ownership-border cross-fade, ported exactly.
      *
-     * [winImage] is the owner's pixels and is blended in place.
+     * The script does not blend each border pixel once with its second best.
+     * For every owner it takes the border pixels inside a 9x9 neighbourhood of
+     * that owner's region, compares the owner's frame with the best other frame
+     * there, and blends 50/50 in float where the two agree to within
+     * [AGREE_DIFF]. Owners are processed in ascending index order, so a pixel
+     * at a junction gets blended more than once. Keeping the accumulation in
+     * float and truncating only at the end is what makes the bytes match.
+     *
+     * The 9x9 zone means any frame's pixels may be read at a zone pixel, so the
+     * sampled image of every frame is collected at the border pixels in a
+     * second pass.
      */
+    @Suppress("LongParameterList")
     private fun crossfadeBorders(
+        frames: List<SphereFrame>,
+        fw: Int,
+        fh: Int,
+        fx: Double,
+        fy: Double,
+        cx: Double,
+        cy: Double,
+        su: DoubleArray,
+        cu: DoubleArray,
+        sv: DoubleArray,
+        cv: DoubleArray,
+        feather: Mat,
+        leverMeters: Double,
+        sceneMeters: Double,
         outW: Int,
         outH: Int,
+        bestWeight: FloatArray,
         bestIndex: ShortArray,
-        top2Weight: FloatArray,
         winImage: ByteArray,
+        top2Weight: FloatArray,
         top2Image: ByteArray,
+        mapX: Mat,
+        mapY: Mat,
+        weightMat: Mat,
+        sampled: Mat,
+        mapXf: FloatArray,
+        mapYf: FloatArray,
+        inside: ByteArray,
+        weight: FloatArray,
+        imageBytes: ByteArray,
     ) {
+        val n = outW * outH
+
+        val border = BooleanArray(n)
+        var borderCount = 0
         for (v in 0 until outH) {
             val row = v * outW
             for (u in 0 until outW) {
                 val p = row + u
                 if (bestIndex[p] < 0) continue
-                val border = (v > 0 && bestIndex[p - outW] != bestIndex[p]) ||
+                if ((v > 0 && bestIndex[p - outW] != bestIndex[p]) ||
                     (u > 0 && bestIndex[p - 1] != bestIndex[p])
-                if (!border || top2Weight[p] <= ALT_MIN_WEIGHT) continue
-
-                val base = p * 3
-                val d = (abs((winImage[base].toInt() and 0xFF) - (top2Image[base].toInt() and 0xFF)) +
-                    abs((winImage[base + 1].toInt() and 0xFF) - (top2Image[base + 1].toInt() and 0xFF)) +
-                    abs((winImage[base + 2].toInt() and 0xFF) - (top2Image[base + 2].toInt() and 0xFF))) / 3.0
-                if (d < AGREE_DIFF) {
-                    winImage[base] = (((winImage[base].toInt() and 0xFF) +
-                        (top2Image[base].toInt() and 0xFF)) / 2).toByte()
-                    winImage[base + 1] = (((winImage[base + 1].toInt() and 0xFF) +
-                        (top2Image[base + 1].toInt() and 0xFF)) / 2).toByte()
-                    winImage[base + 2] = (((winImage[base + 2].toInt() and 0xFF) +
-                        (top2Image[base + 2].toInt() and 0xFF)) / 2).toByte()
+                ) {
+                    border[p] = true
+                    borderCount++
                 }
             }
         }
+        if (borderCount == 0) return
+
+        val borderIndices = IntArray(borderCount)
+        val posInBorder = IntArray(n) { -1 }
+        var bi = 0
+        for (p in 0 until n) {
+            if (border[p]) {
+                borderIndices[bi] = p
+                posInBorder[p] = bi
+                bi++
+            }
+        }
+
+        // The script only iterates owners that own a border pixel.
+        val borderOwner = BooleanArray(frames.size)
+        for (k in 0 until borderCount) {
+            val o = bestIndex[borderIndices[k]].toInt()
+            if (o >= 0) borderOwner[o] = true
+        }
+
+        // The sampled image of every frame, but only at the border pixels, so a
+        // zone pixel can read any frame there.
+        val frameBorder = Array(frames.size) { ByteArray(borderCount * 3) }
+        for (index in frames.indices) {
+            if (!sampleFrame(
+                    frames[index], fw, fh, fx, fy, cx, cy, su, cu, sv, cv, outW, outH,
+                    leverMeters, sceneMeters, feather, mapX, mapY, weightMat, sampled,
+                    mapXf, mapYf, inside, weight, imageBytes,
+                )
+            ) {
+                continue
+            }
+            val dest = frameBorder[index]
+            for (k in 0 until borderCount) {
+                val base = borderIndices[k] * 3
+                val d = k * 3
+                dest[d] = imageBytes[base]
+                dest[d + 1] = imageBytes[base + 1]
+                dest[d + 2] = imageBytes[base + 2]
+            }
+        }
+
+        // zone[idx]: the border pixels inside a 9x9 neighbourhood of idx.
+        val zones = Array(frames.size) { ArrayList<Int>() }
+        val seen = IntArray(frames.size) { -1 }
+        var stamp = 0
+        for (k in 0 until borderCount) {
+            val p = borderIndices[k]
+            val v = p / outW
+            val u = p % outW
+            stamp++
+            val v0 = maxOf(0, v - 4)
+            val v1 = minOf(outH - 1, v + 4)
+            val u0 = maxOf(0, u - 4)
+            val u1 = minOf(outW - 1, u + 4)
+            for (vv in v0..v1) {
+                val row = vv * outW
+                for (uu in u0..u1) {
+                    val o = bestIndex[row + uu].toInt()
+                    if (o >= 0 && borderOwner[o] && seen[o] != stamp) {
+                        seen[o] = stamp
+                        zones[o].add(p)
+                    }
+                }
+            }
+        }
+
+        val canvas = FloatArray(n * 3)
+        for (i in 0 until n * 3) canvas[i] = (winImage[i].toInt() and 0xFF).toFloat()
+
+        for (idx in frames.indices) {
+            if (!borderOwner[idx]) continue
+            val zone = zones[idx]
+            if (zone.isEmpty()) continue
+            val img = frameBorder[idx]
+            for (p in zone) {
+                val ownHere = bestIndex[p].toInt() == idx
+                val altWeight = if (ownHere) top2Weight[p] else bestWeight[p]
+                if (altWeight <= ALT_MIN_WEIGHT) continue
+                val pb = p * 3
+                val sb = posInBorder[p] * 3
+                val a0 = if (ownHere) top2Image[pb] else winImage[pb]
+                val a1 = if (ownHere) top2Image[pb + 1] else winImage[pb + 1]
+                val a2 = if (ownHere) top2Image[pb + 2] else winImage[pb + 2]
+                val d = (abs((img[sb].toInt() and 0xFF) - (a0.toInt() and 0xFF)) +
+                    abs((img[sb + 1].toInt() and 0xFF) - (a1.toInt() and 0xFF)) +
+                    abs((img[sb + 2].toInt() and 0xFF) - (a2.toInt() and 0xFF))) / 3.0
+                if (d < AGREE_DIFF) {
+                    canvas[pb] = 0.5f * canvas[pb] + 0.5f * (a0.toInt() and 0xFF)
+                    canvas[pb + 1] = 0.5f * canvas[pb + 1] + 0.5f * (a1.toInt() and 0xFF)
+                    canvas[pb + 2] = 0.5f * canvas[pb + 2] + 0.5f * (a2.toInt() and 0xFF)
+                }
+            }
+        }
+
+        for (i in 0 until n * 3) {
+            val x = canvas[i]
+            winImage[i] = (when {
+                x < 0f -> 0
+                x > 255f -> 255
+                else -> x.toInt()
+            }).toByte()
+        }
+    }
+
+    /**
+     * Builds the maps for one frame and samples its image and feather weight
+     * into the shared scratch buffers, returning false when the frame cannot be
+     * decoded. Used for the winner pass and again for the cross-fade's border
+     * pass.
+     */
+    @Suppress("LongParameterList")
+    private fun sampleFrame(
+        frame: SphereFrame,
+        fw: Int,
+        fh: Int,
+        fx: Double,
+        fy: Double,
+        cx: Double,
+        cy: Double,
+        su: DoubleArray,
+        cu: DoubleArray,
+        sv: DoubleArray,
+        cv: DoubleArray,
+        outW: Int,
+        outH: Int,
+        leverMeters: Double,
+        sceneMeters: Double,
+        feather: Mat,
+        mapX: Mat,
+        mapY: Mat,
+        weightMat: Mat,
+        sampled: Mat,
+        mapXf: FloatArray,
+        mapYf: FloatArray,
+        inside: ByteArray,
+        weight: FloatArray,
+        imageBytes: ByteArray,
+    ): Boolean {
+        buildMaps(
+            frame = frame, fw = fw, fh = fh, fx = fx, fy = fy, cx = cx, cy = cy,
+            su = su, cu = cu, sv = sv, cv = cv, outW = outW, outH = outH,
+            leverMeters = leverMeters, sceneMeters = sceneMeters,
+            mapXf = mapXf, mapYf = mapYf, inside = inside,
+        )
+        mapX.put(0, 0, mapXf)
+        mapY.put(0, 0, mapYf)
+
+        val half = decodeHalf(frame.file, fw / 2, fh / 2)
+        if (half == null) return false
+        try {
+            Imgproc.remap(
+                half, sampled, mapX, mapY, Imgproc.INTER_LINEAR,
+                Core.BORDER_CONSTANT, Scalar(0.0),
+            )
+        } finally {
+            half.release()
+        }
+        Imgproc.remap(
+            feather, weightMat, mapX, mapY, Imgproc.INTER_LINEAR,
+            Core.BORDER_CONSTANT, Scalar(0.0),
+        )
+        weightMat.get(0, 0, weight)
+        sampled.get(0, 0, imageBytes)
+        return true
     }
 
     /**
