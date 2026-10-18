@@ -7,6 +7,11 @@ bands (the v14 defect). This script does pure geometry: pivot-model warp,
 winner-takes-all ownership by feather weight, agreement-gated crossfade on
 borders only. If poses and projection match, output must equal the source.
 
+The frames are streamed, one at a time, twice: once to find the winner and
+the second best per pixel, and once to keep every frame's pixels at the
+ownership border. Nothing holds all warped frames at once, so a 4096-wide
+render stays inside a few hundred megabytes instead of tens of gigabytes.
+
 Usage: python3 tools/pano_proto/stitch_closed.py --dir out/virtual_stairs --out stairs_perfect [--w 4096]
 """
 import argparse
@@ -23,6 +28,8 @@ ATT_RE = re.compile(r"yaw=(-?[\d.]+);pitch=(-?[\d.]+);roll=(-?[\d.]+)")
 H_FOV, V_FOV = 49.0, 63.0
 LEVER_M, SCENE_M = 0.35, 3.5
 FEATHER_PX = 80
+ALT_MIN = 0.05
+AGREE_DIFF = 12
 
 
 def read_pose(path):
@@ -129,7 +136,7 @@ def main(d, out, W, fw=2448, fh=3264, h_fov=H_FOV, v_fov=V_FOV):
         w = cv2.remap(feather, (px * s).astype(np.float32), (py * s).astype(np.float32),
                       cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
         w[~inside] = 0
-        return sampled.astype(np.float64), w.astype(np.float64)
+        return sampled, w.astype(np.float32)
 
     poses = []
     for path in files:
@@ -138,22 +145,31 @@ def main(d, out, W, fw=2448, fh=3264, h_fov=H_FOV, v_fov=V_FOV):
             poses.append((path, pose))
     print(f"{len(poses)} frames with poses", flush=True)
 
-    warped = []
+    # Pass 1: winner and second best per pixel. Frames are dropped, never held.
+    best_w = np.full((H, W), -1.0, np.float32)
+    owner = np.full((H, W), -1, np.int16)
+    pano = np.zeros((H, W, 3), np.uint8)
+    top2_w = np.full((H, W), -1.0, np.float32)
+    top2_idx = np.full((H, W), -1, np.int16)
+    kept = []
     for path, pose in poses:
         r_ = warp_one(path, pose)
-        if r_ is not None:
-            warped.append(r_)
-    print(f"{len(warped)} warped", flush=True)
-
-    best_w = np.full((H, W), -1.0, np.float64)
-    owner = np.full((H, W), -1, np.int16)
-    pano = np.zeros((H, W, 3), np.float64)
-    for idx, (img, w) in enumerate(warped):
+        if r_ is None:
+            continue
+        img, w = r_
+        idx = len(kept)
+        kept.append((path, pose))
         take = w > best_w
-        pano[take] = img[take]  # NO gain: one exposure by construction
-        best_w = np.maximum(best_w, w)
+        # The frame that was best drops to second best.
+        top2_w[take] = best_w[take]
+        top2_idx[take] = owner[take]
+        pano[take] = img[take]
+        best_w[take] = w[take]
         owner[take] = idx
-    cnt = (best_w > 0).astype(np.float64)
+        sub = (~take) & (w > top2_w)
+        top2_w[sub] = w[sub]
+        top2_idx[sub] = idx
+    print(f"{len(kept)} warped", flush=True)
 
     # ownership borders: 50/50 blend only where owners agree (diff < 12),
     # hard edge otherwise. No translucency by construction.
@@ -162,39 +178,60 @@ def main(d, out, W, fw=2448, fh=3264, h_fov=H_FOV, v_fov=V_FOV):
     border[1:, :] |= (own32[1:, :] != own32[:-1, :])
     border[:, 1:] |= (own32[:, 1:] != own32[:, :-1])
     border &= (own32 >= 0)
-    if border.any():
+
+    border_flat = np.nonzero(border.reshape(-1))[0]
+    pos = np.full(H * W, -1, np.int64)
+    pos[border_flat] = np.arange(border_flat.size)
+
+    if border_flat.size:
+        # Pass 2: every frame's pixels at the border, so a 9x9 zone pixel can
+        # read any frame there without keeping the whole warped frame.
+        frame_border = np.zeros((len(kept), border_flat.size, 3), np.uint8)
+        for idx, (path, pose) in enumerate(kept):
+            r_ = warp_one(path, pose)
+            if r_ is None:
+                continue
+            frame_border[idx] = r_[0].reshape(-1, 3)[border_flat]
+
+        winner_img = pano.reshape(-1, 3)[border_flat].astype(np.float64)
+        canvas = winner_img.copy()
+        owner_flat = owner.reshape(-1)
+        bestw_flat = best_w.reshape(-1)
+        top2w_flat = top2_w.reshape(-1)
+        top2i_flat = top2_idx.reshape(-1)
+
         k = np.ones((9, 9), np.float32)
         for idx in sorted(set(owner[border].tolist())):
             if idx < 0:
                 continue
             zone = (cv2.dilate((owner == idx).astype(np.uint8), k) > 0) & border
-            if not zone.any():
+            zi = np.nonzero(zone.reshape(-1))[0]
+            if zi.size == 0:
                 continue
-            alt = np.full((H, W), -1.0, np.float64)
-            alt_img = np.zeros((H, W, 3), np.float64)
-            for jdx, (img2, w2) in enumerate(warped):
-                if jdx == idx:
-                    continue
-                cand = zone & (w2 > 0.05)
-                if not cand.any():
-                    continue
-                take2 = cand & (w2 > alt)
-                alt_img[take2] = img2[take2]
-                alt[take2] = w2[take2]
-            agree = zone & (alt > 0)
-            d = np.abs(warped[idx][0][agree] - alt_img[agree]).mean(axis=1)
-            ok = np.zeros((H, W), bool)
-            ok[agree] = d < 12
-            pano[ok] = 0.5 * pano[ok] + 0.5 * alt_img[ok]
+            pz = pos[zi]
+            own_here = owner_flat[zi] == idx
+            alt_w = np.where(own_here, top2w_flat[zi], bestw_flat[zi])
+            alt_img = np.empty((zi.size, 3), np.float64)
+            not_here = ~own_here
+            alt_img[not_here] = winner_img[pz[not_here]]
+            here = own_here
+            alt_img[here] = frame_border[top2i_flat[zi[here]], pz[here]]
+            img_idx = frame_border[idx][pz]
+            d = np.abs(img_idx.astype(np.float64) - alt_img).mean(axis=1)
+            ok = (alt_w > ALT_MIN) & (d < AGREE_DIFF)
+            canvas[pz[ok]] = 0.5 * canvas[pz[ok]] + 0.5 * alt_img[ok]
 
-    hole = (cnt == 0)
-    print(f"coverage {(~hole).mean() * 100:.2f}%, holes {int(hole.sum())}", flush=True)
+        pano.reshape(-1, 3)[border_flat] = np.clip(canvas, 0, 255).astype(np.uint8)
+
+    cnt = (best_w > 0)
+    hole = ~cnt
+    print(f"coverage {cnt.mean() * 100:.2f}%, holes {int(hole.sum())}", flush=True)
     if hole.any():
-        mask = (hole & (cv2.dilate((cnt > 0).astype(np.uint8),
+        mask = (hole & (cv2.dilate(cnt.astype(np.uint8),
                                    np.ones((41, 41), np.uint8)) > 0))
         filled = cv2.inpaint(np.clip(pano, 0, 255).astype(np.uint8),
                              mask.astype(np.uint8) * 255, 21,
-                             cv2.INPAINT_TELEA).astype(np.float64)
+                             cv2.INPAINT_TELEA)
         pano[mask] = filled[mask]
 
     pano = np.clip(pano, 0, 255).astype(np.uint8)
@@ -208,7 +245,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--dir", default=None)
     ap.add_argument("--out", default="stairs_perfect")
-    ap.add_argument("--w", type=int, default=2048)
+    ap.add_argument("--w", type=int, default=4096)
     # Frame optics. The defaults match the virtual set cut from stairs_360.jpg
     # (3:4 portrait, 49 deg horizontal, 63 deg vertical). A real phone capture
     # has its own lens, so override these when stitching real frames.
