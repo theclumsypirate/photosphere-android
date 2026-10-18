@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/theclumsypirate/photosphere-android/releases/latest"><img src="https://img.shields.io/github/v/release/theclumsypirate/photosphere-android?label=release" alt="Latest release"></a>
+  <a href="https://github.com/theclumsypirate/photosphere-android/releases/latest"><img src="https://badges.ws/github/release/theclumsypirate/photosphere-android?label=release&labelColor=555&color=007ec6" alt="Latest release"></a>
   <img src="docs/assets/badge-android.svg" alt="Android 8.0 or later">
   <a href="LICENSE"><img src="docs/assets/badge-license.svg" alt="License"></a>
 </p>
@@ -41,12 +41,12 @@ on older phones.
 
 ## Docs
 
-- [Build](docs/build.md) — requirements, building, dependencies, project layout
-- [Capture](docs/capture.md) — permissions, orientation, guided capture
-- [Stitching](docs/stitching.md) — how frames become a sphere
-- [Viewer](docs/viewer.md) — result screen, export, share
-- [Design](docs/design.md) — dark UI, signals, accessibility
-- [Status](docs/status.md) — what's done, what's left
+- [Build](docs/build.md) - requirements, building, dependencies, project layout
+- [Capture](docs/capture.md) - permissions, orientation, guided capture
+- [Stitching](docs/stitching.md) - how frames become a sphere
+- [Viewer](docs/viewer.md) - result screen, export, share
+- [Design](docs/design.md) - dark UI, signals, accessibility
+- [Status](docs/status.md) - what's done, what's left
 
 
 ## Contributing
