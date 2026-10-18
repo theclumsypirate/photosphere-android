@@ -10,8 +10,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.lifecycleScope
 import com.n30dyn4m1c.photosphere.ui.theme.PhotoSphereTheme
 import com.n30dyn4m1c.photosphere.util.Logging
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * Launcher entry for the extended capture test, debug builds only.
@@ -26,6 +29,14 @@ class ExtendedCaptureActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Logging.i("ExtendedCaptureActivity.onCreate")
+        // Old test runs are not keepsakes either: clear anything older than
+        // the retention before a new sweep starts.
+        lifecycleScope.launch(Dispatchers.IO) {
+            ExtendedStore.pruneOldRuns(
+                this@ExtendedCaptureActivity,
+                System.currentTimeMillis() - ExtendedStore.RETENTION_MILLIS,
+            )
+        }
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),

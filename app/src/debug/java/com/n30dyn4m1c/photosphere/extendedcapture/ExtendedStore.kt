@@ -34,6 +34,36 @@ object ExtendedStore {
     /** Directory name under the app's external files dir. */
     const val CAPTURE_DIRECTORY = "extended_capture"
 
+    /**
+     * How long a capture run may stay on disk.
+     *
+     * These frames sit in the app's external files dir, which is outside the
+     * picture cache the app wipes on a dead run, so without a sweep they would
+     * gather one folder per test forever.
+     */
+    const val RETENTION_MILLIS = 3_600_000L
+
+    /**
+     * Deletes capture runs whose newest file is older than [cutoffMillis].
+     *
+     * A run is judged by its newest file, not the directory's own timestamp,
+     * so a run still being written is never swept. Empty directories are
+     * judged by their own timestamp. Debug only.
+     */
+    fun pruneOldRuns(context: Context, cutoffMillis: Long) {
+        val root = File(context.getExternalFilesDir(null) ?: context.filesDir, CAPTURE_DIRECTORY)
+        val runs = root.listFiles { file -> file.isDirectory } ?: return
+        runs.forEach { run ->
+            val newest = run.walkTopDown()
+                .filter { it.isFile }
+                .maxOfOrNull { it.lastModified() }
+                ?: run.lastModified()
+            if (newest < cutoffMillis && !run.deleteRecursively()) {
+                Logging.w("Could not clear old extended capture run ${run.name}")
+            }
+        }
+    }
+
     /** Fresh directory for one sweep, created now. */
     fun newCaptureDirectory(context: Context): File {
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())

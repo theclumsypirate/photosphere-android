@@ -54,7 +54,21 @@ class PhotoSphereApplication : Application() {
         // them after a process death, and the next launch starts fresh.
         // Diagnostics logs and crash reports are kept: only pictures go.
         pruneDeadImageCache()
+
+        // Pictures are not keepsakes: even an app left running for hours must
+        // not hold frames or spheres past the retention, so anything the dead
+        // run wipe left behind because the process stayed alive is cleared here.
+        pruneExpiredPhotos()
         watchForeground()
+    }
+
+    /** Deletes cached pictures older than [CACHED_PHOTO_RETENTION_MILLIS]. */
+    private fun pruneExpiredPhotos() {
+        val cutoff = System.currentTimeMillis() - CACHED_PHOTO_RETENTION_MILLIS
+        backgroundScope.launch {
+            SphereImageStore.pruneExpiredPhotos(this@PhotoSphereApplication, cutoff)
+            Logging.i("Pruned cached pictures older than the retention")
+        }
     }
 
     /** Deletes every cached sphere but the newest, e.g. after a process death. */
@@ -144,6 +158,13 @@ class PhotoSphereApplication : Application() {
 
         /** Grace after backgrounding before cached pictures count as abandoned. */
         private const val IMAGE_CACHE_GRACE_MILLIS = 30_000L
+
+        /**
+         * How long a cached picture may live. Frames, finished spheres and
+         * orbit walks are intermediate data, so a run still on disk after this
+         * long is deleted at the next start.
+         */
+        private const val CACHED_PHOTO_RETENTION_MILLIS = 3_600_000L
 
         private var foregroundCount = 0
         private var resumedCount = 0

@@ -39,8 +39,9 @@ import java.util.Locale
  * Lifecycle: sessions and finished spheres are intermediate data, not keepsakes.
  * They are deleted when the user discards or starts over, and whatever survives
  * a process death is wiped shortly after the app was last backgrounded (see
- * [deleteImageCache]). The diagnostics logs live elsewhere and are never
- * touched here.
+ * [deleteImageCache]). Anything a still-running process keeps past the
+ * retention is swept at the next start (see [pruneExpiredPhotos]). The
+ * diagnostics logs live elsewhere and are never touched here.
  */
 object SphereImageStore {
 
@@ -182,6 +183,45 @@ object SphereImageStore {
             if (session.name != keepSessionId) {
                 if (!session.deleteRecursively()) {
                     Logging.w("Could not clear stale session ${session.name}")
+                }
+            }
+        }
+    }
+
+    /**
+     * Deletes cached photos last modified before [cutoffMillis].
+     *
+     * [deleteImageCache] wipes everything when a run is abandoned, but a
+     * process that stays alive keeps its frames, finished spheres and orbit
+     * walks in the cache for as long as it runs. This bounds that: at the next
+     * start, anything older than the retention is deleted, and any directory
+     * the sweep emptied is removed with it. The diagnostics logs
+     * (`cache/logs`) and the saved crash reports (`filesDir/crashes`) live
+     * outside these directories and are left alone.
+     *
+     * Touches the filesystem - call off the main thread.
+     */
+    fun pruneExpiredPhotos(context: Context, cutoffMillis: Long) {
+        val roots = listOf(
+            File(context.cacheDir, SESSIONS_DIRECTORY),
+            File(context.cacheDir, SPHERES_DIRECTORY),
+            File(context.cacheDir, OrbitStore.WALKS_DIRECTORY),
+        )
+        roots.forEach { pruneExpired(it, cutoffMillis) }
+    }
+
+    /** Recursively deletes files older than [cutoffMillis], then empty dirs. */
+    private fun pruneExpired(directory: File, cutoffMillis: Long) {
+        val children = directory.listFiles() ?: return
+        children.forEach { child ->
+            if (child.isDirectory) {
+                pruneExpired(child, cutoffMillis)
+                if (child.listFiles().isNullOrEmpty() && !child.delete()) {
+                    Logging.w("Could not clear expired photo directory ${child.name}")
+                }
+            } else if (child.lastModified() < cutoffMillis) {
+                if (!child.delete()) {
+                    Logging.w("Could not clear expired photo ${child.name}")
                 }
             }
         }
