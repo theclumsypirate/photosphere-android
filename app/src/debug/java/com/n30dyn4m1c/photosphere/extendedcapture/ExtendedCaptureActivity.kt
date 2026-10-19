@@ -17,12 +17,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
- * Launcher entry for the extended capture test, debug builds only.
+ * Extended capture test, debug builds only.
  *
  * Declared in `app/src/debug/AndroidManifest.xml`, so it exists in the debug
- * variant and is absent from release, and it is never referenced by
- * `MainActivity`. It hosts [ExtendedCaptureScreen] and nothing else, so the
- * normal capture path is untouched by construction.
+ * variant and is absent from release. It has no launcher entry of its own: the
+ * entry chooser starts it by class name behind a `BuildConfig.DEBUG` gate, so
+ * the debug build shows one icon and release never names the class. It hosts
+ * [ExtendedCaptureScreen] and nothing else, so the normal capture path is
+ * untouched by construction.
  */
 class ExtendedCaptureActivity : ComponentActivity() {
 

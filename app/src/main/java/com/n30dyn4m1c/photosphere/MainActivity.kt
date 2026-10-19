@@ -318,6 +318,30 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
                 } else {
                     null
                 },
+                // Debug only, like the orbit entry. The activity lives in the
+                // debug source set, so it is started by name instead of by
+                // class: release never compiles a reference to it, and the
+                // BuildConfig gate lets R8 drop the whole branch.
+                onExtendedCapture = if (BuildConfig.DEBUG) {
+                    {
+                        Logging.i("Entry: Extended capture")
+                        runCatching {
+                            appContext.startActivity(
+                                Intent()
+                                    .setClassName(
+                                        appContext,
+                                        "com.n30dyn4m1c.photosphere.extendedcapture" +
+                                            ".ExtendedCaptureActivity",
+                                    )
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                            )
+                        }.onFailure { error ->
+                            Logging.w("Extended capture entry failed", error)
+                        }
+                    }
+                } else {
+                    null
+                },
                 onOpenSettings = { showSettings = true },
             )
 
@@ -407,6 +431,7 @@ private fun EntryChooser(
     onCapture: () -> Unit,
     onImport: () -> Unit,
     onOrbit: (() -> Unit)?,
+    onExtendedCapture: (() -> Unit)?,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -461,8 +486,29 @@ private fun EntryChooser(
                 style = MaterialTheme.typography.titleMedium,
             )
         }
-        // Experimental: the orbit walk only shows in debug builds. Release
-        // keeps Capture and Import until the walk is proven on device.
+        // Experimental: the extra entries only show in debug builds. Release
+        // keeps Capture and Import until the walks are proven on device.
+        if (onExtendedCapture != null) {
+            FilledTonalButton(
+                onClick = onExtendedCapture,
+                shape = PillShape,
+                modifier = Modifier
+                    .padding(top = 12.dp)
+                    .fillMaxWidth()
+                    .height(54.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.PhotoCamera,
+                    contentDescription = null,
+                    modifier = Modifier.size(22.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = stringResource(R.string.entry_extended_capture),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+            }
+        }
         if (onOrbit != null) {
             FilledTonalButton(
                 onClick = onOrbit,

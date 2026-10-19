@@ -3,9 +3,10 @@
   Debug-only additions to the manifest.
 
   This file is merged only into the debug variant, so the release APK never
-  contains ExtendedCaptureActivity. It is deliberately separate from the main
-  manifest and from MainActivity: the extended capture test gets its own
-  launcher entry and shares no code with the normal capture path.
+  contains ExtendedCaptureActivity. The activity has no launcher entry of its
+  own: the debug build shows one app icon, and the screen is opened from a
+  debug-only button in the entry chooser. It is not exported, so nothing
+  outside the app can start it.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
@@ -18,15 +19,10 @@
 
         <activity
             android:name=".extendedcapture.ExtendedCaptureActivity"
-            android:exported="true"
+            android:exported="false"
             android:label="@string/extended_capture_label"
             android:screenOrientation="portrait"
-            android:theme="@style/Theme.PhotoSphere">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+            android:theme="@style/Theme.PhotoSphere" />
 
     </application>
 

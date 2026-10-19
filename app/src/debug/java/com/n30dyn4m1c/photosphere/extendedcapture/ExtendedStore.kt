@@ -112,6 +112,15 @@ object ExtendedStore {
             }
             .toSet()
 
+    /**
+     * Every promoted frame that has its pose, in index order: the list the
+     * result viewer offers to export.
+     */
+    fun frameJpegs(directory: File): List<File> =
+        savedIndices(directory).sorted().mapNotNull { index ->
+            frameFile(directory, index).takeIf { it.isFile }
+        }
+
     /** `extended_NN.jpg` exactly, so burst scratch names never match. */
     private val FRAME_NAME = Regex("""extended_(\d{2})\.jpg""")
 

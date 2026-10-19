@@ -5,9 +5,13 @@ import android.graphics.Bitmap
 import com.n30dyn4m1c.photosphere.camera.SphereDeviceProfile
 import com.n30dyn4m1c.photosphere.camera.SphereOptics
 import com.n30dyn4m1c.photosphere.metadata.GPanoMetadata
+import com.n30dyn4m1c.photosphere.stitching.CameraBasis
 import com.n30dyn4m1c.photosphere.stitching.CameraPose
+import com.n30dyn4m1c.photosphere.stitching.DecodedFrame
+import com.n30dyn4m1c.photosphere.stitching.FrameIntrinsics
 import com.n30dyn4m1c.photosphere.stitching.PhotoSphereStitcher
 import com.n30dyn4m1c.photosphere.stitching.PivotModel
+import com.n30dyn4m1c.photosphere.stitching.PoseRefiner
 import com.n30dyn4m1c.photosphere.stitching.SeamMode
 import com.n30dyn4m1c.photosphere.stitching.SphereFrame
 import com.n30dyn4m1c.photosphere.stitching.StitchProgress
@@ -27,10 +31,11 @@ import kotlinx.coroutines.withContext
  * stands in for is stitched:
  *
  * - [ExtendedStitch.Mode.Reference] walks the 62 point grid proven by
- *   `tools/pano_proto/stitch_closed.py`. That script trusts the measured poses
- *   and paints winner takes all, and this keeps its choices on purpose, because
- *   they are the ones the grid was proven with. A grid that only stitches when
- *   the poses are refined is a grid that still needs work. It also keeps the
+ *   `tools/pano_proto/stitch_closed.py`. The script had exact coordinates for
+ *   every frame; a phone only has the grid the user aimed at, plus a sensor
+ *   that drifts over a full turn. So the reference run is placed on the grid
+ *   coordinates themselves, then refined against image content, which is what
+ *   closes the loop the way the script's exact coordinates did. It keeps the
  *   script's pure-geometry pipeline: no lens distortion correction, no
  *   sharpening, no hole filling, the script's output width and its half-size
  *   decode. Only the grid itself and those settings are the reference's; the
@@ -51,7 +56,7 @@ object ExtendedStitch {
 
     /** How a run is stitched, mirroring what the run stands in for. */
     enum class Mode {
-        /** The proven grid: measured poses, no refinement, the prototype's pivot. */
+        /** The proven grid: planned coordinates, refined, the prototype's pivot. */
         Reference,
 
         /** The production plan shape: refinement on, the profile's pivot. */
@@ -60,6 +65,12 @@ object ExtendedStitch {
 
     /**
      * Reads [directory] and renders it into one sphere.
+     *
+     * [plannedPoses] holds the grid coordinates each frame was aimed at,
+     * indexed the way the sidecars are. Only the reference mode uses them: they
+     * replace the sensor yaw and pitch, which drift over a full turn, while the
+     * measured roll is kept. Adaptive runs are production's and stay on the
+     * measured poses.
      *
      * [onProgress] is called from the stitching thread, not the main one; the
      * caller must post it rather than writing Compose state from it.
@@ -70,13 +81,19 @@ object ExtendedStitch {
         optics: SphereOptics,
         mode: Mode,
         outputWidth: Int = DEFAULT_REFERENCE_WIDTH,
+        plannedPoses: Map<Int, CameraPose> = emptyMap(),
         onProgress: (StitchProgress) -> Unit = {},
     ): SphereImageStore.StitchedSphere {
-        val frames = readFrames(directory)
+        val measured = readFrames(directory)
         Logging.i(
-            "Extended stitch: ${frames.size} posed frames in ${directory.name} mode=$mode",
+            "Extended stitch: ${measured.size} posed frames in ${directory.name} mode=$mode",
         )
-        check(frames.isNotEmpty()) { "No posed frames in ${directory.name}" }
+        check(measured.isNotEmpty()) { "No posed frames in ${directory.name}" }
+        val frames = if (mode == Mode.Reference) {
+            applyPlannedPoses(measured, plannedPoses)
+        } else {
+            measured
+        }
 
         val bitmap = try {
             when (mode) {
@@ -99,10 +116,9 @@ object ExtendedStitch {
                 "Extended stitch wrote ${sphere.file.name} " +
                     "${sphere.width}x${sphere.height} mode=$mode",
             )
-            return sphere.copy(
-                diagnostics = "Extended capture ($mode): ${frames.size} frames\n" +
-                    "Run: ${directory.name}\n",
-            )
+            // Diagnostics stay in the log file. The result screen is the
+            // panorama, as on the normal capture path, not a debug readout.
+            return sphere.copy(diagnostics = null)
         } catch (e: CancellationException) {
             throw e
         } finally {
@@ -133,8 +149,9 @@ object ExtendedStitch {
         val raw = File(directory, REFERENCE_RAW_NAME)
         Logging.i("Extended reference: native=${width}x${height} raw=${raw.name}")
         return withContext(Dispatchers.Default) {
+            val placed = refineReference(frames, optics, pivot, onProgress)
             PrototypeRenderer.render(
-                frames = frames,
+                frames = placed,
                 nativeWidth = width,
                 nativeHeight = height,
                 horizontalFovDegrees = optics.fieldOfView.horizontalDegrees.toDouble(),
@@ -149,6 +166,118 @@ object ExtendedStitch {
             )
         }
     }
+
+    /**
+     * Aligns the planned reference coordinates with what the frames actually
+     * show.
+     *
+     * A grid target is where the walker was asked to point, not where the lens
+     * was when the shutter fired: the dwell gate allows a few degrees, and at
+     * 4096 px that is a visible double edge. The production [PoseRefiner] is
+     * exactly the tool for it, so the reference run uses the same one the
+     * adaptive run does, seeded with the planned coordinates instead of the
+     * drifting sensor ones. Decoded at [REFINE_LONG_EDGE] only; the renderer
+     * re-reads the full frames one at a time afterwards.
+     *
+     * If anything cannot be read or no overlap matches, the planned poses are
+     * used unchanged. That is still a closed grid, just without the last
+     * fraction of a degree.
+     */
+    private fun refineReference(
+        frames: List<SphereFrame>,
+        optics: SphereOptics,
+        pivot: PivotModel,
+        onProgress: (StitchProgress) -> Unit,
+    ): List<SphereFrame> {
+        val hfov = optics.fieldOfView.horizontalDegrees
+        val vfov = optics.fieldOfView.verticalDegrees
+        val decoded = ArrayList<DecodedFrame>(frames.size)
+        try {
+            for (frame in frames) {
+                val image = PrototypeRenderer.decodeUpright(frame.file, REFINE_LONG_EDGE)
+                    ?: return frames
+                decoded += DecodedFrame(
+                    image = image,
+                    // The prototype renderer is a pinhole model, so refine
+                    // against a pinhole model too: a distortion correction here
+                    // would be undone by the renderer and the frames would end
+                    // up rotated back out of alignment.
+                    intrinsics = FrameIntrinsics.forLens(
+                        widthPx = image.cols(),
+                        heightPx = image.rows(),
+                        horizontalFovDegrees = hfov,
+                        verticalFovDegrees = vfov,
+                        distortion = null,
+                    ),
+                    sensorBasis = CameraBasis.of(frame.pose),
+                )
+            }
+
+            val result = try {
+                PoseRefiner.refine(
+                    frames = decoded,
+                    horizontalFovDegrees = hfov,
+                    verticalFovDegrees = vfov,
+                    pivotRatio = pivot.ratio,
+                    onProgress = { done, total ->
+                        onProgress(StitchProgress(StitchStage.Refining, done, total))
+                    },
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Logging.w("Extended reference refinement failed, using grid poses", error)
+                return frames
+            }
+
+            Logging.i(
+                "Extended reference refinement: ${result.matchedEdges} matched edges, " +
+                    "${decoded.size} frames",
+            )
+            if (result.matchedEdges == 0) return frames
+
+            return frames.mapIndexed { index, frame ->
+                val basis = result.bases.getOrNull(index) ?: return@mapIndexed frame
+                val pose = basis.toPose()
+                frame.copy(
+                    pose = frame.pose.copy(
+                        yawDegrees = pose.yawDegrees,
+                        pitchDegrees = pose.pitchDegrees,
+                        rollDegrees = pose.rollDegrees,
+                        matrix = null,
+                    ),
+                )
+            }
+        } finally {
+            decoded.forEach { it.image.release() }
+        }
+    }
+
+    /**
+     * Swaps the drifting sensor yaw and pitch for the coordinates the grid
+     * asked for. Roll is left alone: the grid says nothing about it and the
+     * sensor measures it well.
+     */
+    private fun applyPlannedPoses(
+        frames: List<SphereFrame>,
+        planned: Map<Int, CameraPose>,
+    ): List<SphereFrame> {
+        if (planned.isEmpty()) return frames
+        return frames.map { frame ->
+            val index = frameIndex(frame.file.name) ?: return@map frame
+            val target = planned[index] ?: return@map frame
+            frame.copy(
+                pose = frame.pose.copy(
+                    yawDegrees = target.yawDegrees,
+                    pitchDegrees = target.pitchDegrees,
+                ),
+            )
+        }
+    }
+
+    /** The index of an `extended_NN.jpg`, or null for any other file. */
+    private fun frameIndex(name: String): Int? =
+        FRAME_NAME.matchEntire(name)?.groupValues?.getOrNull(1)?.toIntOrNull()
 
     /**
      * Renders the adaptive plan the way production does: the normal stitcher,
@@ -190,7 +319,7 @@ object ExtendedStitch {
      */
     private fun readFrames(directory: File): List<SphereFrame> =
         directory.listFiles()
-            ?.filter { it.isFile && FRAME_NAME.matches(it.name) }
+            ?.filter { it.isFile && frameIndex(it.name) != null }
             ?.sortedBy { it.name }
             .orEmpty()
             .mapNotNull { jpeg ->
@@ -233,15 +362,10 @@ object ExtendedStitch {
      * The pivot the reference grid was proven with.
      *
      * Not [PivotModel.HandheldBodySwivel], which production uses and which
-     * assumes the scene sits at 10 m. That ratio is deliberately cautious, and
-     * it is cautious because the production pipeline is free to refine the
-     * poses afterwards: the class docs are explicit that the under correction
-     * of a close scene stays "comfortably inside what PoseRefiner absorbs".
-     * This stitch turns the refinement off on purpose, so nothing absorbs it,
-     * and a room shot with the cautious ratio would bend at the seams for a
-     * reason that has nothing to do with the grid. 3.5 m is both what the
-     * prototype used and what a room actually is, and it is recorded in
-     * `optics.txt` so the offline replay can match.
+     * assumes the scene sits at 10 m. 3.5 m is both what the prototype used and
+     * what a room actually is, and it is recorded in `optics.txt` so the
+     * offline replay can match. The refinement pass then absorbs the residual
+     * aim error, as it does on the production path.
      */
     private val REFERENCE_PIVOT = PivotModel(leverArmMeters = 0.35f, sceneDistanceMeters = 3.5f)
 
@@ -268,9 +392,17 @@ object ExtendedStitch {
     internal const val DEFAULT_REFERENCE_WIDTH = 2048
 
     /** `extended_NN.jpg` exactly: burst scratch files must never be stitched. */
-    private val FRAME_NAME = Regex("""extended_\d{2}\.jpg""")
+    private val FRAME_NAME = Regex("""extended_(\d{2})\.jpg""")
 
     private const val POSE_SUFFIX = ".pose"
+
+    /**
+     * Long edge the reference refinement decodes to. ORB only needs enough
+     * pixels to recognise an overlap; the renderer then reads the untouched
+     * frame at half resolution again. Kept small so 62 decoded frames stay
+     * comfortably inside the debug heap.
+     */
+    private const val REFINE_LONG_EDGE = 640
 
     /** Raw OpenCV-encoded reference copy written beside a run. */
     private const val REFERENCE_RAW_NAME = "reference_raw.jpg"

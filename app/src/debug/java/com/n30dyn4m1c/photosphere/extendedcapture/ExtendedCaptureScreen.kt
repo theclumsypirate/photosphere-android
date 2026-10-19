@@ -2,14 +2,11 @@ package com.n30dyn4m1c.photosphere.extendedcapture
 
 import android.Manifest
 import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.SystemClock
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.camera.camera2.interop.Camera2CameraControl
 import androidx.camera.camera2.interop.Camera2CameraInfo
-import androidx.camera.camera2.interop.CaptureRequestOptions
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
@@ -31,11 +28,23 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -55,10 +64,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -70,7 +80,6 @@ import com.n30dyn4m1c.photosphere.camera.FocusReticle
 import com.n30dyn4m1c.photosphere.camera.FocusReticleOverlay
 import com.n30dyn4m1c.photosphere.camera.GuidanceProfile
 import com.n30dyn4m1c.photosphere.camera.SphereCaptureScope
-import com.n30dyn4m1c.photosphere.camera.SphereTarget
 import com.n30dyn4m1c.photosphere.camera.SphereTargetPlan
 import com.n30dyn4m1c.photosphere.camera.TargetOverlay
 import com.n30dyn4m1c.photosphere.camera.TargetRelation
@@ -79,10 +88,17 @@ import com.n30dyn4m1c.photosphere.camera.rememberGuidanceFeedback
 import com.n30dyn4m1c.photosphere.camera.rememberSphereOptics
 import com.n30dyn4m1c.photosphere.camera.widestBackCameraId
 import com.n30dyn4m1c.photosphere.orbit.wrapDelta
+import com.n30dyn4m1c.photosphere.result.PanoramaResultScreen
 import com.n30dyn4m1c.photosphere.sensor.OrientationAccuracy
 import com.n30dyn4m1c.photosphere.sensor.rememberOrientationData
+import com.n30dyn4m1c.photosphere.stitching.CameraPose
 import com.n30dyn4m1c.photosphere.storage.SphereImageStore
+import com.n30dyn4m1c.photosphere.ui.theme.GlassContent
+import com.n30dyn4m1c.photosphere.ui.theme.GlassContentDim
+import com.n30dyn4m1c.photosphere.ui.theme.GlassSurface
 import com.n30dyn4m1c.photosphere.ui.theme.PillShape
+import com.n30dyn4m1c.photosphere.ui.theme.SphereAccent
+import com.n30dyn4m1c.photosphere.ui.theme.SphereActive
 import com.n30dyn4m1c.photosphere.util.Logging
 import java.io.File
 import java.util.Locale
@@ -94,9 +110,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** Dwell the aim must hold on a target before the shutter fires. */
-private const val DWELL_DEGREES = 3f
-private const val DWELL_MILLIS = 600L
+/**
+ * Dwell the aim must hold on a target before the shutter fires.
+ *
+ * The same tolerance the normal camera uses: tight enough that the frame really
+ * is where the grid asked for it, which is what keeps the reference stitch on
+ * its planned coordinates, and still holdable by hand.
+ */
+private const val DWELL_DEGREES = 2f
+private const val DWELL_MILLIS = 300L
 
 /**
  * Aspect ratio of the buffer the capture selector asks for (4:3). The optics
@@ -218,8 +240,6 @@ fun ExtendedCaptureScreen(
     }
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
     var camera by remember { mutableStateOf<Camera?>(null) }
-    var camera2Control by remember { mutableStateOf<Camera2CameraControl?>(null) }
-    var exposureLocked by remember { mutableStateOf(false) }
     var opticsWritten by remember { mutableStateOf(false) }
     // Bound lens id, so the optics estimate describes the lens that is really
     // streaming rather than whichever one the profile would guess.
@@ -230,7 +250,9 @@ fun ExtendedCaptureScreen(
     // On phone stitching of the finished run.
     var stitching by remember { mutableStateOf(false) }
     var stitchProgress by remember { mutableStateOf<Float?>(null) }
-    var stitchedFile by remember { mutableStateOf<File?>(null) }
+    // Set when a stitch finishes, and the screen switches to the same result
+    // viewer the normal capture path uses.
+    var resultSphere by remember { mutableStateOf<SphereImageStore.StitchedSphere?>(null) }
     // The higher resolution rerun is behind a warning, so it starts here.
     var showHighResDialog by remember { mutableStateOf(false) }
     // Pose sidecars are written off the main thread. The stitch waits on this
@@ -288,7 +310,6 @@ fun ExtendedCaptureScreen(
             }
             .onSuccess { bound ->
                 camera = bound
-                camera2Control = Camera2CameraControl.from(bound.cameraControl)
                 boundCameraId = Camera2CameraInfo.from(bound.cameraInfo).cameraId
                 cameraError = null
                 Logging.i("Extended camera bound id=$boundCameraId wide=$lensIsWide")
@@ -308,7 +329,6 @@ fun ExtendedCaptureScreen(
 
     val orientationState = rememberOrientationData()
     val orientation by orientationState
-    val pitchNow = orientation.pitchDegrees
 
     // Beeps and speech: the walker is holding the phone at arm's length and
     // looking at the room, so the cues the normal path plays are worth having
@@ -332,7 +352,9 @@ fun ExtendedCaptureScreen(
     var lastBeepAt by remember { mutableStateOf(0L) }
     var previousDwell by remember { mutableFloatStateOf(0f) }
     var guidanceMuted by remember { mutableStateOf(false) }
-    var showList by remember { mutableStateOf(false) }
+    // Log-only text. Nothing in here reaches the screen: the walk HUD shows a
+    // count, a direction and a progress bar, and everything else goes to the
+    // export log.
     var statusLine by remember { mutableStateOf("") }
 
     // The device's real optics, from the lens the session bound, so the on
@@ -368,11 +390,23 @@ fun ExtendedCaptureScreen(
         }
     }
 
-    // Which lens is streaming, for the HUD. Only meaningful once the session
-    // has bound; before that, the profile's own pick is the best guess.
-    val lensLabel = if (boundIsWidest && wideCameraId != null && lensIsWide) "wide" else "main"
-
-    val yawRel = startYawAbs?.let { wrapDelta(orientation.yawDegrees - it) } ?: 0f
+    // The coordinates the reference grid asked for, relative to where the walk
+    // started. The sensor yaw drifts over a full turn, so the reference stitch
+    // is placed on these instead, then refined against the frames. Roll stays
+    // the measured one, which the stitch keeps from the sidecar.
+    val plannedPoses = remember(usesReferenceGrid, plan, planAnchor) {
+        if (!usesReferenceGrid) {
+            emptyMap()
+        } else {
+            plan.targets.mapIndexed { index, target ->
+                index to CameraPose(
+                    yawDegrees = wrapDelta(target.yawDegrees - planAnchor),
+                    pitchDegrees = target.pitchDegrees,
+                    rollDegrees = 0f,
+                )
+            }.toMap()
+        }
+    }
 
     // The active target is the normal path's own selection: it follows the
     // plan's order, hands over when the walker aims at a different uncaptured
@@ -393,24 +427,6 @@ fun ExtendedCaptureScreen(
     }
     val compassBlocked = !orientation.accuracy.allowsCapture
 
-    // Which ring the active target belongs to, and how far through it the walk
-    // is. A ring is the unit that matters: a run stopped at a ring boundary is
-    // a complete band of sphere rather than a walk with a gap in it.
-    val ringText = activeTarget
-        ?.let { index -> plan.rings.indexOfFirst { index in it } }
-        ?.takeIf { it >= 0 }
-        ?.let { ringIndex ->
-            val ring = plan.rings[ringIndex]
-            val done = ring.count { it in captured }
-            "Ring ${ringIndex + 1} of ${plan.rings.size}: $done/${ring.count()}"
-        }
-        .orEmpty()
-
-    val closedRings = plan.completedRings(captured)
-    val ringWord = if (closedRings == 1) "ring" else "rings"
-    val stitchHint = "${captured.size} of ${plan.size} frames, " +
-        "$closedRings $ringWord closed. The rest renders black."
-
     // One line per change of optics, not per frame, for the log file.
     LaunchedEffect(optics) {
         Logging.i(
@@ -429,13 +445,6 @@ fun ExtendedCaptureScreen(
                 "lens=${boundCameraId ?: "?"}",
         )
     }
-
-    val opticsText = "lens $lensLabel %.1f x %.1f deg".format(
-        Locale.US,
-        optics.fieldOfView.horizontalDegrees,
-        optics.fieldOfView.verticalDegrees,
-    )
-    val planText = "$planName plan: ${plan.size} targets, ${plan.rings.size} rings"
 
     // One line per target change, not per sensor sample: the guidance itself
     // stays silent so the 50 Hz attitude stream never reaches the log file.
@@ -557,7 +566,7 @@ fun ExtendedCaptureScreen(
                                 } else {
                                     ExtendedStitch.MAX_INPUT_DIMENSION
                                 },
-                                refinement = mode == ExtendedStitch.Mode.Adaptive,
+                                refinement = true,
                                 planName = planName,
                                 lensId = lensId,
                             )
@@ -613,6 +622,7 @@ fun ExtendedCaptureScreen(
                     optics = optics,
                     mode = mode,
                     outputWidth = outputWidth,
+                    plannedPoses = plannedPoses,
                     // Called from the stitching thread, so hop back to the main
                     // one before touching Compose state.
                     onProgress = { progress ->
@@ -620,7 +630,7 @@ fun ExtendedCaptureScreen(
                     },
                 )
             }.onSuccess { result ->
-                stitchedFile = result.file
+                resultSphere = result
                 statusLine = "Stitched ${result.width}x${result.height}: ${result.file.name}"
                 Logging.i(
                     "Extended stitch done ${result.file.name} ${result.width}x${result.height}",
@@ -631,23 +641,6 @@ fun ExtendedCaptureScreen(
             }
             stitching = false
             stitchProgress = null
-        }
-    }
-
-    fun shareStitched() {
-        val file = stitchedFile ?: return
-        runCatching {
-            val uri = SphereImageStore.shareUri(context, file)
-            val send = Intent(Intent.ACTION_SEND)
-                .setType("image/jpeg")
-                .putExtra(Intent.EXTRA_STREAM, uri)
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            context.startActivity(
-                Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            )
-            Logging.i("Extended stitch shared: ${file.name}")
-        }.onFailure { error ->
-            Logging.w("Extended stitch share failed", error)
         }
     }
 
@@ -664,7 +657,7 @@ fun ExtendedCaptureScreen(
         if (captured.isNotEmpty()) {
             runPath = ExtendedStore.newCaptureDirectory(context).absolutePath
             captured = emptySet()
-            stitchedFile = null
+            resultSphere = null
         }
         statusLine = if (lensIsWide) "Wide lens" else "Main lens"
         Logging.i("Extended lens switched wide=$lensIsWide run=$runPath")
@@ -680,7 +673,10 @@ fun ExtendedCaptureScreen(
         activeTarget,
         started,
         compassBlocked,
+        resultSphere,
     ) {
+        // Reading the result: the walk is over, so nothing more is shot.
+        if (resultSphere != null) return@LaunchedEffect
         val target = activeTarget ?: return@LaunchedEffect
         if (target != activeIndex) activeIndex = target
         if (!started) return@LaunchedEffect
@@ -733,7 +729,8 @@ fun ExtendedCaptureScreen(
     // left". Delayed by a settle so a bearing the walk merely passed through is
     // not announced, and skipped for the first target, which sits wherever the
     // user is already facing.
-    LaunchedEffect(activeTarget, started) {
+    LaunchedEffect(activeTarget, started, resultSphere) {
+        if (resultSphere != null) return@LaunchedEffect
         val target = activeTarget ?: return@LaunchedEffect
         if (!started || captured.isEmpty()) return@LaunchedEffect
         if (guidanceMuted) return@LaunchedEffect
@@ -790,12 +787,56 @@ fun ExtendedCaptureScreen(
 
         FocusReticleOverlay(focus = focusReticle)
 
-        if (!started) {
+        val finishedSphere = resultSphere
+        if (finishedSphere != null) {
+            // The same result viewer the normal camera hands a finished sphere
+            // to: flat preview, pannable panorama, fullscreen, export and
+            // share. "Take another" comes back here with the run still on disk.
+            Box(modifier = Modifier.fillMaxSize()) {
+                PanoramaResultScreen(
+                    sphere = finishedSphere,
+                    frameFiles = ExtendedStore.frameJpegs(captureDirectory),
+                    onTakeAnother = {
+                        Logging.i("Extended result: take another")
+                        resultSphere = null
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+                // The high resolution rerun stays reachable here, and only for
+                // the reference grid, where it matches the proven render.
+                if (usesReferenceGrid && !stitching) {
+                    FilledTonalButton(
+                        onClick = { showHighResDialog = true },
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .systemBarsPadding()
+                            .padding(12.dp),
+                    ) {
+                        Text("4096")
+                    }
+                }
+                if (stitching) {
+                    Surface(
+                        color = GlassSurface,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(24.dp),
+                    ) {
+                        Text(
+                            text = stitchLabel(stitching = true, progress = stitchProgress),
+                            color = GlassContent,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                        )
+                    }
+                }
+            }
+        } else if (!started) {
             StartOverlay(
                 savedCount = captured.size,
                 planSize = plan.size,
-                planName = planName,
-                lensText = opticsText,
+                usingWideLens = lensIsWide && wideCameraId != null,
                 lensNote = lensNote,
                 canSwitchLens = wideCameraId != null,
                 onToggleLens = { switchLens() },
@@ -826,30 +867,21 @@ fun ExtendedCaptureScreen(
             )
         } else {
             ExtendedWalkHud(
-                plan = plan,
-                captured = captured,
-                statusLine = statusLine,
-                opticsText = opticsText,
-                planText = planText,
-                stitchHint = stitchHint,
-                ringText = ringText,
+                capturedCount = captured.size,
+                planSize = plan.size,
                 accuracyWarning = accuracyWarning,
                 cameraError = cameraError,
-                lensNote = lensNote,
-                yawNow = orientation.yawDegrees,
-                pitchNow = pitchNow,
                 activeTarget = activeTarget,
+                turn = activeTarget?.let { plan.turnTo(orientation.yawDegrees, it) } ?: 0f,
+                tilt = activeTarget?.let { plan.tiltTo(orientation.pitchDegrees, it) } ?: 0f,
                 dwellProgress = dwellProgress,
                 capturing = capturing,
-                exposureLocked = exposureLocked,
                 guidanceMuted = guidanceMuted,
                 onToggleGuidance = {
                     guidanceMuted = !guidanceMuted
-                    statusLine = if (guidanceMuted) "Guidance muted" else "Guidance on"
                     Logging.i("Extended guidance muted=$guidanceMuted")
                 },
-                showList = showList,
-                onToggleList = { showList = !showList },
+                canRetake = captured.isNotEmpty() && !capturing,
                 onRetakeLast = {
                     val last = captured.maxOrNull()
                     if (last != null) {
@@ -861,50 +893,13 @@ fun ExtendedCaptureScreen(
                                 .forEach { it.delete() }
                         }
                         activeIndex = last
-                        statusLine = "Cleared frame $last for retake"
                         Logging.i("Extended frame $last cleared for retake")
                     }
                 },
-                onToggleExposure = {
-                    val control = camera2Control
-                    if (control != null) {
-                        runCatching {
-                            val lock = !exposureLocked
-                            control.addCaptureRequestOptions(
-                                CaptureRequestOptions.Builder()
-                                    .setCaptureRequestOption(
-                                        android.hardware.camera2.CaptureRequest.CONTROL_AE_LOCK,
-                                        lock,
-                                    )
-                                    .build()
-                            )
-                            exposureLocked = lock
-                            statusLine = if (lock) "Exposure locked" else "Exposure auto"
-                            Logging.i("Extended exposure locked=$lock")
-                        }.onFailure { error ->
-                            Logging.w("Extended exposure lock failed", error)
-                        }
-                    }
-                },
-                onDone = {
-                    Logging.i(
-                        "Extended walk finished: ${captured.size}/${plan.size} frames " +
-                            "at ${captureDirectory.absolutePath}",
-                    )
-                    onExit()
-                },
-                onPickTarget = { index ->
-                    activeIndex = index
-                    gate.reset()
-                    Logging.i("Extended target picked manually: $index")
-                },
+                onStitch = { stitchOnPhone() },
+                onExit = onExit,
                 stitching = stitching,
                 stitchProgress = stitchProgress,
-                hasStitched = stitchedFile != null,
-                onStitch = { stitchOnPhone() },
-                onShare = { shareStitched() },
-                referenceMode = usesReferenceGrid,
-                onStitchHighRes = { showHighResDialog = true },
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -939,239 +934,211 @@ fun ExtendedCaptureScreen(
     }
 }
 
-/** The live walk: progress card, aim guidance, and the action row. */
+/**
+ * The live walk: a count, a direction, and one button.
+ *
+ * Deliberately the same shape as the normal capture HUD: a glass progress pill
+ * between an undo and a mute control, the guidance line near the bottom, and
+ * one primary action. No coordinates, no plan names, no lens numbers: those go
+ * to the log, not to a user holding the phone at arm's length.
+ */
 @Composable
 private fun ExtendedWalkHud(
-    plan: SphereTargetPlan,
-    captured: Set<Int>,
-    statusLine: String,
-    opticsText: String,
-    planText: String,
-    stitchHint: String,
-    ringText: String,
+    capturedCount: Int,
+    planSize: Int,
     accuracyWarning: String?,
     cameraError: String?,
-    lensNote: String?,
-    yawNow: Float,
-    pitchNow: Float,
     activeTarget: Int?,
+    turn: Float,
+    tilt: Float,
     dwellProgress: Float,
     capturing: Boolean,
-    exposureLocked: Boolean,
     guidanceMuted: Boolean,
     onToggleGuidance: () -> Unit,
-    showList: Boolean,
-    onToggleList: () -> Unit,
+    canRetake: Boolean,
     onRetakeLast: () -> Unit,
-    onToggleExposure: () -> Unit,
-    onDone: () -> Unit,
-    onPickTarget: (Int) -> Unit,
+    onStitch: () -> Unit,
+    onExit: () -> Unit,
     stitching: Boolean,
     stitchProgress: Float?,
-    hasStitched: Boolean,
-    onStitch: () -> Unit,
-    onShare: () -> Unit,
-    referenceMode: Boolean,
-    onStitchHighRes: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.SpaceBetween,
+                .systemBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Surface(
-                color = Color.Black.copy(alpha = 0.55f),
-                shape = RoundedCornerShape(12.dp),
+            Row(
                 modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(
-                        text = "Extended capture: ${captured.size}/${plan.size} captured",
-                        color = Color.White,
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    if (ringText.isNotEmpty()) {
-                        Text(
-                            text = ringText,
-                            color = Color.White.copy(alpha = 0.9f),
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                    }
-                    if (accuracyWarning != null) {
-                        Text(
-                            text = accuracyWarning,
-                            color = Color(0xFFFFC107),
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                    }
-                    if (cameraError != null) {
-                        Text(
-                            text = "Camera unavailable: $cameraError",
-                            color = Color(0xFFEF5350),
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                    }
-                    if (lensNote != null) {
-                        Text(
-                            text = lensNote,
-                            color = Color(0xFFFFC107),
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                    }
-                    if (statusLine.isNotEmpty()) {
-                        Text(
-                            text = statusLine,
-                            color = Color.White.copy(alpha = 0.8f),
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                    Text(
-                        text = stitchHint,
-                        color = Color.White.copy(alpha = 0.7f),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    if (opticsText.isNotEmpty()) {
-                        Text(
-                            text = opticsText,
-                            color = Color.White.copy(alpha = 0.6f),
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                    Text(
-                        text = planText,
-                        color = Color.White.copy(alpha = 0.6f),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
+                HudIconButton(
+                    icon = Icons.Filled.Close,
+                    description = "Close",
+                    onClick = onExit,
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                HudIconButton(
+                    icon = Icons.AutoMirrored.Filled.Undo,
+                    description = "Retake the last frame",
+                    onClick = onRetakeLast,
+                    enabled = canRetake,
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                CaptureCountPill(capturedCount = capturedCount, total = planSize)
+                Spacer(modifier = Modifier.weight(1f))
+                HudIconButton(
+                    icon = if (guidanceMuted) Icons.Filled.VolumeOff else Icons.Filled.VolumeUp,
+                    description = if (guidanceMuted) {
+                        stringResource(R.string.guidance_toggle_show)
+                    } else {
+                        stringResource(R.string.guidance_toggle_hide)
+                    },
+                    onClick = onToggleGuidance,
+                )
             }
 
-            val target = activeTarget
-            if (target != null) {
+            if (accuracyWarning != null) {
+                Spacer(modifier = Modifier.height(10.dp))
+                StatusChip(text = accuracyWarning, color = SphereActive)
+            }
+            if (cameraError != null) {
+                Spacer(modifier = Modifier.height(10.dp))
+                StatusChip(text = "Camera unavailable: $cameraError", color = Color(0xFFEF5350))
+            }
+
+            Spacer(modifier = Modifier.weight(1f))
+
+            if (activeTarget != null) {
                 GuideOverlay(
-                    index = target,
-                    target = plan.targets[target],
-                    turn = plan.turnTo(yawNow, target),
-                    tilt = plan.tiltTo(pitchNow, target),
+                    turn = turn,
+                    tilt = tilt,
                     dwellProgress = dwellProgress,
                     capturing = capturing,
                 )
             } else {
+                Surface(
+                    color = GlassSurface,
+                    shape = MaterialTheme.shapes.medium,
+                ) {
+                    Text(
+                        text = "All $planSize frames captured.",
+                        color = GlassContent,
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 13.dp),
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            if (stitching) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    LinearProgressIndicator(
+                        progress = { stitchProgress ?: 0f },
+                        modifier = Modifier.fillMaxWidth(),
+                        color = SphereAccent,
+                        trackColor = Color.White.copy(alpha = 0.2f),
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+            }
+
+            Button(
+                onClick = onStitch,
+                enabled = !stitching && capturedCount >= MIN_FRAMES_TO_STITCH,
+                shape = PillShape,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(54.dp),
+            ) {
                 Text(
-                    text = "All ${plan.size} frames captured. Stitch on the phone, " +
-                        "or pull the folder.",
-                    color = Color.White,
-                    modifier = Modifier
-                        .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
-                        .padding(12.dp),
+                    text = stitchLabel(stitching, stitchProgress),
+                    style = MaterialTheme.typography.titleMedium,
                 )
             }
-
-            Column {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Button(
-                        onClick = onRetakeLast,
-                        shape = PillShape,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text("Retake last")
-                    }
-                    OutlinedButton(
-                        onClick = onToggleList,
-                        shape = PillShape,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text(if (showList) "Hide targets" else "Pick target")
-                    }
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    OutlinedButton(
-                        onClick = onToggleExposure,
-                        shape = PillShape,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text(if (exposureLocked) "Unlock exposure" else "Lock exposure")
-                    }
-                    OutlinedButton(
-                        onClick = onToggleGuidance,
-                        shape = PillShape,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text(
-                            stringResource(
-                                if (guidanceMuted) {
-                                    R.string.guidance_toggle_show
-                                } else {
-                                    R.string.guidance_toggle_hide
-                                },
-                            ),
-                        )
-                    }
-                    OutlinedButton(
-                        onClick = onDone,
-                        shape = PillShape,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text("Done")
-                    }
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Button(
-                        onClick = onStitch,
-                        enabled = !stitching && captured.size >= MIN_FRAMES_TO_STITCH,
-                        shape = PillShape,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text(stitchLabel(stitching, stitchProgress, captured.size, plan.size))
-                    }
-                    if (hasStitched) {
-                        OutlinedButton(
-                            onClick = onShare,
-                            shape = PillShape,
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text("Share sphere")
-                        }
-                    }
-                }
-                if (hasStitched && referenceMode) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedButton(
-                        onClick = onStitchHighRes,
-                        enabled = !stitching,
-                        shape = PillShape,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("Make higher resolution...")
-                    }
-                }
-            }
         }
+    }
+}
 
-        if (showList) {
-            TargetListPanel(
-                plan = plan,
-                captured = captured,
-                active = activeTarget,
-                onPick = onPickTarget,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(24.dp),
+/** One glass round control, matching the capture HUD's corner buttons. */
+@Composable
+private fun HudIconButton(
+    icon: ImageVector,
+    description: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+) {
+    Surface(
+        shape = CircleShape,
+        color = if (enabled) GlassSurface else GlassSurface.copy(alpha = 0.28f),
+        shadowElevation = 8.dp,
+    ) {
+        IconButton(onClick = onClick, enabled = enabled) {
+            Icon(
+                imageVector = icon,
+                contentDescription = description,
+                tint = if (enabled) GlassContent else GlassContentDim,
             )
         }
+    }
+}
+
+/** The count between the corner controls: the one number worth glancing at. */
+@Composable
+private fun CaptureCountPill(capturedCount: Int, total: Int) {
+    val fraction = if (total > 0) capturedCount.toFloat() / total else 0f
+    Surface(shape = PillShape, color = GlassSurface, shadowElevation = 8.dp) {
+        Column(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 9.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Row(
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                Text(
+                    text = "$capturedCount",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = GlassContent,
+                )
+                Text(
+                    text = "/ $total",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = GlassContentDim,
+                    modifier = Modifier.padding(bottom = 3.dp),
+                )
+            }
+            LinearProgressIndicator(
+                progress = { fraction },
+                modifier = Modifier
+                    .padding(top = 6.dp)
+                    .width(96.dp)
+                    .height(3.dp),
+                color = SphereAccent,
+                trackColor = GlassContent.copy(alpha = 0.22f),
+            )
+        }
+    }
+}
+
+/** A single-line warning chip: compass trouble or a camera that will not bind. */
+@Composable
+private fun StatusChip(text: String, color: Color) {
+    Surface(shape = PillShape, color = GlassSurface) {
+        Text(
+            text = text,
+            color = color,
+            style = MaterialTheme.typography.labelMedium,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+        )
     }
 }
 
@@ -1180,8 +1147,7 @@ private fun ExtendedWalkHud(
 private fun StartOverlay(
     savedCount: Int,
     planSize: Int,
-    planName: String,
-    lensText: String,
+    usingWideLens: Boolean,
     lensNote: String?,
     canSwitchLens: Boolean,
     onToggleLens: () -> Unit,
@@ -1209,23 +1175,19 @@ private fun StartOverlay(
                 style = MaterialTheme.typography.headlineSmall,
             )
             Text(
-                text = "Stand in one spot. Hold the phone level facing the middle of " +
-                    "the room, then press Start. The screen asks for $planSize frames " +
-                    "($planName plan) and shoots each one when you are aimed at it.",
+                text = "Stand in one spot and turn slowly. The app takes $planSize " +
+                    "photos by itself, one each time you aim at a dot.",
                 color = Color.White.copy(alpha = 0.85f),
                 style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
                 modifier = Modifier.padding(top = 12.dp, bottom = 12.dp),
-            )
-            Text(
-                text = lensText,
-                color = Color.White.copy(alpha = 0.75f),
-                style = MaterialTheme.typography.bodyMedium,
             )
             if (lensNote != null) {
                 Text(
                     text = lensNote,
                     color = Color(0xFFFFC107),
                     style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center,
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
@@ -1236,7 +1198,7 @@ private fun StartOverlay(
                     shape = PillShape,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text(if (lensText.contains("wide")) "Use the main lens" else "Use the wide lens")
+                    Text(if (usingWideLens) "Use the main lens" else "Use the wide lens")
                 }
             }
             if (savedCount > 0) {
@@ -1260,63 +1222,59 @@ private fun StartOverlay(
     }
 }
 
-/** Turn and tilt guidance for the active target. */
+/**
+ * The one direction line: turn, tilt, or hold still.
+ *
+ * No coordinates and no target numbers. The dots on the preview already say
+ * where the next shot is; this says which way to move towards it, and the bar
+ * fills while the aim is held.
+ */
 @Composable
 private fun GuideOverlay(
-    index: Int,
-    target: SphereTarget,
     turn: Float,
     tilt: Float,
     dwellProgress: Float,
     capturing: Boolean,
 ) {
+    val onTarget = abs(turn) < 1.5f && abs(tilt) < 1.5f
+    val text = when {
+        capturing -> "Hold still"
+        onTarget -> "Hold still"
+        abs(turn) >= abs(tilt) -> if (turn > 0) "Turn right" else "Turn left"
+        else -> if (tilt > 0) "Tilt down" else "Tilt up"
+    }
     Surface(
-        color = Color.Black.copy(alpha = 0.55f),
+        color = GlassSurface,
         shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.fillMaxWidth(),
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                text = "Target $index: yaw ${target.yawDegrees.roundToInt()} " +
-                    "pitch ${target.pitchDegrees.roundToInt()}",
-                color = Color.White,
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Text(
-                text = "turn ${arrowFor(turn, "right", "left")}   " +
-                    "tilt ${arrowFor(tilt, "down", "up")}",
-                color = Color.White,
-                fontFamily = FontFamily.Monospace,
+                text = text,
+                color = GlassContent,
                 style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.padding(vertical = 8.dp),
             )
             LinearProgressIndicator(
                 progress = { if (capturing) 1f else dwellProgress },
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp),
-            )
-            Text(
-                text = if (capturing) "shooting" else "hold still",
-                color = Color.White.copy(alpha = 0.8f),
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(top = 6.dp),
+                    .padding(top = 10.dp)
+                    .width(160.dp)
+                    .height(5.dp),
+                color = SphereAccent,
+                trackColor = GlassContent.copy(alpha = 0.22f),
             )
         }
     }
 }
 
-/** Label on the on phone stitch button, with the count and progress. */
+/** Label on the stitch button, with progress while it runs. */
 private fun stitchLabel(
     stitching: Boolean,
     progress: Float?,
-    capturedCount: Int,
-    planSize: Int,
 ): String {
-    if (!stitching) return "Stitch on phone ($capturedCount/$planSize)"
+    if (!stitching) return "Finish and stitch"
     val percent = progress?.let { " ${(it * 100f).roundToInt()}%" } ?: ""
     return "Stitching$percent"
 }
@@ -1325,8 +1283,8 @@ private fun stitchLabel(
  * "behind you, above you, to your left": the spoken direction of a target.
  *
  * The same phrasing the normal path speaks, so the cues sound identical in
- * both walks. The plan's own text arrows stay relative, which is why this reads
- * the forward projection rather than the turn and tilt numbers.
+ * both walks. It reads the forward projection rather than a raw turn and tilt
+ * so that "behind you" and "above you" compose the way a listener expects.
  */
 private fun targetPhrase(context: Context, relation: TargetRelation): String {
     val parts = buildList {
@@ -1357,62 +1315,6 @@ private suspend fun awaitPendingWrites(pending: AtomicInteger): Boolean {
         delay(50)
     }
     return pending.get() == 0
-}
-
-/** Arrow glyph plus the degrees left to move, or "on" when close. */
-private fun arrowFor(delta: Float, positiveLabel: String, negativeLabel: String): String {
-    val magnitude = abs(delta)
-    if (magnitude < 1f) return "on"
-    val label = if (delta > 0) positiveLabel else negativeLabel
-    return "${if (delta > 0) ">>" else "<<"} $label ${magnitude.roundToInt()}"
-}
-
-/** Tappable list of every target, so the walker can choose where to go. */
-@Composable
-private fun TargetListPanel(
-    plan: SphereTargetPlan,
-    captured: Set<Int>,
-    active: Int?,
-    onPick: (Int) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        color = Color.Black.copy(alpha = 0.85f),
-        shape = RoundedCornerShape(16.dp),
-        modifier = modifier,
-    ) {
-        Column(
-            modifier = Modifier
-                .padding(16.dp)
-                .verticalScroll(rememberScrollState()),
-        ) {
-            Text(
-                text = "Pick a target",
-                color = Color.White,
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            plan.targets.forEachIndexed { index, t ->
-                val mark = if (index in captured) "[x]" else "[ ]"
-                val isActive = index == active
-                Text(
-                    text = "$mark $index. yaw ${t.yawDegrees.roundToInt()} " +
-                        "pitch ${t.pitchDegrees.roundToInt()}" +
-                        if (isActive) "  < active" else "",
-                    color = if (isActive) Color.Yellow else Color.White,
-                    fontFamily = FontFamily.Monospace,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 2.dp)
-                        .background(
-                            if (isActive) Color.White.copy(alpha = 0.12f) else Color.Transparent,
-                            RoundedCornerShape(4.dp),
-                        ),
-                )
-            }
-        }
-    }
 }
 
 /**

@@ -10,6 +10,7 @@ import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.math.tan
@@ -700,6 +701,41 @@ internal object PrototypeRenderer {
         } finally {
             inpainted.release()
             canvas.release()
+        }
+    }
+
+    /**
+     * Decodes [file] upright (EXIF rotation applied) at no more than
+     * [longEdge] pixels on its longer side, for the pose refinement pass.
+     * Returns null when OpenCV cannot read the file. The caller owns the Mat.
+     */
+    internal fun decodeUpright(file: File, longEdge: Int): Mat? {
+        val full = Imgcodecs.imread(file.absolutePath, Imgcodecs.IMREAD_COLOR)
+        if (full.empty()) {
+            full.release()
+            return null
+        }
+        val upright = applyExifRotation(full, file)
+        if (upright !== full) full.release()
+        val longest = maxOf(upright.cols(), upright.rows())
+        if (longest <= longEdge) return upright
+        return try {
+            val scale = longEdge.toDouble() / longest.toDouble()
+            val scaled = Mat()
+            Imgproc.resize(
+                upright,
+                scaled,
+                Size(
+                    (upright.cols() * scale).roundToInt().toDouble(),
+                    (upright.rows() * scale).roundToInt().toDouble(),
+                ),
+                0.0,
+                0.0,
+                Imgproc.INTER_AREA,
+            )
+            scaled
+        } finally {
+            upright.release()
         }
     }
 
