@@ -149,6 +149,11 @@ fun PanoramaResultScreen(
     onRestitch: ((StitchStyle) -> Unit)? = null,
     restitchError: String? = null,
     onRestitchErrorShown: () -> Unit = {},
+    // An optional extra action below the share row, for the debug extended
+    // capture's 4K rerun. Null on every normal path, so the screen is exactly
+    // what it always was unless a caller asks for it.
+    onHighResRerun: (() -> Unit)? = null,
+    highResRerunLabel: String = "",
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -496,6 +501,8 @@ fun PanoramaResultScreen(
                 madeWith = madeWith,
                 restitching = restitching,
                 onRestitch = onRestitch,
+                onHighResRerun = onHighResRerun,
+                highResRerunLabel = highResRerunLabel,
             )
         }
     }
@@ -698,6 +705,8 @@ private fun ResultActions(
     madeWith: StitchStyle,
     restitching: StitchStyle?,
     onRestitch: ((StitchStyle) -> Unit)?,
+    onHighResRerun: (() -> Unit)?,
+    highResRerunLabel: String,
     modifier: Modifier = Modifier,
 ) {
     val isExported = exportState is ExportState.Done
@@ -871,6 +880,29 @@ private fun ResultActions(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+        }
+
+        // The debug extended capture's 4K rerun. Only rendered when a caller
+        // passes it, which no normal path does.
+        if (onHighResRerun != null) {
+            OutlinedButton(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp),
+                shape = PillShape,
+                enabled = !isBusy,
+                onClick = onHighResRerun,
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.WarningAmber,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text(
+                    modifier = Modifier.padding(start = 8.dp),
+                    text = highResRerunLabel,
+                )
             }
         }
 

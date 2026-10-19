@@ -10,12 +10,19 @@ import kotlin.math.abs
 /*
  * The 62 point sphere grid proven in `tools/pano_proto`, as the app's own plan.
  *
+ * This is the app side of `tools/pano_proto/out/virtual_stairs/coords.json`: the
+ * same 62 (yaw, pitch) pairs, the same 49 by 63 field of view and the same sign
+ * convention. `tools/scratch/verify_reference_coords.py` decodes the plan this
+ * file builds and asserts it is exactly that set, so a real walk asks the user
+ * for one photo per reference coordinate and nothing else. That is the point of
+ * the screen: each frame the user shoots sits on a proven coordinate, and the
+ * stitch places it there.
+ *
  * Five pitch rows of ten bearings each, thirty six degrees apart, plus six
  * zenith and six nadir caps. The coordinates, the sign convention (negative is
  * up) and the yaw anchoring at walk start all mirror the Python side
  * (`virtual_frames_stairs.py`), which closed the loop against the source
- * panorama to 1.8/255 with no structural defects. This screen exists so a real
- * capture can be aimed at exactly those coordinates.
+ * panorama to 1.8/255 with no structural defects.
  *
  * The plan is the app's [SphereTargetPlan] rather than a private type, so the
  * overlay, the target selection and the progress readout all speak the same

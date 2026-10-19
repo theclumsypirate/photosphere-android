@@ -42,7 +42,6 @@ import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -86,7 +85,6 @@ import com.n30dyn4m1c.photosphere.camera.TargetRelation
 import com.n30dyn4m1c.photosphere.camera.TargetSelection
 import com.n30dyn4m1c.photosphere.camera.rememberGuidanceFeedback
 import com.n30dyn4m1c.photosphere.camera.rememberSphereOptics
-import com.n30dyn4m1c.photosphere.camera.widestBackCameraId
 import com.n30dyn4m1c.photosphere.orbit.wrapDelta
 import com.n30dyn4m1c.photosphere.result.PanoramaResultScreen
 import com.n30dyn4m1c.photosphere.sensor.OrientationAccuracy
@@ -168,13 +166,14 @@ private const val POSE_WRITE_WAIT_MILLIS = 5_000L
  * sidecar, so the offline stitch sees exactly the coordinates the screen aimed
  * at.
  *
- * Two plans are possible. On a phone with a bindable ultrawide the widest back
- * lens is used, and the plan is laid out from that lens's own field of view:
- * a wide frame covers far more of the scene, so the sphere needs a fraction of
- * the frames. On the main lens, if it is the lens the 62 point grid was proven
- * for, the proven grid is walked instead. Both are stitched with the same
- * stitcher the normal camera uses, each the way the thing it stands in for is
- * stitched (see [ExtendedStitch.Mode]).
+ * One plan is used. The session binds the main back camera, the lens the 62
+ * point grid was proven for, and the grid is walked whenever that lens's field
+ * of view is close enough to the frame the grid was laid out for. On a lens
+ * that sees less, the plan is laid out from the lens's own field of view
+ * instead, so the sphere still closes without gaps. Nothing is chosen by hand:
+ * the screen picks the lens, the walk just follows the plan. It is stitched
+ * with the same stitcher the normal camera uses, the way the thing it stands in
+ * for is stitched (see [ExtendedStitch.Mode]).
  *
  * This shares no state with the normal capture path: it binds its own camera
  * session and never imports or edits anything from `PhotoSphereCameraScreen`.
@@ -212,24 +211,16 @@ fun ExtendedCaptureScreen(
         return
     }
 
-    // The widest bindable back lens, or null when this phone has only one. The
-    // walk prefers it: a sphere needs far fewer frames from a wide lens, which
-    // is the whole point of walking the grid on the phone rather than with a
-    // laptop in the loop.
-    val wideCameraId = remember { widestBackCameraId(context) }
-
-    // Which lens the session should bind. Only offered when there is a second
-    // lens to choose between, and only honoured before the walk starts.
-    var lensIsWide by rememberSaveable { mutableStateOf(wideCameraId != null) }
-    // Set when the wide lens could not be bound, so the walk knows it is on
-    // the main lens after all.
-    var lensNote by remember { mutableStateOf<String?>(null) }
-
+    // The main back lens. The reference grid was proven for its frame, so it is
+    // the lens the walk wants, and the screen binds it without asking. A phone
+    // with an ultrawide never has to be told which to use: the ultrawide frame
+    // is the wrong shape for the grid, so the main lens is the one that walks
+    // it. If that lens sees too little for the grid, the plan is laid out from
+    // its own field of view instead (see [matchesReferenceFieldOfView]).
+    //
     // The run directory is saveable, so a recreation (a call, a rotation, a
     // process death and restore) comes back to the same folder with the frames
-    // already shot still in it, instead of starting a second run beside it. It
-    // is mutable because switching lens starts a fresh run: two lenses have two
-    // fields of view and cannot share one.
+    // already shot still in it, instead of starting a second run beside it.
     var runPath by rememberSaveable {
         mutableStateOf(ExtendedStore.newCaptureDirectory(context).absolutePath)
     }
@@ -260,7 +251,7 @@ fun ExtendedCaptureScreen(
     // dropped for want of its attitude.
     val pendingWrites = remember { AtomicInteger(0) }
 
-    LaunchedEffect(previewView, lensIsWide) {
+    LaunchedEffect(previewView) {
         val provider = runCatching {
             ProcessCameraProvider.getInstance(context).get()
         }.getOrNull()
@@ -297,22 +288,12 @@ fun ExtendedCaptureScreen(
             return provider.bindToLifecycle(lifecycleOwner, selector, preview, capture)
         }
 
-        val wanted = if (lensIsWide) wideCameraId else null
-        runCatching { bind(wanted?.let { wideCameraSelector(it) } ?: CameraSelector.DEFAULT_BACK_CAMERA) }
-            .recoverCatching { error ->
-                // A filter that matches nothing makes the bind throw. Fall back
-                // to the main lens and say so, rather than leaving a black
-                // viewfinder.
-                if (wanted == null) throw error
-                Logging.w("Extended: lens $wanted would not bind, using the main lens", error)
-                lensNote = "Wide lens would not bind, using the main lens"
-                bind(CameraSelector.DEFAULT_BACK_CAMERA)
-            }
+        runCatching { bind(CameraSelector.DEFAULT_BACK_CAMERA) }
             .onSuccess { bound ->
                 camera = bound
                 boundCameraId = Camera2CameraInfo.from(bound.cameraInfo).cameraId
                 cameraError = null
-                Logging.i("Extended camera bound id=$boundCameraId wide=$lensIsWide")
+                Logging.i("Extended camera bound id=$boundCameraId")
             }
             .onFailure { error ->
                 cameraError = error.message ?: error.javaClass.simpleName
@@ -368,10 +349,9 @@ fun ExtendedCaptureScreen(
     val optics = rememberSphereOptics(boundCameraId, streamAspectRatio = STREAM_ASPECT_RATIO)
 
     // The plan follows the lens. The reference grid was proven for one frame,
-    // and only that frame can walk it without gaps; every other lens, the
-    // ultrawide included, gets a plan laid out from its own field of view.
-    val boundIsWidest = boundCameraId != null && boundCameraId == wideCameraId
-    val usesReferenceGrid = !boundIsWidest && matchesReferenceFieldOfView(optics.fieldOfView)
+    // and only a frame close to it can walk the grid without gaps; any lens
+    // that sees less gets a plan laid out from its own field of view.
+    val usesReferenceGrid = matchesReferenceFieldOfView(optics.fieldOfView)
     val planName = if (usesReferenceGrid) "reference" else "adaptive"
 
     // Rebuilt the moment the walk is anchored, so every target carries the
@@ -651,25 +631,6 @@ fun ExtendedCaptureScreen(
         }
     }
 
-    /**
-     * Swaps between the wide and main lens, before the walk starts.
-     *
-     * Frames already shot belong to the lens they were shot on, so switching
-     * starts a fresh run rather than stitching two fields of view together.
-     */
-    fun switchLens() {
-        if (started) return
-        lensIsWide = !lensIsWide
-        lensNote = null
-        if (captured.isNotEmpty()) {
-            runPath = ExtendedStore.newCaptureDirectory(context).absolutePath
-            captured = emptySet()
-            resultSphere = null
-        }
-        statusLine = if (lensIsWide) "Wide lens" else "Main lens"
-        Logging.i("Extended lens switched wide=$lensIsWide run=$runPath")
-    }
-
     // The shutter: hold the aim on target and it fires by itself. Skipped
     // entirely while the compass is unreliable, for the same reason the normal
     // path refuses there: the markers are drawn from that attitude, so a
@@ -811,23 +772,23 @@ fun ExtendedCaptureScreen(
                         resultSphere = null
                         runCatching { SphereImageStore.deleteCachedSphere(finishedSphere.file) }
                     },
+                    // The higher resolution rerun lives on the result page, the
+                    // way the normal page carries its own actions, and only for
+                    // the reference grid, where a 4K pass matches the proven
+                    // render. It is not offered while one is running, nor when
+                    // the sphere on screen is already the 4K one.
+                    onHighResRerun = if (
+                        usesReferenceGrid &&
+                        !stitching &&
+                        finishedSphere.width < PrototypeRenderer.HIGH_RESOLUTION_OUTPUT_WIDTH
+                    ) {
+                        { showHighResDialog = true }
+                    } else {
+                        null
+                    },
+                    highResRerunLabel = "Make a 4K sphere",
                     modifier = Modifier.fillMaxSize(),
                 )
-                // The higher resolution rerun stays reachable here, and only for
-                // the reference grid, where it matches the proven render. The
-                // normal result screen has no place for it, so it floats in the
-                // empty top corner.
-                if (usesReferenceGrid && !stitching) {
-                    FilledTonalButton(
-                        onClick = { showHighResDialog = true },
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .systemBarsPadding()
-                            .padding(12.dp),
-                    ) {
-                        Text("Make 4K")
-                    }
-                }
                 if (stitching) {
                     Surface(
                         color = GlassSurface,
@@ -849,10 +810,6 @@ fun ExtendedCaptureScreen(
             StartOverlay(
                 savedCount = captured.size,
                 planSize = plan.size,
-                usingWideLens = lensIsWide && wideCameraId != null,
-                lensNote = lensNote,
-                canSwitchLens = wideCameraId != null,
-                onToggleLens = { switchLens() },
                 onStart = {
                     startYawStored = orientation.yawDegrees
                     activeIndex = 0
@@ -1161,10 +1118,6 @@ private fun StatusChip(text: String, color: Color) {
 private fun StartOverlay(
     savedCount: Int,
     planSize: Int,
-    usingWideLens: Boolean,
-    lensNote: String?,
-    canSwitchLens: Boolean,
-    onToggleLens: () -> Unit,
     onStart: () -> Unit,
     onExit: () -> Unit,
 ) {
@@ -1196,25 +1149,6 @@ private fun StartOverlay(
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(top = 12.dp, bottom = 12.dp),
             )
-            if (lensNote != null) {
-                Text(
-                    text = lensNote,
-                    color = Color(0xFFFFC107),
-                    style = MaterialTheme.typography.bodySmall,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-            }
-            if (canSwitchLens) {
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedButton(
-                    onClick = onToggleLens,
-                    shape = PillShape,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(if (usingWideLens) "Use the main lens" else "Use the wide lens")
-                }
-            }
             if (savedCount > 0) {
                 Text(
                     text = "This run already holds $savedCount frames: it will pick " +
@@ -1330,25 +1264,6 @@ private suspend fun awaitPendingWrites(pending: AtomicInteger): Boolean {
     }
     return pending.get() == 0
 }
-
-/**
- * A selector for one physical back camera id.
- *
- * CameraX filters the available cameras down to the one whose camera2 id
- * matches, so the preview and stills bind to the lens [widestBackCameraId]
- * picked for the optics. A filter that matches nothing makes
- * [ProcessCameraProvider.bindToLifecycle] throw, which the caller turns into a
- * fall back to the default back camera.
- */
-@OptIn(ExperimentalCamera2Interop::class)
-private fun wideCameraSelector(cameraId: String): CameraSelector =
-    CameraSelector.Builder()
-        .addCameraFilter { cameras ->
-            cameras.filter { camera ->
-                runCatching { Camera2CameraInfo.from(camera).cameraId }.getOrNull() == cameraId
-            }
-        }
-        .build()
 
 /** Permission gate for the debug screen. */
 @Composable
