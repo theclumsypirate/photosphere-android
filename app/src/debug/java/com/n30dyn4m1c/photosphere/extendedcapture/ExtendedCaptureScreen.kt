@@ -630,6 +630,13 @@ fun ExtendedCaptureScreen(
                     },
                 )
             }.onSuccess { result ->
+                // A 4K rerun replaces the sphere on screen; drop the one it
+                // replaces so the cache does not keep both.
+                resultSphere?.let { previous ->
+                    if (previous.file != result.file) {
+                        runCatching { SphereImageStore.deleteCachedSphere(previous.file) }
+                    }
+                }
                 resultSphere = result
                 statusLine = "Stitched ${result.width}x${result.height}: ${result.file.name}"
                 Logging.i(
@@ -798,12 +805,18 @@ fun ExtendedCaptureScreen(
                     frameFiles = ExtendedStore.frameJpegs(captureDirectory),
                     onTakeAnother = {
                         Logging.i("Extended result: take another")
+                        // The normal result screen hands the sphere back the
+                        // same way: dropping it drops the cached file too, or
+                        // every walk would leave a sphere behind.
                         resultSphere = null
+                        runCatching { SphereImageStore.deleteCachedSphere(finishedSphere.file) }
                     },
                     modifier = Modifier.fillMaxSize(),
                 )
-                // The high resolution rerun stays reachable here, and only for
-                // the reference grid, where it matches the proven render.
+                // The higher resolution rerun stays reachable here, and only for
+                // the reference grid, where it matches the proven render. The
+                // normal result screen has no place for it, so it floats in the
+                // empty top corner.
                 if (usesReferenceGrid && !stitching) {
                     FilledTonalButton(
                         onClick = { showHighResDialog = true },
@@ -812,7 +825,7 @@ fun ExtendedCaptureScreen(
                             .systemBarsPadding()
                             .padding(12.dp),
                     ) {
-                        Text("4096")
+                        Text("Make 4K")
                     }
                 }
                 if (stitching) {
@@ -907,11 +920,12 @@ fun ExtendedCaptureScreen(
         if (showHighResDialog) {
             AlertDialog(
                 onDismissRequest = { showHighResDialog = false },
-                title = { Text("Higher resolution sphere") },
+                title = { Text("Make a 4K sphere?") },
                 text = {
                     Text(
-                        "Do you want to make it higher resolution? " +
-                            "It needs a lot more RAM and more than 5 minutes.",
+                        "The sphere you already have is the normal pass. " +
+                            "A 4096 wide rerun is the high resolution one: " +
+                            "it needs a lot more RAM and more than 5 minutes.",
                     )
                 },
                 confirmButton = {
@@ -921,7 +935,7 @@ fun ExtendedCaptureScreen(
                             stitchOnPhone(highResolution = true)
                         },
                     ) {
-                        Text("Yes, make it higher")
+                        Text("Yes, make 4K")
                     }
                 },
                 dismissButton = {
