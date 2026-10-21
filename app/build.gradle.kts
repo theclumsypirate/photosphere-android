@@ -97,22 +97,37 @@ android {
     }
 }
 
-/*
- * The person and object walk is kept as source but kept out of the build.
+/**
+ * The person and object detection, kept as source but kept out of the build.
  *
  * The MediaPipe artifact is gone from the dependencies, so neither the
  * library nor its native libraries reach the APK. The code that used it
  * lives in app/orbit-disabled/, a directory no source set compiles, so the
- * Kotlin compiler never sees it. It stayed there instead of behind an
- * exclude because a kotlin.exclude in this file is ignored by AGP 9: the
- * compiler takes its files from the AGP source sets, and the files were
- * still compiled, and the build failed on the missing mediapipe imports.
+ * Kotlin compiler never sees it.
+ *
+ * Do not delete this block. AGP 9 does not wire the Kotlin compile
+ * classpath on its own: without this block the compile task gets an empty
+ * classpath and every library in the app reads as an unresolved reference.
+ * The two excludes below are not what keeps the analyzer out. AGP takes the
+ * Kotlin files from its own source sets and ignores them, so the files were
+ * still compiled and the build failed on the missing mediapipe imports. The
+ * move to app/orbit-disabled/ is what keeps them out; the excludes stay
+ * only so the two rules cannot drift apart.
  *
  * To bring it back: move app/orbit-disabled/*.kt back into
- * app/src/main/java/com/n30dyn4m1c/photosphere/orbit/, put the dependency
- * back (com.google.mediapipe:tasks-vision:0.10.14), and restore the orbit
- * entry in MainActivity.
+ * app/src/main/java/com/n30dyn4m1c/photosphere/orbit/, delete the two
+ * excludes below, put the dependency back
+ * (com.google.mediapipe:tasks-vision:0.10.14), and restore the orbit entry
+ * in MainActivity.
  */
+kotlin {
+    sourceSets {
+        getByName("main") {
+            kotlin.exclude("**/orbit/OrbitMediaPipeAnalyzer.kt")
+            kotlin.exclude("**/orbit/OrbitCaptureScreen.kt")
+        }
+    }
+}
 
 dependencies {
     implementation(libs.androidx.core.ktx)
@@ -148,7 +163,7 @@ dependencies {
     // MediaPipe pose for the debug orbit subject tracker. Kept out of the
     // build: the person and object detection is not shipped, and the
     // library and its native libraries are several megabytes of APK for a
-    // feature that is not in it. See the note above.
+    // feature that is not in it. See the kotlin source set excludes above.
 
     testImplementation(libs.junit)
     // runTest / test dispatchers, for the capture coordinator's suspending API.
