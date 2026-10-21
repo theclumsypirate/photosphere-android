@@ -5,6 +5,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 
 /**
@@ -58,16 +59,20 @@ private val SphereColors = darkColorScheme(
 
 @Composable
 fun PhotoSphereTheme(
-    dynamic: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
-    // The version check sits next to the call so lint sees it: the dynamic
-    // scheme only exists from Android 12.
-    val colors = if (dynamic && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        dynamicDarkColorScheme(context)
-    } else {
-        SphereColors
+    val dynamic = MaterialYou.isEnabled
+    // Recomputed when the switch flips, not on every recomposition: reading
+    // the wallpaper palette is a resource lookup, not a free operation.
+    val colors = remember(dynamic, context) {
+        // The version check sits next to the call so lint sees it: the dynamic
+        // scheme only exists from Android 12.
+        if (dynamic && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            dynamicDarkColorScheme(context)
+        } else {
+            SphereColors
+        }
     }
     MaterialTheme(
         colorScheme = colors,

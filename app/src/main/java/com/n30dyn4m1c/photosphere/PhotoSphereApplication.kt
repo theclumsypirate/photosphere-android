@@ -7,6 +7,7 @@ import android.util.Log
 import com.n30dyn4m1c.photosphere.diagnostics.LagTracker
 import com.n30dyn4m1c.photosphere.diagnostics.Report
 import com.n30dyn4m1c.photosphere.storage.SphereImageStore
+import com.n30dyn4m1c.photosphere.ui.theme.MaterialYou
 import com.n30dyn4m1c.photosphere.util.FileLogger
 import com.n30dyn4m1c.photosphere.util.Logging
 import kotlinx.coroutines.CoroutineScope
@@ -33,6 +34,8 @@ class PhotoSphereApplication : Application() {
         Logging.installCrashHandler()
         FileLogger.init(this)
         Logging.i("PhotoSphereApplication.onCreate")
+        // Read once, here, so the first composition already knows the answer.
+        MaterialYou.load(this)
         isOpenCvAvailable = OpenCVLoader.initLocal()
         if (isOpenCvAvailable) {
             Logging.i("OpenCV initialised: ${OpenCVLoader.OPENCV_VERSION}")

@@ -98,7 +98,6 @@ import com.n30dyn4m1c.photosphere.ui.theme.GlassContent
 import com.n30dyn4m1c.photosphere.ui.theme.GlassContentDim
 import com.n30dyn4m1c.photosphere.ui.theme.GlassSurface
 import com.n30dyn4m1c.photosphere.ui.theme.PillShape
-import com.n30dyn4m1c.photosphere.ui.theme.SphereAccent
 import com.n30dyn4m1c.photosphere.ui.theme.SphereActive
 import com.n30dyn4m1c.photosphere.util.Logging
 import java.io.File
@@ -1025,7 +1024,7 @@ private fun ExtendedWalkHud(
                     LinearProgressIndicator(
                         progress = { stitchProgress ?: 0f },
                         modifier = Modifier.fillMaxWidth(),
-                        color = SphereAccent,
+                        color = MaterialTheme.colorScheme.primary,
                         trackColor = Color.White.copy(alpha = 0.2f),
                     )
                     Spacer(modifier = Modifier.height(6.dp))
@@ -1103,7 +1102,7 @@ private fun CaptureCountPill(capturedCount: Int, total: Int) {
                     .padding(top = 6.dp)
                     .width(96.dp)
                     .height(3.dp),
-                color = SphereAccent,
+                color = MaterialTheme.colorScheme.primary,
                 trackColor = GlassContent.copy(alpha = 0.22f),
             )
         }
@@ -1221,7 +1220,7 @@ private fun GuideOverlay(
                     .padding(top = 10.dp)
                     .width(160.dp)
                     .height(5.dp),
-                color = SphereAccent,
+                color = MaterialTheme.colorScheme.primary,
                 trackColor = GlassContent.copy(alpha = 0.22f),
             )
         }

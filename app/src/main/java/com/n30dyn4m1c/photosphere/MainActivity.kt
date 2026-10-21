@@ -74,7 +74,6 @@ import com.n30dyn4m1c.photosphere.stitching.StitchStyle
 import com.n30dyn4m1c.photosphere.stitching.restitchSphere
 import com.n30dyn4m1c.photosphere.storage.SphereImageStore
 import com.n30dyn4m1c.photosphere.storage.SphereImageStore.StitchedSphere
-import com.n30dyn4m1c.photosphere.ui.theme.MaterialYou
 import com.n30dyn4m1c.photosphere.ui.theme.PhotoSphereTheme
 import com.n30dyn4m1c.photosphere.ui.theme.PillShape
 import com.n30dyn4m1c.photosphere.util.Logging
@@ -106,24 +105,12 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
         )
         setContent {
-            val context = LocalContext.current
-
-            // Material You lives here because it has to reach two places: the
-            // theme that paints the app and the settings row that flips it.
-            var materialYou by remember { mutableStateOf(MaterialYou.isEnabled(context)) }
-
-            PhotoSphereTheme(dynamic = materialYou) {
+            PhotoSphereTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,
                 ) {
-                    PhotoSphereApp(
-                        materialYou = materialYou,
-                        onMaterialYouChange = { enabled ->
-                            materialYou = enabled
-                            MaterialYou.setEnabled(context, enabled)
-                        },
-                    )
+                    PhotoSphereApp()
                 }
             }
         }
@@ -205,11 +192,7 @@ private enum class Entry {
  * through a capture that already passed or through photos the user picked.
  */
 @Composable
-private fun PhotoSphereApp(
-    materialYou: Boolean,
-    onMaterialYouChange: (Boolean) -> Unit,
-    modifier: Modifier = Modifier,
-) {
+private fun PhotoSphereApp(modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
 
     // The orientation readout needs no permissions, so it sits beside the
@@ -304,11 +287,7 @@ private fun PhotoSphereApp(
         when {
             showOrientationDebug -> OrientationDebugScreen()
 
-            showSettings -> SettingsScreen(
-                onBack = { showSettings = false },
-                materialYou = materialYou,
-                onMaterialYouChange = onMaterialYouChange,
-            )
+            showSettings -> SettingsScreen(onBack = { showSettings = false })
 
             finished != null -> PanoramaResultScreen(
                 sphere = finished,

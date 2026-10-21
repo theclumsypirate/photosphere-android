@@ -18,6 +18,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,9 +33,10 @@ import androidx.compose.ui.unit.dp
 import com.n30dyn4m1c.photosphere.BuildConfig
 import com.n30dyn4m1c.photosphere.R
 import com.n30dyn4m1c.photosphere.camera.SamsungHighRes
+import com.n30dyn4m1c.photosphere.diagnostics.LagTracker
 import com.n30dyn4m1c.photosphere.diagnostics.Report
-import com.n30dyn4m1c.photosphere.util.Logging
 import com.n30dyn4m1c.photosphere.ui.theme.MaterialYou
+import com.n30dyn4m1c.photosphere.util.Logging
 import com.n30dyn4m1c.photosphere.ui.theme.PillShape
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -49,8 +51,6 @@ import java.io.File
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
-    materialYou: Boolean,
-    onMaterialYouChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -67,12 +67,9 @@ fun SettingsScreen(
             textAlign = TextAlign.Center,
         )
         if (BuildConfig.DEBUG && MaterialYou.isSupported) {
-            MaterialYouRow(
-                checked = materialYou,
-                onCheckedChange = onMaterialYouChange,
-                modifier = Modifier.padding(top = 20.dp),
-            )
+            MaterialYouRow(modifier = Modifier.padding(top = 20.dp))
         }
+        LagRows(modifier = Modifier.padding(top = 20.dp))
         ReportRows(modifier = Modifier.padding(top = 28.dp))
         if (BuildConfig.DEBUG && SamsungHighRes.isSamsung()) {
             SamsungRows(modifier = Modifier.padding(top = 20.dp))
@@ -220,11 +217,9 @@ private fun SamsungRows(modifier: Modifier = Modifier) {
  * wallpaper palette to take.
  */
 @Composable
-private fun MaterialYouRow(
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-    modifier: Modifier = Modifier,
-) {
+private fun MaterialYouRow(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val enabled = MaterialYou.isEnabled
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier.fillMaxWidth(),
@@ -234,7 +229,86 @@ private fun MaterialYouRow(
             style = MaterialTheme.typography.bodyLarge,
             modifier = Modifier.weight(1f),
         )
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(
+            checked = enabled,
+            onCheckedChange = { MaterialYou.setEnabled(context, it) },
+        )
+    }
+}
+
+/**
+ * How the app has been drawing: frames measured, how many were slow, the
+ * worst one, and a way to write the whole list to a file.
+ *
+ * "It lags" is worth nothing without the numbers, and the numbers are only
+ * useful next to what was happening at the time, so the file carries the
+ * moments too, such as a palette flip.
+ */
+@Composable
+private fun LagRows(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    // Read again whenever the palette flips: the point of the row is to see
+    // what a flip costs.
+    val palette = MaterialYou.isEnabled
+    var summary by remember { mutableStateOf(LagTracker.summary()) }
+    LaunchedEffect(palette) { summary = LagTracker.summary() }
+
+    val saveLog = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain"),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val text = buildString {
+                        appendLine("Frame timing")
+                        appendLine(LagTracker.report())
+                    }
+                    context.contentResolver.openOutputStream(uri)?.use { out ->
+                        out.write(text.toByteArray())
+                    } ?: error("no stream for $uri")
+                }
+                Toast.makeText(
+                    context,
+                    context.getString(R.string.settings_lag_saved),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }.onFailure { error ->
+                Logging.w("Lag log save failed", error)
+                Toast.makeText(
+                    context,
+                    context.getString(R.string.report_failed),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
+    }
+
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text = stringResource(R.string.settings_lag_title),
+            style = MaterialTheme.typography.titleMedium,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text(
+            text = summary,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 6.dp),
+        )
+        TextButton(
+            onClick = { saveLog.launch("lag-log.txt") },
+            modifier = Modifier.padding(top = 4.dp),
+        ) {
+            Text(text = stringResource(R.string.settings_lag_save))
+        }
     }
 }
 

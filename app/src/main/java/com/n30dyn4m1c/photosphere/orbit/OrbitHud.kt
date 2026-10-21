@@ -61,7 +61,6 @@ import com.n30dyn4m1c.photosphere.ui.theme.GlassContentDim
 import com.n30dyn4m1c.photosphere.ui.theme.GlassSurface
 import com.n30dyn4m1c.photosphere.ui.theme.GlassSurfaceDim
 import com.n30dyn4m1c.photosphere.ui.theme.PillShape
-import com.n30dyn4m1c.photosphere.ui.theme.SphereAccent
 import com.n30dyn4m1c.photosphere.ui.theme.SphereActive
 
 /**
@@ -141,7 +140,7 @@ fun OrbitHud(
                 .padding(end = 20.dp, top = 22.dp),
             shape = CircleShape,
             color = if (guidanceEnabled) {
-                SphereAccent.copy(alpha = 0.9f)
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
             } else {
                 GlassSurface
             },
@@ -161,7 +160,11 @@ fun OrbitHud(
                             R.string.guidance_toggle_show
                         }
                     ),
-                    tint = if (guidanceEnabled) Color.Black else GlassContent,
+                    tint = if (guidanceEnabled) {
+                        MaterialTheme.colorScheme.onPrimary
+                    } else {
+                        GlassContent
+                    },
                 )
             }
         }
@@ -232,8 +235,8 @@ fun OrbitHud(
                     onClick = onFinish,
                     shape = PillShape,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = SphereAccent,
-                        contentColor = Color.Black,
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -325,7 +328,7 @@ private fun OrbitProgressPill(
                         .fillMaxWidth(0.8f)
                         .height(3.dp)
                         .clip(PillShape),
-                    color = SphereAccent,
+                    color = MaterialTheme.colorScheme.primary,
                     trackColor = GlassContent.copy(alpha = 0.22f),
                     gapSize = 0.dp,
                     drawStopIndicator = {},
