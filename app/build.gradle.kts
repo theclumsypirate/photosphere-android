@@ -105,9 +105,11 @@ android {
  * lives in app/orbit-disabled/, a directory no source set compiles, so the
  * Kotlin compiler never sees it.
  *
- * Do not delete this block. AGP 9 does not wire the Kotlin compile
- * classpath on its own: without this block the compile task gets an empty
- * classpath and every library in the app reads as an unresolved reference.
+ * Do not put a file glob in this comment. A slash followed by a star
+ * inside a Kotlin block comment opens a nested comment, and the star-slash
+ * of the exclude pattern then closes the note early, which breaks the
+ * whole build script.
+ *
  * The two excludes below are not what keeps the analyzer out. AGP takes the
  * Kotlin files from its own source sets and ignores them, so the files were
  * still compiled and the build failed on the missing mediapipe imports. The
