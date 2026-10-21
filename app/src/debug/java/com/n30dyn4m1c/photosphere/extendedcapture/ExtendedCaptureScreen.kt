@@ -3,10 +3,13 @@ package com.n30dyn4m1c.photosphere.extendedcapture
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.hardware.camera2.CaptureRequest
 import android.os.SystemClock
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.camera2.interop.Camera2CameraControl
 import androidx.camera.camera2.interop.Camera2CameraInfo
+import androidx.camera.camera2.interop.CaptureRequestOptions
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
@@ -250,6 +253,9 @@ fun ExtendedCaptureScreen(
     // counter so a frame saved a moment before the button press cannot be
     // dropped for want of its attitude.
     val pendingWrites = remember { AtomicInteger(0) }
+    // The camera2 control that holds AE/AWB for the run. Kept so the lock can
+    // be released when the screen goes, instead of outliving the walk.
+    val runExposureControl = remember { mutableStateOf<Camera2CameraControl?>(null) }
 
     LaunchedEffect(previewView) {
         val provider = runCatching {
@@ -304,6 +310,7 @@ fun ExtendedCaptureScreen(
     DisposableEffect(Unit) {
         onDispose {
             Logging.i("Extended capture screen disposed")
+            runCatching { runExposureControl.value?.clearCaptureRequestOptions() }
             runCatching { imageCapture = null }
         }
     }
@@ -817,6 +824,10 @@ fun ExtendedCaptureScreen(
                     // walk), so the count comes from disk rather than memory.
                     captured = ExtendedStore.savedIndices(captureDirectory)
                     started = true
+                    // Hold exposure and white balance for the whole run, so the
+                    // frames agree at their borders and a flat ceiling does not
+                    // fan into light and dark wedges.
+                    camera?.let { runExposureControl.value = lockRunExposure(it) }
                     // One format over the whole line: a `.format` on the second
                     // literal of a concatenation would bind only to that half
                     // and misalign the arguments.
@@ -1287,4 +1298,32 @@ private fun ExtendedPermissionGate(onRetry: () -> Unit) {
             }
         }
     }
+}
+
+/**
+ * Holds exposure and white balance where the preview settled them, for a walk.
+ *
+ * Every frame is stitched against the others, and the stitcher only softens a
+ * seam where two frames agree. A run whose frames each auto-expose leaves a
+ * brightness step at every ownership border, which reads as a fan of light and
+ * dark wedges on a flat ceiling. Locking AE and AWB once the walk starts gives
+ * all 62 frames one exposure, so the borders have nothing to disagree about.
+ *
+ * Returns the camera2 control so [Camera2CameraControl.clearCaptureRequestOptions]
+ * can release the lock when the screen goes, or null when the bound camera is
+ * not camera2 backed (in which case the run stitches as it always did).
+ *
+ * Debug only.
+ */
+@OptIn(ExperimentalCamera2Interop::class)
+private fun lockRunExposure(camera: Camera): Camera2CameraControl? {
+    val control = runCatching { Camera2CameraControl.from(camera.cameraControl) }.getOrNull()
+        ?: return null
+    val options = CaptureRequestOptions.Builder()
+        .setCaptureRequestOption(CaptureRequest.CONTROL_AE_LOCK, true)
+        .setCaptureRequestOption(CaptureRequest.CONTROL_AWB_LOCK, true)
+        .build()
+    control.addCaptureRequestOptions(options)
+    Logging.i("Extended exposure locked (AE+AWB) for the run")
+    return control
 }
