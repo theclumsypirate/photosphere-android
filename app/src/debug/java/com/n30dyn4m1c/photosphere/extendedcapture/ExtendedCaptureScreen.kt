@@ -98,7 +98,6 @@ import com.n30dyn4m1c.photosphere.ui.theme.GlassContent
 import com.n30dyn4m1c.photosphere.ui.theme.GlassContentDim
 import com.n30dyn4m1c.photosphere.ui.theme.GlassSurface
 import com.n30dyn4m1c.photosphere.ui.theme.PillShape
-import com.n30dyn4m1c.photosphere.ui.theme.SphereActive
 import com.n30dyn4m1c.photosphere.util.Logging
 import java.io.File
 import java.util.Locale
@@ -984,7 +983,10 @@ private fun ExtendedWalkHud(
 
             if (accuracyWarning != null) {
                 Spacer(modifier = Modifier.height(10.dp))
-                StatusChip(text = accuracyWarning, color = SphereActive)
+                StatusChip(
+                    text = accuracyWarning,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
             }
             if (cameraError != null) {
                 Spacer(modifier = Modifier.height(10.dp))

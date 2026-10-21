@@ -61,7 +61,6 @@ import com.n30dyn4m1c.photosphere.ui.theme.GlassContentDim
 import com.n30dyn4m1c.photosphere.ui.theme.GlassSurface
 import com.n30dyn4m1c.photosphere.ui.theme.GlassSurfaceDim
 import com.n30dyn4m1c.photosphere.ui.theme.PillShape
-import com.n30dyn4m1c.photosphere.ui.theme.SphereActive
 
 /**
  * The capture screen's HUD, copied for the orbit walk: scrim washes,
@@ -215,7 +214,7 @@ fun OrbitHud(
                     Icon(
                         imageVector = Icons.Filled.Warning,
                         contentDescription = null,
-                        tint = SphereActive,
+                        tint = MaterialTheme.colorScheme.secondary,
                         modifier = Modifier.size(18.dp),
                     )
                     Text(

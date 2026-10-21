@@ -1,6 +1,7 @@
 package com.n30dyn4m1c.photosphere.orbit
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -15,8 +16,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
-import com.n30dyn4m1c.photosphere.ui.theme.SphereAccent
-import com.n30dyn4m1c.photosphere.ui.theme.SphereActive
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
@@ -49,6 +48,11 @@ fun OrbitRingOverlay(
         List(safeTotal) { i -> -90f + i * (360f / safeTotal) }
     }
 
+    // The dots take their colours from the theme, so the ring follows
+    // Material You when it is on.
+    val accent = MaterialTheme.colorScheme.primary
+    val signal = MaterialTheme.colorScheme.secondary
+
     Canvas(modifier = modifier.fillMaxSize()) {
         val ringRadius = min(size.width, size.height) * ORBIT_RING_RADIUS_FRACTION
         dotAngles.forEachIndexed { index, angleDeg ->
@@ -59,19 +63,19 @@ fun OrbitRingOverlay(
             )
             when {
                 index < capturedCount -> drawCircle(
-                    color = SphereAccent,
+                    color = accent,
                     radius = 5.dp.toPx(),
                     center = pos,
                 )
                 index == activeIndex -> {
                     drawCircle(
-                        color = SphereActive.copy(alpha = 0.25f + 0.35f * pulse),
+                        color = signal.copy(alpha = 0.25f + 0.35f * pulse),
                         radius = 14.dp.toPx(),
                         center = pos,
                         style = Stroke(width = 4.dp.toPx()),
                     )
                     drawCircle(
-                        color = SphereActive,
+                        color = signal,
                         radius = 5.dp.toPx(),
                         center = pos,
                     )

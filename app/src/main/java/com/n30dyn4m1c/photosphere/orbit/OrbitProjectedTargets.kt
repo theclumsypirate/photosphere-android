@@ -1,6 +1,7 @@
 package com.n30dyn4m1c.photosphere.orbit
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -8,8 +9,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
-import com.n30dyn4m1c.photosphere.ui.theme.SphereAccent
-import com.n30dyn4m1c.photosphere.ui.theme.SphereActive
 
 /**
  * Projected target dots for the pitch-grid orbit walk. Pure display.
@@ -41,6 +40,11 @@ fun OrbitProjectedTargets(
     halfVfovDegrees: Float = PROJECTED_HALF_VFOV,
     modifier: Modifier = Modifier,
 ) {
+    // The markers take their colours from the theme, so the projected
+    // targets follow Material You when it is on.
+    val accent = MaterialTheme.colorScheme.primary
+    val signal = MaterialTheme.colorScheme.secondary
+
     Canvas(modifier = modifier.fillMaxSize()) {
         val halfW = size.width / 2f
         val halfH = size.height / 2f
@@ -56,19 +60,19 @@ fun OrbitProjectedTargets(
             )
             when {
                 index in captured -> drawCircle(
-                    color = SphereAccent,
+                    color = accent,
                     radius = 5.dp.toPx(),
                     center = pos,
                 )
                 index == activeIndex -> {
                     drawCircle(
-                        color = SphereActive,
+                        color = signal,
                         radius = 14.dp.toPx(),
                         center = pos,
                         style = Stroke(width = 4.dp.toPx()),
                     )
                     drawCircle(
-                        color = SphereActive,
+                        color = signal,
                         radius = (5 + 9 * dwellProgress).dp.toPx(),
                         center = pos,
                     )

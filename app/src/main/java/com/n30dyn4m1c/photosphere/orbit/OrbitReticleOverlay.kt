@@ -1,6 +1,7 @@
 package com.n30dyn4m1c.photosphere.orbit
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -15,8 +16,6 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.unit.dp
 import com.n30dyn4m1c.photosphere.R
-import com.n30dyn4m1c.photosphere.ui.theme.SphereAccent
-import com.n30dyn4m1c.photosphere.ui.theme.SphereActive
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.min
@@ -38,16 +37,21 @@ fun OrbitReticleOverlay(
     turnDegrees: Float?,
     modifier: Modifier = Modifier,
 ) {
+    // The ring and the dwell arc take the accent from the theme, so the
+    // orbit HUD follows Material You when it is on.
+    val accent = MaterialTheme.colorScheme.primary
+    val signal = MaterialTheme.colorScheme.secondary
+
     Canvas(modifier = modifier.fillMaxSize()) {
         val radius = min(size.width, size.height) * ORBIT_RETICLE_RADIUS_FRACTION
         val strokeWidth = 3.dp.toPx()
         val tickLength = 10.dp.toPx()
         val closeness = (1f - (distanceDegrees - thresholdDegrees) / thresholdDegrees)
             .coerceIn(0f, 1f)
-        val color = lerp(Color.White.copy(alpha = 0.9f), SphereAccent, closeness)
+        val color = lerp(Color.White.copy(alpha = 0.9f), accent, closeness)
 
         drawCircle(
-            color = SphereAccent.copy(alpha = 0.10f + 0.18f * closeness),
+            color = accent.copy(alpha = 0.10f + 0.18f * closeness),
             radius = radius + 8.dp.toPx(),
             center = center,
             style = Stroke(width = 1.5.dp.toPx()),
@@ -69,7 +73,7 @@ fun OrbitReticleOverlay(
 
         if (dwellProgress > 0f) {
             drawArc(
-                color = SphereAccent,
+                color = accent,
                 startAngle = -90f,
                 sweepAngle = 360f * dwellProgress,
                 useCenter = false,
@@ -83,7 +87,7 @@ fun OrbitReticleOverlay(
             val direction = Offset(if (turnDegrees >= 0f) 1f else -1f, 0f)
             drawEdgeChevron(
                 direction = direction,
-                color = SphereActive,
+                color = signal,
                 margin = 24.dp.toPx(),
             )
         }
@@ -143,6 +147,11 @@ fun OrbitTargetsOverlay(
     captured: Set<Int>,
     modifier: Modifier = Modifier,
 ) {
+    // The dots take their colours from the theme, like the rest of the
+    // orbit HUD.
+    val accent = MaterialTheme.colorScheme.primary
+    val signal = MaterialTheme.colorScheme.secondary
+
     Canvas(modifier = modifier.fillMaxSize()) {
         val halfFov = ORBIT_HFOV_DEGREES / 2f
         val margin = 24.dp.toPx()
@@ -153,19 +162,19 @@ fun OrbitTargetsOverlay(
             val x = size.width / 2f + (rel / halfFov) * (size.width / 2f - margin)
             when {
                 index in captured -> drawCircle(
-                    color = SphereAccent,
+                    color = accent,
                     radius = 5.dp.toPx(),
                     center = Offset(x, cy),
                 )
                 index == activeIndex -> {
                     drawCircle(
-                        color = SphereActive,
+                        color = signal,
                         radius = 16.dp.toPx(),
                         center = Offset(x, cy),
                         style = Stroke(width = 5.dp.toPx()),
                     )
                     drawCircle(
-                        color = SphereActive,
+                        color = signal,
                         radius = 5.dp.toPx(),
                         center = Offset(x, cy),
                     )

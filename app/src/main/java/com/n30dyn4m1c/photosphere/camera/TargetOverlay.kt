@@ -9,6 +9,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -41,9 +42,11 @@ private const val PULSE_PERIOD_MILLIS = 1600
 /**
  * Colours of the overlay.
  *
- * Fixed rather than themed: the overlay is drawn on top of an arbitrary camera
- * image, so it needs contrast against whatever the user happens to be pointing
- * at rather than agreement with the app's surfaces.
+ * The accent and the signal come from the theme, so the markers follow
+ * Material You when it is on and keep the app's own colours when it is off.
+ * The rest is fixed: the overlay is drawn on top of an arbitrary camera
+ * image, so those parts need contrast against whatever the user happens to be
+ * pointing at rather than agreement with the app's surfaces.
  */
 data class TargetOverlayColors(
     val reticle: Color,
@@ -61,6 +64,16 @@ data class TargetOverlayColors(
             completed = SphereAccent,
             pending = Color.White.copy(alpha = 0.32f),
             guide = Color.White.copy(alpha = 0.24f),
+        )
+
+        /** The same overlay, with the accent and the signal from the theme. */
+        fun themed(primary: Color, secondary: Color) = TargetOverlayColors(
+            reticle = Default.reticle,
+            reticleAligned = primary,
+            active = secondary,
+            completed = primary,
+            pending = Default.pending,
+            guide = Default.guide,
         )
     }
 }
@@ -86,8 +99,15 @@ fun TargetOverlay(
     captured: Set<Int>,
     fieldOfView: FieldOfView,
     modifier: Modifier = Modifier,
-    colors: TargetOverlayColors = TargetOverlayColors.Default,
+    colors: TargetOverlayColors? = null,
 ) {
+    // The markers take the accent and the signal from the theme, so they
+    // follow Material You when it is on and keep the app's own colours when
+    // it is off.
+    val palette = colors ?: TargetOverlayColors.themed(
+        MaterialTheme.colorScheme.primary,
+        MaterialTheme.colorScheme.secondary,
+    )
     // Runs on every hand-over, so the incoming marker grows in rather than
     // appearing somewhere new in the same frame the last one turned green.
     val focus = remember { Animatable(0f) }
@@ -128,7 +148,7 @@ fun TargetOverlay(
             // is a few hundred markers and this runs at display rate.
             camera = SphereProjection.cameraFrame(currentOrientation),
             focalPx = focalPx,
-            colors = colors,
+            colors = palette,
             focus = focus.value,
             pulse = pulse.value,
         )
@@ -138,7 +158,7 @@ fun TargetOverlay(
                 orientation = currentOrientation,
                 target = plan?.targets?.getOrNull(activeIndex)?.takeIf { activeIndex !in captured },
             ),
-            colors = colors,
+            colors = palette,
         )
     }
 }
@@ -166,9 +186,10 @@ data class FocusReticle(
  * The tap-to-focus square drawn where the user aimed focus.
  *
  * A single rounded square with corner brackets, like a phone camera's focus
- * box: warm amber while the sweep runs (growing slightly, so the sweep reads
- * as alive), green once the lens has locked. It is drawn on top of everything
- * else so it never hides behind the target markers.
+ * box: the signal colour while the sweep runs (growing slightly, so the sweep
+ * reads as alive), the accent once the lens has locked. Both come from the
+ * theme, so the box follows Material You when it is on. It is drawn on top of
+ * everything else so it never hides behind the target markers.
  */
 @Composable
 fun FocusReticleOverlay(
@@ -183,10 +204,15 @@ fun FocusReticleOverlay(
         appear.animateTo(1f, animationSpec = tween(240, easing = FastOutSlowInEasing))
     }
 
+    // Read here rather than inside the draw, so the colours are picked up
+    // when the palette changes and the canvas still redraws on its own.
+    val working = MaterialTheme.colorScheme.secondary
+    val locked = MaterialTheme.colorScheme.primary
+
     Canvas(modifier = modifier.fillMaxSize()) {
         val color = when {
-            focus.isWorking -> SphereActive
-            focus.isLocked -> SphereAccent
+            focus.isWorking -> working
+            focus.isLocked -> locked
             else -> Color.White.copy(alpha = 0.9f)
         }
 
@@ -602,6 +628,7 @@ private fun TargetOverlaySearchingPreview() {
         activeIndex = 3,
         captured = setOf(0, 1, 2),
         fieldOfView = FieldOfView(horizontalDegrees = 52f, verticalDegrees = 66f),
+        colors = TargetOverlayColors.Default,
     )
 }
 
@@ -616,5 +643,6 @@ private fun TargetOverlayHoldingPreview() {
         activeIndex = 3,
         captured = setOf(0, 1, 2),
         fieldOfView = FieldOfView(horizontalDegrees = 52f, verticalDegrees = 66f),
+        colors = TargetOverlayColors.Default,
     )
 }

@@ -148,7 +148,6 @@ import com.n30dyn4m1c.photosphere.ui.theme.GlassContentDim
 import com.n30dyn4m1c.photosphere.ui.theme.GlassSurface
 import com.n30dyn4m1c.photosphere.ui.theme.GlassSurfaceDim
 import com.n30dyn4m1c.photosphere.ui.theme.PillShape
-import com.n30dyn4m1c.photosphere.ui.theme.SphereActive
 import com.n30dyn4m1c.photosphere.ui.theme.SphereOnSurface
 import com.n30dyn4m1c.photosphere.ui.theme.SphereOnSurfaceVariant
 import com.n30dyn4m1c.photosphere.ui.theme.SphereSurface
@@ -1700,7 +1699,7 @@ private fun CaptureHud(
                     Icon(
                         imageVector = Icons.Filled.Warning,
                         contentDescription = null,
-                        tint = SphereActive,
+                        tint = MaterialTheme.colorScheme.secondary,
                         modifier = Modifier.size(18.dp),
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -2101,7 +2100,7 @@ private fun SaveFramesConfirmation(
             Icon(
                 imageVector = Icons.Filled.Warning,
                 contentDescription = null,
-                tint = SphereActive,
+                tint = MaterialTheme.colorScheme.secondary,
             )
         },
         title = { Text(text = stringResource(R.string.capture_save_frames_title)) },
