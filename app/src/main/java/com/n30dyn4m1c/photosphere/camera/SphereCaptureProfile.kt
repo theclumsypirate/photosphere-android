@@ -23,8 +23,8 @@ import com.n30dyn4m1c.photosphere.util.Logging
  * holds them all — AE lock pins the ISO and shutter speed the HAL converged on
  * when the preview started, AWB lock pins the colour temperature, and focus is
  * locked on the scene (by tap, or the first scene's centre) so nothing
- * re-focuses mid-sweep. This is the same model GCam's Photosphere uses: lock
- * exposure and focus, then sweep.
+ * re-focuses mid-sweep. The rule the locks follow: lock exposure and focus,
+ * then sweep.
  *
  * The one rule the locks observe: they are applied only *after* the 3A has
  * converged on the scene the phone is pointed at. Locking from the stream's
