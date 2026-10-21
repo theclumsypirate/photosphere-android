@@ -2,6 +2,7 @@
 <resources>
     <string name="settings_title">Settings</string>
     <string name="settings_open">Open settings</string>
+    <string name="settings_material_you">Material You</string>
     <string name="save_report">Save report</string>
     <string name="report_saved">Report saved</string>
     <string name="send_report">Send report</string>

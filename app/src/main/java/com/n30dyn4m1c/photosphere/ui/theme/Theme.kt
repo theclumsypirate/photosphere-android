@@ -1,30 +1,34 @@
 package com.n30dyn4m1c.photosphere.ui.theme
 
+import android.os.Build
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalContext
 
 /**
  * The app's colour scheme.
  *
- * Dark, always — and not as a default the system can talk it out of.
+ * Dark, always, and not as a default the system can talk it out of.
  *
  * Both screens exist to show an image: one is a live viewfinder, the other
  * frames a finished photograph. A light chrome around either of those throws
  * light back at the user's eyes in exactly the situation where they are judging
  * exposure and detail, and it tints the picture it surrounds. Every serious
  * camera app is dark for the same reason, and the capture screen here is
- * already pinned to black regardless — so following the system into a light
+ * already pinned to black regardless, so following the system into a light
  * scheme would only ever have produced a light result screen bolted onto a
  * black capture screen.
  *
- * Material You dynamic colour is deliberately off, for the neighbouring reason:
- * it would repaint the interface from the user's wallpaper, which means the two
- * signal colours guided capture is built on — [SphereAccent] for "captured",
- * [SphereActive] for "aim here" — could arrive as two neighbouring pastels with
- * no contrast against each other or against the scene. Those two need to stay
- * exactly as legible as they were designed to be, over an image whose colours
- * are already outside anyone's control.
+ * Material You is optional, and the two signal colours guided capture is
+ * built on, [SphereAccent] for "captured" and [SphereActive] for "aim here",
+ * are deliberately kept out of its reach. They are referenced as constants
+ * rather than through the colour scheme, so a wallpaper palette can never
+ * repaint them into two neighbouring pastels with no contrast against each
+ * other or against the scene. Dynamic colour tints the Material components
+ * around the picture and nothing else. It stays dark either way: the accent
+ * moves, the lightness does not.
  */
 private val SphereColors = darkColorScheme(
     primary = SphereAccent,
@@ -54,10 +58,19 @@ private val SphereColors = darkColorScheme(
 
 @Composable
 fun PhotoSphereTheme(
+    dynamic: Boolean = false,
     content: @Composable () -> Unit,
 ) {
+    val context = LocalContext.current
+    // The version check sits next to the call so lint sees it: the dynamic
+    // scheme only exists from Android 12.
+    val colors = if (dynamic && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        dynamicDarkColorScheme(context)
+    } else {
+        SphereColors
+    }
     MaterialTheme(
-        colorScheme = SphereColors,
+        colorScheme = colors,
         typography = PhotoSphereTypography,
         shapes = PhotoSphereShapes,
         content = content,

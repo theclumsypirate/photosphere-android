@@ -34,6 +34,7 @@ import com.n30dyn4m1c.photosphere.R
 import com.n30dyn4m1c.photosphere.camera.SamsungHighRes
 import com.n30dyn4m1c.photosphere.diagnostics.Report
 import com.n30dyn4m1c.photosphere.util.Logging
+import com.n30dyn4m1c.photosphere.ui.theme.MaterialYou
 import com.n30dyn4m1c.photosphere.ui.theme.PillShape
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -48,6 +49,8 @@ import java.io.File
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
+    materialYou: Boolean,
+    onMaterialYouChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -63,6 +66,13 @@ fun SettingsScreen(
             style = MaterialTheme.typography.headlineSmall,
             textAlign = TextAlign.Center,
         )
+        if (BuildConfig.DEBUG && MaterialYou.isSupported) {
+            MaterialYouRow(
+                checked = materialYou,
+                onCheckedChange = onMaterialYouChange,
+                modifier = Modifier.padding(top = 20.dp),
+            )
+        }
         ReportRows(modifier = Modifier.padding(top = 28.dp))
         if (BuildConfig.DEBUG && SamsungHighRes.isSamsung()) {
             SamsungRows(modifier = Modifier.padding(top = 20.dp))
@@ -199,6 +209,32 @@ private fun SamsungRows(modifier: Modifier = Modifier) {
                 },
             )
         }
+    }
+}
+
+/**
+ * The Material You switch: take the accent colours from the wallpaper.
+ *
+ * One line and one switch, no note under it. The platform does the rest, and
+ * the option is hidden on anything older than Android 12, where there is no
+ * wallpaper palette to take.
+ */
+@Composable
+private fun MaterialYouRow(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Text(
+            text = stringResource(R.string.settings_material_you),
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.weight(1f),
+        )
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 
