@@ -114,7 +114,7 @@ android {
  * move to app/orbit-disabled/ is what keeps them out; the excludes stay
  * only so the two rules cannot drift apart.
  *
- * To bring it back: move app/orbit-disabled/*.kt back into
+ * To bring it back: move the files from app/orbit-disabled back into
  * app/src/main/java/com/n30dyn4m1c/photosphere/orbit/, delete the two
  * excludes below, put the dependency back
  * (com.google.mediapipe:tasks-vision:0.10.14), and restore the orbit entry
