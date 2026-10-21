@@ -32,7 +32,6 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -43,9 +42,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -102,7 +99,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -114,7 +110,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -443,10 +438,6 @@ fun PhotoSphereCameraScreen(
             focusReticle = FocusReticle(x = nx, y = ny, isWorking = false, isLocked = ran)
         }
     }
-
-    // A one-time reminder of how to stand, shown before the first frame falls
-    // so the capture that follows is built on a steady pivot.
-    var showInstructions by rememberSaveable { mutableStateOf(true) }
 
     /**
      * Pins or releases the preview's auto-exposure outside the bind effect.
@@ -1289,13 +1280,6 @@ fun PhotoSphereCameraScreen(
                 modifier = Modifier.fillMaxSize(),
             )
 
-            if (showInstructions && run.activeIndex == 0 && bufferedFrames.isEmpty()) {
-                CaptureInstructions(
-                    onDismiss = { showInstructions = false },
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-
             CaptureHud(
                 capturedCount = run.capturedTargets,
                 totalTargets = run.totalTargets,
@@ -2086,152 +2070,6 @@ private fun HintCard(
                 color = GlassContent,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 13.dp),
-            )
-        }
-    }
-}
-
-/**
- * The one-shot welcome shown before the first frame.
- *
- * A dimmed overlay with a floating card, rather than a modal dialog: it sits
- * over the viewfinder without taking focus or pausing the camera, and a single
- * tap anywhere dismisses it for the session. The steps are the whole workflow
- * — stay put, aim and hold, tap to focus, cover the scene — so the user never
- * has to learn a control to shoot a sphere.
- */
-@Composable
-private fun CaptureInstructions(
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val appear = remember { Animatable(0f) }
-    LaunchedEffect(Unit) {
-        appear.animateTo(1f, animationSpec = tween(280, easing = FastOutSlowInEasing))
-    }
-
-    Box(
-        modifier = modifier
-            .alpha(appear.value)
-            .background(Color.Black.copy(alpha = 0.5f * appear.value))
-            // Tapping anywhere dismisses the card and starts capture.
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onDismiss,
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        Surface(
-            modifier = Modifier
-                .padding(horizontal = 26.dp)
-                .graphicsLayer {
-                    alpha = appear.value
-                    scaleX = 0.92f + 0.08f * appear.value
-                    scaleY = 0.92f + 0.08f * appear.value
-                },
-            shape = MaterialTheme.shapes.extraLarge,
-            color = SphereSurface,
-            tonalElevation = 6.dp,
-            shadowElevation = 24.dp,
-        ) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(18.dp),
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Text(
-                        text = stringResource(R.string.capture_instructions_title),
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = GlassContent,
-                    )
-                    Text(
-                        text = stringResource(R.string.capture_instructions_subtitle),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = SphereAccent,
-                        letterSpacing = 2.sp,
-                    )
-                }
-
-                listOf(
-                    1 to (R.string.capture_step_1 to R.string.capture_instructions_1),
-                    2 to (R.string.capture_step_2 to R.string.capture_instructions_2),
-                    3 to (R.string.capture_step_3 to R.string.capture_instructions_3),
-                    4 to (R.string.capture_step_4 to R.string.capture_instructions_4),
-                ).forEach { (number, step) ->
-                    val (label, detail) = step
-                    InstructionStep(
-                        number = number,
-                        label = stringResource(label),
-                        detail = stringResource(detail),
-                    )
-                }
-
-                Button(
-                    onClick = onDismiss,
-                    shape = PillShape,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = SphereAccent,
-                        contentColor = Color.Black,
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp),
-                ) {
-                    Text(
-                        text = stringResource(R.string.capture_instructions_dismiss),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
-            }
-        }
-    }
-}
-
-/** One numbered step of the welcome card. */
-@Composable
-private fun InstructionStep(
-    number: Int,
-    label: String,
-    detail: String,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(32.dp)
-                .clip(CircleShape)
-                .background(SphereAccent.copy(alpha = 0.18f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = "$number",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = SphereAccent,
-            )
-        }
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = GlassContent,
-            )
-            Text(
-                text = detail,
-                style = MaterialTheme.typography.bodyMedium,
-                color = GlassContent.copy(alpha = 0.75f),
             )
         }
     }

@@ -104,17 +104,6 @@
     <string name="capture_restart">Start a new sphere</string>
     <string name="capture_undo">Undo last shot</string>
     <string name="capture_finish_stitch">Finish &amp; stitch</string>
-    <string name="capture_instructions_title">Capture your sphere</string>
-    <string name="capture_instructions_subtitle">Aim · Steady · Shoot</string>
-    <string name="capture_step_1">Stay put</string>
-    <string name="capture_step_2">Aim &amp; hold</string>
-    <string name="capture_step_3">Tap to focus</string>
-    <string name="capture_step_4">Good scene</string>
-    <string name="capture_instructions_1">Stand in one spot and turn your body — don\'t walk.</string>
-    <string name="capture_instructions_2">Line the reticle up with each marker and hold still — the shutter fires on its own.</string>
-    <string name="capture_instructions_3">Tap the viewfinder to focus on the scene, just like a regular camera.</string>
-    <string name="capture_instructions_4">Keep the phone at the same height and avoid blank walls and bright skies.</string>
-    <string name="capture_instructions_dismiss">Start capturing</string>
 
     <!-- Stitching. -->
     <string name="stitch_title">Building your sphere</string>
