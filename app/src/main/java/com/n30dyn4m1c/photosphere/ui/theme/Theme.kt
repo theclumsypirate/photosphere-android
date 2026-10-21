@@ -69,7 +69,22 @@ fun PhotoSphereTheme(
         // The version check sits next to the call so lint sees it: the dynamic
         // scheme only exists from Android 12.
         if (dynamic && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            dynamicDarkColorScheme(context)
+            // The wallpaper gives the hues, the app keeps its own neutrals. The
+            // camera stays black, as a camera app should, and the window the
+            // platform paints at cold start matches what Compose draws, so
+            // there is no flash of another dark on the way in.
+            val wallpaper = dynamicDarkColorScheme(context)
+            wallpaper.copy(
+                background = SphereBackground,
+                onBackground = SphereOnSurface,
+                surface = SphereSurface,
+                onSurface = SphereOnSurface,
+                surfaceVariant = SphereSurfaceHigh,
+                onSurfaceVariant = SphereOnSurfaceVariant,
+                outline = SphereOutline,
+                surfaceContainerHighest = SphereSurfaceHigh,
+                surfaceTint = wallpaper.primary,
+            )
         } else {
             SphereColors
         }

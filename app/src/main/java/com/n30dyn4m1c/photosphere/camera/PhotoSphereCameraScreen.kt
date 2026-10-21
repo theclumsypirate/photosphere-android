@@ -148,9 +148,6 @@ import com.n30dyn4m1c.photosphere.ui.theme.GlassContentDim
 import com.n30dyn4m1c.photosphere.ui.theme.GlassSurface
 import com.n30dyn4m1c.photosphere.ui.theme.GlassSurfaceDim
 import com.n30dyn4m1c.photosphere.ui.theme.PillShape
-import com.n30dyn4m1c.photosphere.ui.theme.SphereOnSurface
-import com.n30dyn4m1c.photosphere.ui.theme.SphereOnSurfaceVariant
-import com.n30dyn4m1c.photosphere.ui.theme.SphereSurface
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -1405,7 +1402,7 @@ private fun CameraErrorCard(
         Surface(
             modifier = Modifier.padding(horizontal = 28.dp),
             shape = MaterialTheme.shapes.extraLarge,
-            color = SphereSurface,
+            color = MaterialTheme.colorScheme.surface,
             tonalElevation = 6.dp,
             shadowElevation = 20.dp,
         ) {
@@ -1418,13 +1415,13 @@ private fun CameraErrorCard(
                     text = stringResource(R.string.capture_camera_unavailable),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
-                    color = SphereOnSurface,
+                    color = MaterialTheme.colorScheme.onSurface,
                     textAlign = TextAlign.Center,
                 )
                 Text(
                     text = message,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = SphereOnSurfaceVariant,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                 )
                 Button(
