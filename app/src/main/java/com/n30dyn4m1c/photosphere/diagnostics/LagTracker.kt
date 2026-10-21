@@ -102,15 +102,16 @@ object LagTracker {
     /** The whole picture, for a text file the user can send. */
     fun report(): String = synchronized(lock) {
         buildString {
+            // One stamp format for the whole file.
+            val fmt = java.text.SimpleDateFormat(
+                "yyyy-MM-dd HH:mm:ss", java.util.Locale.ROOT,
+            )
             appendLine(summary())
             appendLine()
             appendLine("Moments:")
             if (marks.isEmpty()) {
                 appendLine("  None.")
             } else {
-                val fmt = java.text.SimpleDateFormat(
-                    "yyyy-MM-dd HH:mm:ss", java.util.Locale.ROOT,
-                )
                 marks.forEach {
                     appendLine("  ${fmt.format(java.util.Date(it.atMillis))} ${it.text}")
                 }
@@ -120,9 +121,6 @@ object LagTracker {
             if (slow.isEmpty()) {
                 appendLine("  None.")
             } else {
-                val fmt = java.text.SimpleDateFormat(
-                    "yyyy-MM-dd HH:mm:ss", java.util.Locale.ROOT,
-                )
                 slow.forEach {
                     appendLine("  ${fmt.format(java.util.Date(it.atMillis))} took ${it.durationMillis}ms")
                 }
@@ -134,14 +132,16 @@ object LagTracker {
     fun snapshot(): String = synchronized(lock) {
         if (frames == 0L) return "No frames measured.\n"
         val worst = slow.sortedByDescending { it.durationMillis }.take(10)
+        // Declared before the branches below: both the frames and the moments
+        // are stamped with it.
+        val fmt = java.text.SimpleDateFormat(
+            "yyyy-MM-dd HH:mm:ss", java.util.Locale.ROOT,
+        )
         buildString {
             appendLine("$frames frames measured, ${slow.size} slower than ${SLOW_MILLIS}ms.")
             if (worst.isEmpty()) {
                 appendLine("No slow frames.")
             } else {
-                val fmt = java.text.SimpleDateFormat(
-                    "yyyy-MM-dd HH:mm:ss", java.util.Locale.ROOT,
-                )
                 worst.forEach {
                     appendLine("  ${fmt.format(java.util.Date(it.atMillis))} froze ${it.durationMillis}ms")
                 }
