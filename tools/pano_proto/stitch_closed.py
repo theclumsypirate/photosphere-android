@@ -30,6 +30,7 @@ LEVER_M, SCENE_M = 0.35, 3.5
 FEATHER_PX = 80
 ALT_MIN = 0.05
 AGREE_DIFF = 12
+FLAT_GRADIENT = 6.0
 
 
 def read_pose(path):
@@ -79,6 +80,54 @@ def read_upright(path):
     return img
 
 
+def estimate_gains(lows, wls, iterations=8, eps=1e-3, clip=(0.55, 1.8)):
+    """Per-frame exposure gains from overlapping pixels, Brown-Lowe style.
+
+    The virtual set needs no gain (one source, one exposure). A real run does:
+    each frame auto-exposed on its own, so the stitcher's ownership borders
+    carry a brightness step even on one flat surface, which is the ceiling
+    fan. This solves one scalar gain per frame so every overlap agrees, up to
+    a global scale, then normalises the geometric mean to 1.
+
+    Each update takes the median of `other / self` over the overlap rather
+    than a least-squares mean, because one bright window in a dark room would
+    otherwise drag every gain towards it. The gains are clamped, so a
+    pathological frame cannot turn the panorama grey.
+
+    `lows` are coarse warped luminance images (H, W) float32, `wls` their
+    weights. Returns a float64 array of gains, one per frame.
+    """
+    n = len(lows)
+    if n == 0:
+        return np.ones(0, np.float64)
+    h, w = lows[0].shape
+    gains = np.ones(n, np.float64)
+    lows64 = [l.astype(np.float64) for l in lows]
+    wls64 = [wl.astype(np.float64) for wl in wls]
+    for _ in range(iterations):
+        wsum = np.zeros((h, w), np.float64)
+        wnum = np.zeros((h, w), np.float64)
+        for i in range(n):
+            wsum += wls64[i]
+            wnum += wls64[i] * (gains[i] * lows64[i])
+        updated = gains.copy()
+        for i in range(n):
+            other_w = wsum - wls64[i]
+            valid = (other_w > eps) & (wls64[i] > eps)
+            if valid.sum() < 64:
+                continue
+            other = (wnum - wls64[i] * (gains[i] * lows64[i])) / np.maximum(other_w, eps)
+            self_i = lows64[i]
+            lit = valid & (self_i > 8.0) & (other > 8.0)
+            if lit.sum() < 64:
+                continue
+            updated[i] = float(np.median(other[lit] / self_i[lit]))
+        gains = np.clip(updated, clip[0], clip[1])
+        gains /= np.exp(np.mean(np.log(gains)))
+        gains = np.clip(gains, clip[0], clip[1])
+    return gains
+
+
 def camera_frame(yaw_d, pitch_d, roll_d):
     yaw, elev, roll = np.radians(yaw_d), np.radians(-pitch_d), np.radians(roll_d)
     sy, cy, ce = np.sin(yaw), np.cos(yaw), np.cos(elev)
@@ -93,7 +142,7 @@ def camera_frame(yaw_d, pitch_d, roll_d):
     return fwd, right, up
 
 
-def main(d, out, W, fw=2448, fh=3264, h_fov=H_FOV, v_fov=V_FOV):
+def main(d, out, W, fw=2448, fh=3264, h_fov=H_FOV, v_fov=V_FOV, gain=False, blend="wta", vignette=0.0):
     H = W // 2
     files = sorted(glob.glob(os.path.join(d, "*.jpg")))
     fx = (fw / 2) / np.tan(np.radians(h_fov / 2))
@@ -113,7 +162,7 @@ def main(d, out, W, fw=2448, fh=3264, h_fov=H_FOV, v_fov=V_FOV):
     feather[:r, :] *= np.linspace(0, 1, r, dtype=np.float32)[:, None]
     feather[-r:, :] *= np.linspace(1, 0, r, dtype=np.float32)[:, None]
 
-    def warp_one(path, pose):
+    def warp_one(path, pose, g=1.0, vig=0.0):
         fwd, right, up = camera_frame(*pose)
         adj = SCENE_M * dirs - LEVER_M * fwd[None, None, :]
         adj /= np.linalg.norm(adj, axis=2, keepdims=True)
@@ -130,9 +179,19 @@ def main(d, out, W, fw=2448, fh=3264, h_fov=H_FOV, v_fov=V_FOV):
         if im is None:
             return None
         im = cv2.resize(im, (fw // 2, fh // 2), interpolation=cv2.INTER_AREA)
+        if g != 1.0:
+            im = np.clip(im.astype(np.float32) * g, 0, 255).astype(np.uint8)
         s = 0.5
         sampled = cv2.remap(im, (px * s).astype(np.float32), (py * s).astype(np.float32),
                             cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+        if vig > 0.0:
+            # Divide out a radial lens falloff, so a flat surface does not
+            # darken towards a frame's corners and print petals at the borders.
+            rx = (px - cx) / (fw * 0.5)
+            ry = (py - cy) / (fh * 0.5)
+            r2 = rx * rx + ry * ry
+            v = np.clip(1.0 - vig * (r2 * 0.5), 0.15, 1.0).astype(np.float32)
+            sampled = np.clip(sampled.astype(np.float32) / v[..., None], 0, 255).astype(np.uint8)
         w = cv2.remap(feather, (px * s).astype(np.float32), (py * s).astype(np.float32),
                       cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
         w[~inside] = 0
@@ -145,20 +204,62 @@ def main(d, out, W, fw=2448, fh=3264, h_fov=H_FOV, v_fov=V_FOV):
             poses.append((path, pose))
     print(f"{len(poses)} frames with poses", flush=True)
 
+    # Per-frame exposure gains, so the ownership borders do not carry a
+    # brightness step. The virtual set has no gain; a real run needs it.
+    gains = None
+    if gain:
+        lows, wls = [], []
+        for path, pose in poses:
+            r_ = warp_one(path, pose, 1.0, vignette)
+            if r_ is None:
+                continue
+            img, w = r_
+            lum = (0.114 * img[..., 0] + 0.587 * img[..., 1] +
+                   0.299 * img[..., 2]).astype(np.float32)
+            lows.append(cv2.resize(lum, (256, 128), interpolation=cv2.INTER_AREA))
+            wls.append(cv2.resize(w, (256, 128), interpolation=cv2.INTER_AREA))
+        gains = estimate_gains(lows, wls)
+        if gains.size:
+            print(
+                f"gain compensation: {gains.size} frames, "
+                f"min {gains.min():.3f} max {gains.max():.3f}",
+                flush=True,
+            )
+
     # Pass 1: winner and second best per pixel. Frames are dropped, never held.
     best_w = np.full((H, W), -1.0, np.float32)
     owner = np.full((H, W), -1, np.int16)
     pano = np.zeros((H, W, 3), np.uint8)
     top2_w = np.full((H, W), -1.0, np.float32)
     top2_idx = np.full((H, W), -1, np.int16)
+    use_feather = blend == "feather"
+    use_smart = blend == "smart"
+    wacc = np.zeros((H, W, 3), np.float64)
+    wsum_f = np.zeros((H, W), np.float64)
+    grad_max = np.zeros((H, W), np.float32) if use_smart else None
     kept = []
     for path, pose in poses:
-        r_ = warp_one(path, pose)
+        g = 1.0 if gains is None else float(gains[len(kept)])
+        r_ = warp_one(path, pose, g, vignette)
         if r_ is None:
             continue
         img, w = r_
         idx = len(kept)
         kept.append((path, pose))
+        # The feather accumulators are cheap and feed both the full feather
+        # blend and the flat-region part of the smart blend.
+        wacc += w[..., None] * img
+        wsum_f += w
+        if use_smart:
+            # Per-frame gradient: a pixel is safe to blend only where every
+            # frame that covers it is itself flat, so a scene edge (present in
+            # one frame, shifted in another) still keeps the winner.
+            gray_i = (0.114 * img[..., 0] + 0.587 * img[..., 1] +
+                      0.299 * img[..., 2]).astype(np.float32)
+            gx_i = cv2.Sobel(gray_i, cv2.CV_32F, 1, 0, ksize=3)
+            gy_i = cv2.Sobel(gray_i, cv2.CV_32F, 0, 1, ksize=3)
+            np.maximum(grad_max, np.where(w > 0, cv2.magnitude(gx_i, gy_i), 0.0),
+                       out=grad_max)
         take = w > best_w
         # The frame that was best drops to second best.
         top2_w[take] = best_w[take]
@@ -170,6 +271,23 @@ def main(d, out, W, fw=2448, fh=3264, h_fov=H_FOV, v_fov=V_FOV):
         top2_w[sub] = w[sub]
         top2_idx[sub] = idx
     print(f"{len(kept)} warped", flush=True)
+    if use_feather or use_smart:
+        blended = np.clip(wacc / np.maximum(wsum_f, 1e-6)[..., None], 0, 255)
+    if use_feather:
+        # Normalised feather blend everywhere: an overlap is a gradient, not a
+        # hard edge. Fine when everything is registered; a real run with
+        # parallax ghosts here, which is why it is not the default.
+        pano = blended.astype(np.uint8)
+        best_w = wsum_f.astype(np.float32)
+        owner = np.zeros((H, W), np.int16)
+    elif use_smart:
+        # Blend only where every covering frame is flat: there a
+        # misregistration is invisible but the per-frame exposure step is not,
+        # so smoothing costs nothing. Edges keep the winner, so nothing
+        # doubles.
+        flat = grad_max < FLAT_GRADIENT
+        pano = pano.copy()
+        pano[flat] = blended[flat].astype(np.uint8)
 
     # ownership borders: 50/50 blend only where owners agree (diff < 12),
     # hard edge otherwise. No translucency by construction.
@@ -188,7 +306,8 @@ def main(d, out, W, fw=2448, fh=3264, h_fov=H_FOV, v_fov=V_FOV):
         # read any frame there without keeping the whole warped frame.
         frame_border = np.zeros((len(kept), border_flat.size, 3), np.uint8)
         for idx, (path, pose) in enumerate(kept):
-            r_ = warp_one(path, pose)
+            g = 1.0 if gains is None else float(gains[idx])
+            r_ = warp_one(path, pose, g, vignette)
             if r_ is None:
                 continue
             frame_border[idx] = r_[0].reshape(-1, 3)[border_flat]
@@ -253,8 +372,21 @@ if __name__ == "__main__":
     ap.add_argument("--fh", type=int, default=3264)
     ap.add_argument("--hfov", type=float, default=H_FOV)
     ap.add_argument("--vfov", type=float, default=V_FOV)
+    # Real runs auto-expose each frame on its own, so overlap borders carry a
+    # brightness step. Gain compensation solves one gain per frame from the
+    # overlaps. Leave it off for the virtual set, whose frames share one
+    # exposure by construction.
+    ap.add_argument("--gain", action="store_true",
+                    help="compensate per-frame exposure from overlaps (real frames)")
+    ap.add_argument("--blend", choices=("wta", "feather", "smart"), default="wta",
+                    help="wta: winner takes all (virtual set); feather: normalised "
+                         "weight blend (real frames); smart: feather only on flat "
+                         "regions (real frames, no ghosting)")
+    ap.add_argument("--vignette", type=float, default=0.0,
+                    help="radial lens falloff to divide out, 0 to 1 at the corner "
+                         "(real frames; 0 disables)")
     a = ap.parse_args()
     os.makedirs(os.path.join(here, "out"), exist_ok=True)
     sys.exit(main(a.dir or os.path.join(here, "ref", "all36"),
                   os.path.join(here, "out", a.out + ".jpg"), a.w,
-                  a.fw, a.fh, a.hfov, a.vfov))
+                  a.fw, a.fh, a.hfov, a.vfov, a.gain, a.blend, a.vignette))
