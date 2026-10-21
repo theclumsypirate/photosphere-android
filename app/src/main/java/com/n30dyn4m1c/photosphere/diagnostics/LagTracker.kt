@@ -36,7 +36,7 @@ object LagTracker {
     /** Moments remembered per process, newest last. */
     private const val MARKS_KEPT = 50
 
-    data class SlowFrame(val atMillis: Long, val lateMillis: Long)
+    data class SlowFrame(val atMillis: Long, val lateMillis: Long, val where: String)
 
     /** Something worth seeing next to the frame times, e.g. a palette flip. */
     data class Mark(val atMillis: Long, val text: String)
@@ -46,6 +46,9 @@ object LagTracker {
     private var slow = ArrayDeque<SlowFrame>()
     private var marks = ArrayDeque<Mark>()
     private var running = false
+
+    /** The screen the user was on when the last late frame was drawn. */
+    private var where = ""
 
     private val callback = object : Choreographer.FrameCallback {
         override fun doFrame(frameTimeNanos: Long) {
@@ -57,7 +60,7 @@ object LagTracker {
                 if (!running) return
                 frames++
                 if (late >= SLOW_MILLIS) {
-                    slow.addLast(SlowFrame(System.currentTimeMillis(), late))
+                    slow.addLast(SlowFrame(System.currentTimeMillis(), late, where))
                     while (slow.size > KEPT) slow.removeFirst()
                     if (late >= FREEZE_MILLIS) {
                         Logging.w("UI froze for ${late}ms")
@@ -95,6 +98,20 @@ object LagTracker {
         }
     }
 
+    /**
+     * Notes the screen the user is on.
+     *
+     * A late frame is only half an answer on its own. Knowing it happened
+     * while the camera was opening says where the time went, so the screen
+     * is remembered with every late frame and shown next to it.
+     */
+    fun where(screen: String) {
+        synchronized(lock) {
+            where = screen
+        }
+        mark(screen)
+    }
+
     /** One line for the settings screen. */
     fun summary(): String = synchronized(lock) {
         if (frames == 0L) return "No frames measured yet."
@@ -126,7 +143,10 @@ object LagTracker {
                 appendLine("  None.")
             } else {
                 slow.forEach {
-                    appendLine("  ${fmt.format(java.util.Date(it.atMillis))} was ${it.lateMillis}ms late")
+                    appendLine(
+                        "  ${fmt.format(java.util.Date(it.atMillis))} was ${it.lateMillis}ms late" +
+                            if (it.where.isEmpty()) "" else " (${it.where})",
+                    )
                 }
             }
         }
@@ -147,7 +167,10 @@ object LagTracker {
                 appendLine("No slow frames.")
             } else {
                 worst.forEach {
-                    appendLine("  ${fmt.format(java.util.Date(it.atMillis))} was ${it.lateMillis}ms late")
+                    appendLine(
+                        "  ${fmt.format(java.util.Date(it.atMillis))} was ${it.lateMillis}ms late" +
+                            if (it.where.isEmpty()) "" else " (${it.where})",
+                    )
                 }
             }
             if (marks.isNotEmpty()) {

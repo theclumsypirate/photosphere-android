@@ -97,6 +97,27 @@ android {
     }
 }
 
+/**
+ * The person and object detection, kept as source but kept out of the build.
+ *
+ * The pose analyzer and the screen that drives it are excluded from the
+ * Kotlin compile, and the MediaPipe artifact is gone from the dependencies,
+ * so neither the library nor its native libraries reach the APK. The code
+ * stays in the tree for when it is wanted back.
+ *
+ * To bring it back: delete the two excludes below, put the dependency back
+ * (com.google.mediapipe:tasks-vision:0.10.14), and restore the orbit entry
+ * in MainActivity.
+ */
+kotlin {
+    sourceSets {
+        getByName("main") {
+            kotlin.exclude("**/orbit/OrbitMediaPipeAnalyzer.kt")
+            kotlin.exclude("**/orbit/OrbitCaptureScreen.kt")
+        }
+    }
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -128,8 +149,10 @@ dependencies {
     // wiring the local SDK module — see README.md.
     implementation(libs.opencv)
 
-    // MediaPipe pose for the debug orbit subject tracker (inert until wired).
-    implementation("com.google.mediapipe:tasks-vision:0.10.14")
+    // MediaPipe pose for the debug orbit subject tracker. Kept out of the
+    // build: the person and object detection is not shipped, and the
+    // library and its native libraries are several megabytes of APK for a
+    // feature that is not in it. See the kotlin source set excludes above.
 
     testImplementation(libs.junit)
     // runTest / test dispatchers, for the capture coordinator's suspending API.

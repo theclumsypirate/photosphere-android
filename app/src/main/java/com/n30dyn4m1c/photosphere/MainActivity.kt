@@ -33,7 +33,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
@@ -61,9 +60,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.n30dyn4m1c.photosphere.camera.PhotoSphereCameraScreen
+import com.n30dyn4m1c.photosphere.diagnostics.LagTracker
 import com.n30dyn4m1c.photosphere.importer.ImportPhotosScreen
-import com.n30dyn4m1c.photosphere.orbit.OrbitCaptureScreen
-import com.n30dyn4m1c.photosphere.orbit.OrbitViewerScreen
 import com.n30dyn4m1c.photosphere.storage.rememberImageBufferManager
 import com.n30dyn4m1c.photosphere.result.PanoramaResultScreen
 import com.n30dyn4m1c.photosphere.sensor.OrientationDebugScreen
@@ -77,7 +75,6 @@ import com.n30dyn4m1c.photosphere.storage.SphereImageStore.StitchedSphere
 import com.n30dyn4m1c.photosphere.ui.theme.PhotoSphereTheme
 import com.n30dyn4m1c.photosphere.ui.theme.PillShape
 import com.n30dyn4m1c.photosphere.util.Logging
-import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -175,7 +172,6 @@ class MainActivity : ComponentActivity() {
 private enum class Entry {
     Capture,
     Import,
-    Orbit,
 }
 
 /**
@@ -202,10 +198,6 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
     // Capture, import, orbit or settings: chosen before any permission.
     var entry by rememberSaveable { mutableStateOf<Entry?>(null) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
-
-    // Orbit walk in progress: null while shooting, the finished angle set
-    // after. Separate from the sphere flow; leaving clears it.
-    var orbitFiles by remember { mutableStateOf<List<File>?>(null) }
 
     // Deliberately not `rememberSaveable`: on a configuration change the file is
     // still in the cache, but a File is not something to smuggle through a
@@ -284,6 +276,18 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
 
     Box(modifier = modifier.fillMaxSize()) {
         val finished = sphere
+        // Which screen is on, so a late frame can be read against where it
+        // happened. The camera opening is the expensive one, and the log
+        // should say so rather than leave it to be guessed.
+        val currentEntry = entry
+        val screen = when {
+            showOrientationDebug -> "orientation debug"
+            showSettings -> "settings"
+            finished != null -> "result"
+            currentEntry == null -> "entry"
+            else -> currentEntry.name.lowercase()
+        }
+        LaunchedEffect(screen) { LagTracker.where(screen) }
         when {
             showOrientationDebug -> OrientationDebugScreen()
 
@@ -309,19 +313,6 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
                     Logging.i("Entry: Import")
                     entry = Entry.Import
                 },
-                onOrbit = if (BuildConfig.DEBUG) {
-                    {
-                        Logging.i("Entry: Orbit")
-                        orbitFiles = null
-                        entry = Entry.Orbit
-                    }
-                } else {
-                    null
-                },
-                // Debug only, like the orbit entry. The activity lives in the
-                // debug source set, so it is started by name instead of by
-                // class: release never compiles a reference to it, and the
-                // BuildConfig gate lets R8 drop the whole branch.
                 onExtendedCapture = if (BuildConfig.DEBUG) {
                     {
                         Logging.i("Entry: Extended capture")
@@ -353,35 +344,6 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
                 },
                 onBack = { entry = null },
             )
-
-            entry == Entry.Orbit -> {
-                // Debug-only, like the entry button: a release process can
-                // never land here, but a restored task should not either.
-                if (!BuildConfig.DEBUG) {
-                    entry = null
-                } else {
-                    // Own mini-flow beside capture and import: shoot the walk,
-                    // then swipe through it. Back from the viewer returns to
-                    // the camera; back from the camera returns to the entries.
-                    val finishedWalk = orbitFiles
-                    if (finishedWalk == null) {
-                        OrbitCaptureScreen(
-                            onDone = { orbitFiles = it },
-                            onBack = { entry = null },
-                        )
-                    } else {
-                        OrbitViewerScreen(
-                            files = finishedWalk,
-                            onNewWalk = { orbitFiles = null },
-                            onStitched = { stitched ->
-                                Logging.i("Sphere ready: ${stitched.file.name} (orbit)")
-                                sphere = stitched
-                                restitchOffer = null
-                            },
-                        )
-                    }
-                }
-            }
 
             else -> RequirePermissions(
                 permissions = MainActivity.REQUIRED_PERMISSIONS,
@@ -430,7 +392,6 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
 private fun EntryChooser(
     onCapture: () -> Unit,
     onImport: () -> Unit,
-    onOrbit: (() -> Unit)?,
     onExtendedCapture: (() -> Unit)?,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
@@ -505,27 +466,6 @@ private fun EntryChooser(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = stringResource(R.string.entry_extended_capture),
-                    style = MaterialTheme.typography.titleMedium,
-                )
-            }
-        }
-        if (onOrbit != null) {
-            FilledTonalButton(
-                onClick = onOrbit,
-                shape = PillShape,
-                modifier = Modifier
-                    .padding(top = 12.dp)
-                    .fillMaxWidth()
-                    .height(54.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Person,
-                    contentDescription = null,
-                    modifier = Modifier.size(22.dp),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = stringResource(R.string.entry_orbit),
                     style = MaterialTheme.typography.titleMedium,
                 )
             }
