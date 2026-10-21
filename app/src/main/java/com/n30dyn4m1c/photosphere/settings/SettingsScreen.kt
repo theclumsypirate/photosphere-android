@@ -47,6 +47,10 @@ import java.io.File
  * App settings. Today this is the diagnostics report export: what the app
  * recorded (recent activity, crashes, how they ended), saved or shared on
  * request. Space left for future toggles.
+ *
+ * Two rows sit above the report and are debug only: the Material You switch
+ * and the frame timing readout. The report itself is not behind that gate, so
+ * a user can still send one.
  */
 @Composable
 fun SettingsScreen(
@@ -66,10 +70,15 @@ fun SettingsScreen(
             style = MaterialTheme.typography.headlineSmall,
             textAlign = TextAlign.Center,
         )
-        if (BuildConfig.DEBUG && MaterialYou.isSupported) {
-            MaterialYouRow(modifier = Modifier.padding(top = 20.dp))
+        // The two extras are for the moment being, so they live behind the
+        // debug gate: the palette switch and the frame timing readout. The
+        // report below them is not, because a user may need it.
+        if (BuildConfig.DEBUG) {
+            if (MaterialYou.isSupported) {
+                MaterialYouRow(modifier = Modifier.padding(top = 20.dp))
+            }
+            LagRows(modifier = Modifier.padding(top = 20.dp))
         }
-        LagRows(modifier = Modifier.padding(top = 20.dp))
         ReportRows(modifier = Modifier.padding(top = 28.dp))
         if (BuildConfig.DEBUG && SamsungHighRes.isSamsung()) {
             SamsungRows(modifier = Modifier.padding(top = 20.dp))
