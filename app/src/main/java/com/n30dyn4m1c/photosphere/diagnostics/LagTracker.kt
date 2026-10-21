@@ -13,6 +13,12 @@ import com.n30dyn4m1c.photosphere.util.Logging
  * [FREEZE_MILLIS] also land in the JSON log. The report renders the
  * counts plus the worst offenders, so "it lags" arrives with numbers.
  *
+ * A frame counts as slow by how late it started, not by the gap since the
+ * previous one. The gap includes every idle moment, so an app that sat
+ * still for six seconds looked like it had frozen for six seconds the
+ * moment it came back. Lateness measures the thing that matters: the
+ * frame missed the moment it was supposed to be drawn.
+ *
  * Started and stopped from the application as activities resume and
  * pause: nothing runs while the app is closed.
  */
@@ -30,7 +36,7 @@ object LagTracker {
     /** Moments remembered per process, newest last. */
     private const val MARKS_KEPT = 50
 
-    data class SlowFrame(val atMillis: Long, val durationMillis: Long)
+    data class SlowFrame(val atMillis: Long, val lateMillis: Long)
 
     /** Something worth seeing next to the frame times, e.g. a palette flip. */
     data class Mark(val atMillis: Long, val text: String)
@@ -42,23 +48,21 @@ object LagTracker {
     private var running = false
 
     private val callback = object : Choreographer.FrameCallback {
-        private var lastNanos = 0L
-
         override fun doFrame(frameTimeNanos: Long) {
+            // How late this frame started, against the moment it was due.
+            // The gap since the previous frame would count every idle
+            // moment, which is not lag.
+            val late = (SystemClock.uptimeNanos() - frameTimeNanos) / 1_000_000L
             synchronized(lock) {
                 if (!running) return
-                if (lastNanos != 0L) {
-                    val took = (frameTimeNanos - lastNanos) / 1_000_000L
-                    frames++
-                    if (took >= SLOW_MILLIS) {
-                        slow.addLast(SlowFrame(System.currentTimeMillis(), took))
-                        while (slow.size > KEPT) slow.removeFirst()
-                        if (took >= FREEZE_MILLIS) {
-                            Logging.w("UI froze for ${took}ms")
-                        }
+                frames++
+                if (late >= SLOW_MILLIS) {
+                    slow.addLast(SlowFrame(System.currentTimeMillis(), late))
+                    while (slow.size > KEPT) slow.removeFirst()
+                    if (late >= FREEZE_MILLIS) {
+                        Logging.w("UI froze for ${late}ms")
                     }
                 }
-                lastNanos = frameTimeNanos
             }
             Choreographer.getInstance().postFrameCallback(this)
         }
@@ -94,9 +98,9 @@ object LagTracker {
     /** One line for the settings screen. */
     fun summary(): String = synchronized(lock) {
         if (frames == 0L) return "No frames measured yet."
-        val worst = slow.maxOfOrNull { it.durationMillis } ?: 0L
-        "$frames frames measured, ${slow.size} slower than ${SLOW_MILLIS}ms, " +
-            "worst ${worst}ms"
+        val worst = slow.maxOfOrNull { it.lateMillis } ?: 0L
+        "$frames frames measured, ${slow.size} late by more than ${SLOW_MILLIS}ms, " +
+            "worst ${worst}ms late"
     }
 
     /** The whole picture, for a text file the user can send. */
@@ -117,12 +121,12 @@ object LagTracker {
                 }
             }
             appendLine()
-            appendLine("Slow frames, newest last:")
+            appendLine("Late frames, newest last:")
             if (slow.isEmpty()) {
                 appendLine("  None.")
             } else {
                 slow.forEach {
-                    appendLine("  ${fmt.format(java.util.Date(it.atMillis))} took ${it.durationMillis}ms")
+                    appendLine("  ${fmt.format(java.util.Date(it.atMillis))} was ${it.lateMillis}ms late")
                 }
             }
         }
@@ -131,19 +135,19 @@ object LagTracker {
     /** One-paragraph summary plus the worst frames, for the report. */
     fun snapshot(): String = synchronized(lock) {
         if (frames == 0L) return "No frames measured.\n"
-        val worst = slow.sortedByDescending { it.durationMillis }.take(10)
+        val worst = slow.sortedByDescending { it.lateMillis }.take(10)
         // Declared before the branches below: both the frames and the moments
         // are stamped with it.
         val fmt = java.text.SimpleDateFormat(
             "yyyy-MM-dd HH:mm:ss", java.util.Locale.ROOT,
         )
         buildString {
-            appendLine("$frames frames measured, ${slow.size} slower than ${SLOW_MILLIS}ms.")
+            appendLine("$frames frames measured, ${slow.size} late by more than ${SLOW_MILLIS}ms.")
             if (worst.isEmpty()) {
                 appendLine("No slow frames.")
             } else {
                 worst.forEach {
-                    appendLine("  ${fmt.format(java.util.Date(it.atMillis))} froze ${it.durationMillis}ms")
+                    appendLine("  ${fmt.format(java.util.Date(it.atMillis))} was ${it.lateMillis}ms late")
                 }
             }
             if (marks.isNotEmpty()) {
