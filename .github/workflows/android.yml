@@ -1,8 +1,11 @@
 name: build-debug
 
 # Builds the debug APKs. The APKs are uploaded as workflow artifacts, so a
-# device can be tested against without a local Android SDK — download, unzip,
+# device can be tested against without a local Android SDK: download, unzip,
 # `adb install`. Runs only manually or on pull requests, never on push.
+#
+# The Gradle output is also written to the run summary and to a log artifact,
+# because the run page alone is hard to read when the build is long.
 on:
   pull_request:
   workflow_dispatch:
@@ -14,8 +17,21 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      BUILD_LOG: build-debug.log
 
     steps:
+      - name: Start
+        run: |
+          {
+            echo "# Debug build ${{ github.run_number }}"
+            echo
+            echo "- started $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "- commit ${{ github.sha }}"
+            echo "- actor ${{ github.actor }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Debug build ${{ github.run_number }} started, see the summary for the result."
+
       - uses: actions/checkout@v4
 
       # AGP 8.7.3 targets JDK 17; the module compiles Java and Kotlin at 17 too.
@@ -39,7 +55,29 @@ jobs:
       # carries native libraries for all ABIs, but only this split is packaged.
       # --info so the next "unable to strip" line says exactly why.
       - name: Assemble debug APK (arm64-v8a)
-        run: ./gradlew :app:assembleDebug -PonlyAbi=arm64-v8a --info
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew :app:assembleDebug -PonlyAbi=arm64-v8a --info 2>&1 | tee "$BUILD_LOG"
+
+      - name: Write the summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo
+            echo "### APK"
+            echo
+            for apk in app/build/outputs/apk/debug/*arm64-v8a*.apk; do
+              echo "- $(basename "$apk") ($(du -h "$apk" | cut -f1))"
+            done
+            echo
+            echo "### Build log, the last lines"
+            echo
+            echo '```'
+            tail -n 60 "$BUILD_LOG" 2>/dev/null || echo "(no log)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
