@@ -48,9 +48,11 @@ import java.io.File
  * recorded (recent activity, crashes, how they ended), saved or shared on
  * request. Space left for future toggles.
  *
- * Two rows sit above the report and are debug only: the Material You switch
- * and the frame timing readout. The report itself is not behind that gate, so
- * a user can still send one.
+ * The Material You switch is a release feature: the capture and the import
+ * screen follow the wallpaper's palette when it is on, and the app's own
+ * palette when it is off. The frame timing readout above the report is for
+ * the moment being, so it stays debug only. The report itself is not behind
+ * that gate, so a user can still send one.
  */
 @Composable
 fun SettingsScreen(
@@ -70,13 +72,13 @@ fun SettingsScreen(
             style = MaterialTheme.typography.headlineSmall,
             textAlign = TextAlign.Center,
         )
-        // The two extras are for the moment being, so they live behind the
-        // debug gate: the palette switch and the frame timing readout. The
-        // report below them is not, because a user may need it.
+        // The palette switch is not behind a gate. It only shows where the
+        // platform can derive a palette at all: below Android 12 there is
+        // nothing to derive, so a switch there could only ever say no.
+        if (MaterialYou.isSupported) {
+            MaterialYouRow(modifier = Modifier.padding(top = 20.dp))
+        }
         if (BuildConfig.DEBUG) {
-            if (MaterialYou.isSupported) {
-                MaterialYouRow(modifier = Modifier.padding(top = 20.dp))
-            }
             LagRows(modifier = Modifier.padding(top = 20.dp))
         }
         ReportRows(modifier = Modifier.padding(top = 28.dp))

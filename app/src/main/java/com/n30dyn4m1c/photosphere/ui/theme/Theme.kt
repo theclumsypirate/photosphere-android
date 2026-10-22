@@ -22,14 +22,13 @@ import androidx.compose.ui.platform.LocalContext
  * scheme would only ever have produced a light result screen bolted onto a
  * black capture screen.
  *
- * Material You is optional, and the two signal colours guided capture is
- * built on, [SphereAccent] for "captured" and [SphereActive] for "aim here",
- * are deliberately kept out of its reach. They are referenced as constants
- * rather than through the colour scheme, so a wallpaper palette can never
- * repaint them into two neighbouring pastels with no contrast against each
- * other or against the scene. Dynamic colour tints the Material components
- * around the picture and nothing else. It stays dark either way: the accent
- * moves, the lightness does not.
+ * Material You is optional and off by default. With it on, the wallpaper
+ * gives the hues and the app keeps its own neutrals, so the chrome around
+ * the picture stays dark and only the accents move. The accents are also the
+ * two signal colours guided capture is built on, [SphereAccent] for
+ * "captured" and [SphereActive] for "aim here", so the capture markers
+ * follow the wallpaper with the palette on and keep the app's own green and
+ * amber with it off.
  */
 private val SphereColors = darkColorScheme(
     primary = SphereAccent,

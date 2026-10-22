@@ -7,21 +7,25 @@ The palette, type scale and shape ladder live in
 defined once each — the two signal colours in particular were previously hex
 literals repeated across three files, which is how a design drifts.
 
-## Dark always, and no dynamic colour
+## Dark always, and Material You optional
 
-`PhotoSphereTheme` takes no `darkTheme` or `dynamicColor` parameter. Both were
-removed deliberately:
+`PhotoSphereTheme` takes no `darkTheme` parameter. A light scheme was removed
+deliberately:
 
 - **Dark in every configuration.** A light chrome around a viewfinder throws
   light back at the user in exactly the situation where they are judging
   exposure, and it tints the photograph it surrounds. The capture screen is
   pinned to black regardless, so following the system into a light scheme only
   ever produced a light result screen bolted onto a black capture screen.
-- **Material You off.** Dynamic colour repaints the interface from the user's
-  wallpaper. Guided capture is built on exactly two signals — accent for
-  "captured", active for "aim here next" — and they may not survive that
-  repaint as two colours that contrast with each other, let alone against an
-  arbitrary scene.
+
+Material You is the other half of the theme, and it is optional: off by
+default, switched from the settings, and on Android 12 and later only, because
+below that the platform has no wallpaper palette to derive. With it on, the
+wallpaper supplies the hues and the app keeps its own neutrals (background,
+surface, onSurface, outline), so the chrome around the picture stays the app's
+dark and only the accents move. The capture markers read the accent and the
+signal from the colour scheme, so they follow the wallpaper's hues with the
+palette on and the app's own green and amber with it off.
 
 Because the app is dark in every configuration, `MainActivity` also pins both
 system bars to **light icons** via `SystemBarStyle.dark(...)`. Left to the
