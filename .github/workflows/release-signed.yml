@@ -62,6 +62,16 @@ jobs:
       # a blank panel while the build is still going.
       - name: Start
         run: |
+          # Tell GitHub to mask the secrets in everything printed from here
+          # on. The values are masked already because they come from the
+          # secret store, but a derived form of them, a base64 line, a
+          # command line with the password in it, would not be.
+          {
+            echo "::add-mask::$KEYSTORE_BASE64"
+            echo "::add-mask::$KEYSTORE_PASSWORD"
+            echo "::add-mask::$KEY_PASSWORD"
+            echo "::add-mask::$KEY_ALIAS"
+          } >> "$GITHUB_ENV"
           {
             echo "# Release run ${{ github.run_number }}"
             echo
@@ -96,24 +106,30 @@ jobs:
       - name: Validate keystore and passwords (fail fast)
         shell: bash
         run: |
+          set -euo pipefail
           if ! keytool -list -keystore "$KEYSTORE_PATH" -storepass "$KEYSTORE_PASSWORD" >/dev/null 2>&1; then
-            echo "::error::KEYSTORE_PASSWORD wrong or KEYSTORE_BASE64 corrupt."
+            echo "::error::The keystore could not be opened with the stored store password."
             exit 1
           fi
           if ! keytool -list -keystore "$KEYSTORE_PATH" -storepass "$KEYSTORE_PASSWORD" 2>/dev/null | grep -q "$KEY_ALIAS"; then
-            echo "::error::Alias '$KEY_ALIAS' not in keystore."
-            keytool -list -keystore "$KEYSTORE_PATH" -storepass "$KEYSTORE_PASSWORD" 2>/dev/null | grep -i "Alias name" || true
+            echo "::error::The stored key alias is not in the keystore."
             exit 1
           fi
+          # Sign a throwaway jar with the key password. This is the only way
+          # to tell a wrong key password from a wrong store password. The
+          # jar is signed in place, the way the release build signs the APK.
           KEYPASS="$KEY_PASSWORD"
           [ -z "$KEYPASS" ] && KEYPASS="$KEYSTORE_PASSWORD"
           tmp="$(mktemp -d)"
           echo test > "$tmp/f.txt"
           (cd "$tmp" && jar cf t.jar f.txt)
-          if ! jarsigner -keystore "$KEYSTORE_PATH" -storepass "$KEYSTORE_PASSWORD" -keypass "$KEYPASS" -signedjar s.jar t.jar "$KEY_ALIAS" >/dev/null 2>&1; then
-            echo "::error::KEY_PASSWORD does not match key '$KEY_ALIAS'."
+          if ! jarsigner -keystore "$KEYSTORE_PATH" \
+            -storepass "$KEYSTORE_PASSWORD" -keypass "$KEYPASS" \
+            "$tmp/t.jar" "$KEY_ALIAS" >/dev/null 2>&1; then
+            echo "::error::The stored key password does not match the stored key."
             exit 1
           fi
+          rm -rf "$tmp"
           echo "Keystore, passwords and alias: OK"
 
       - name: Set up Android SDK
@@ -263,11 +279,39 @@ jobs:
       # The body of the release. Never empty: the notes, the version, the
       # files and the tail of the build log, so the release page says what
       # happened without anybody opening the run.
+      #
+      # The log is scrubbed first. GitHub masks a secret in the log it shows,
+      # but a file is not a log line: if the build printed the password in any
+      # form, the raw text would be published in the release body untouched.
       - name: Write the release body
         id: body
         shell: bash
         run: |
           set -euo pipefail
+          python3 - <<'PY'
+          import os
+
+          names = ("KEYSTORE_PASSWORD", "KEY_PASSWORD", "KEY_ALIAS",
+                   "KEYSTORE_BASE64", "KEYSTORE_PATH")
+          secrets = [os.environ.get(name, "") for name in names]
+          try:
+              with open(os.environ.get("BUILD_LOG", "build.log"),
+                        encoding="utf-8", errors="replace") as fh:
+                  lines = fh.readlines()
+          except OSError:
+              lines = []
+          clean = []
+          for line in lines:
+              for secret in secrets:
+                  if secret:
+                      line = line.replace(secret, "***")
+              clean.append(line)
+          with open("build-public.log", "w", encoding="utf-8") as fh:
+              fh.writelines(clean)
+          with open("build-tail.txt", "w", encoding="utf-8") as fh:
+              fh.writelines(clean[-60:] if clean else ["(no log)\n"])
+          print("scrubbed %d log lines" % len(clean))
+          PY
           {
             echo "## ${{ steps.version.outputs.name }}"
             echo
@@ -279,7 +323,7 @@ jobs:
             echo "### Build log, the last lines"
             echo
             echo '```'
-            tail -n 60 "$BUILD_LOG" 2>/dev/null || echo "(no log)"
+            cat build-tail.txt
             echo '```'
           } > release-body.md
           cat release-body.md
@@ -292,7 +336,7 @@ jobs:
             echo "### Build log, the last lines"
             echo
             echo '```'
-            tail -n 60 "$BUILD_LOG" 2>/dev/null || echo "(no log)"
+            cat build-tail.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -320,3 +364,13 @@ jobs:
           fail_on_unmatched_files: true
           overwrite_files: true
           files: ${{ steps.asset.outputs.apks }}
+
+      # The keystore and the raw log leave the runner with the job. The
+      # keystore is not needed past the signing, and the raw log may hold a
+      # secret in a form GitHub cannot mask, because a file is not a log line.
+      - name: Remove the keystore and the raw log
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$KEYSTORE_PATH" "$BUILD_LOG" build-public.log
+          echo "keystore and raw build log removed from the runner"
