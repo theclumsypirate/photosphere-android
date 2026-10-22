@@ -73,6 +73,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import com.n30dyn4m1c.photosphere.BuildConfig
 import com.n30dyn4m1c.photosphere.R
+import com.n30dyn4m1c.photosphere.diagnostics.PoseExport
 import com.n30dyn4m1c.photosphere.storage.MediaExporter
 import com.n30dyn4m1c.photosphere.stitching.StitchStyle
 import com.n30dyn4m1c.photosphere.util.Logging
@@ -416,6 +417,45 @@ fun PanoramaResultScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(12.dp),
                         )
+                    }
+                }
+
+                // Debug only: the whole point of the stamped attitudes is to
+                // be inspected outside the app, and the cheapest honest way
+                // is a text report read back off the files on disk. Offered
+                // only when there are frames to describe, because the
+                // cells of an imported sphere came from elsewhere.
+                if (BuildConfig.DEBUG && frameFiles.isNotEmpty()) {
+                    var poseExportBusy by remember(sphere.file) { mutableStateOf(false) }
+                    TextButton(
+                        onClick = {
+                            poseExportBusy = true
+                            scope.launch {
+                                val report = withContext(Dispatchers.IO) {
+                                    PoseExport.export(context, frameFiles)
+                                }
+                                poseExportBusy = false
+                                report
+                                    .onSuccess { file ->
+                                        if (!context.sharePoseReport(file)) {
+                                            snackbarHostState.showSnackbar(
+                                                context.getString(R.string.result_share_failed)
+                                            )
+                                        }
+                                    }
+                                    .onFailure { error ->
+                                        Logging.e("Pose export failed", error)
+                                        snackbarHostState.showSnackbar(
+                                            context.getString(
+                                                R.string.result_debug_poses_export_failed
+                                            )
+                                        )
+                                    }
+                            }
+                        },
+                        enabled = !poseExportBusy,
+                    ) {
+                        Text(text = stringResource(R.string.result_debug_export_poses))
                     }
                 }
             }
@@ -975,6 +1015,40 @@ private fun Context.shareSphere(file: File): Boolean {
         true
     } catch (e: ActivityNotFoundException) {
         Logging.w("Nothing on this device can receive an image", e)
+        false
+    }
+}
+
+/**
+ * Shares the debug pose report the same way the sphere is shared.
+ *
+ * The report lives in the spheres cache directory, which the FileProvider
+ * already serves for the photo, so only the MIME type differs: a text file
+ * leaves as text.
+ */
+private fun Context.sharePoseReport(file: File): Boolean {
+    val uri = try {
+        SphereImageStore.shareUri(this, file)
+    } catch (e: IllegalArgumentException) {
+        Logging.e("No FileProvider path covers ${file.name}", e)
+        return false
+    }
+
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        clipData = ClipData.newRawUri(null, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+
+    return try {
+        startActivity(
+            Intent.createChooser(send, file.name)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+        true
+    } catch (e: ActivityNotFoundException) {
+        Logging.w("Nothing on this device can receive text", e)
         false
     }
 }

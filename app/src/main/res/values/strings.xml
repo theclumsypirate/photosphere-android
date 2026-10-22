@@ -144,6 +144,9 @@
     <string name="result_export_failed">Couldn\'t save to the gallery: %1$s</string>
     <string name="result_share">Share</string>
     <string name="result_share_failed">No app on this device can receive a photo.</string>
+    <!-- Debug-only pose report (see PoseExport) -->
+    <string name="result_debug_export_poses">Export poses (.txt)</string>
+    <string name="result_debug_poses_export_failed">Could not read the poses back from the frames.</string>
     <string name="result_take_another">New photo</string>
     <string name="restitch_as">Restitch as:</string>
     <string name="restitch_balanced">Balanced</string>
