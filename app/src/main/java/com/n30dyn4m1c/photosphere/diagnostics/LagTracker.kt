@@ -1,6 +1,5 @@
 package com.n30dyn4m1c.photosphere.diagnostics
 
-import android.os.SystemClock
 import android.view.Choreographer
 import com.n30dyn4m1c.photosphere.util.Logging
 
@@ -55,7 +54,11 @@ object LagTracker {
             // How late this frame started, against the moment it was due.
             // The gap since the previous frame would count every idle
             // moment, which is not lag.
-            val late = (SystemClock.uptimeNanos() - frameTimeNanos) / 1_000_000L
+            //
+            // System.nanoTime, not SystemClock.uptimeNanos: the latter only
+            // exists from API 35, and this app runs from 26. Both read the
+            // same monotonic clock Choreographer stamps frameTimeNanos with.
+            val late = (System.nanoTime() - frameTimeNanos) / 1_000_000L
             synchronized(lock) {
                 if (!running) return
                 frames++
