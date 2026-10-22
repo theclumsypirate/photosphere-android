@@ -14,8 +14,8 @@ android {
         // available without legacy fallbacks. CameraX itself supports 21+.
         minSdk = 26
         targetSdk = 37
-        versionCode = 4
-        versionName = "0.0.3-beta"
+        versionCode = 5
+        versionName = "0.0.4-beta"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
