@@ -271,18 +271,19 @@ jobs:
           printf '%s' "$SIZES" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
-      # The body of the release. Never empty: the notes, the version, the
-      # files and the tail of the build log, so the release page says what
-      # happened without anybody opening the run.
-      #
-      # The log is scrubbed first. GitHub masks a secret in the log it shows,
-      # but a file is not a log line: if the build printed the password in any
-      # form, the raw text would be published in the release body untouched.
+      # The body of the release is the version and nothing else. The notes,
+      # the files and the build log belong to the run, and the run summary
+      # is where the browser shows them.
       - name: Write the release body
         id: body
         shell: bash
         run: |
           set -euo pipefail
+          echo "${{ steps.version.outputs.tag }}" > release-body.md
+          cat release-body.md
+          # The log that goes into the run summary is scrubbed of the
+          # secrets first. GitHub masks a secret in the log it shows, but a
+          # file is not a log line, so the text is cleaned before it is used.
           python3 - <<'PY'
           import os
 
@@ -301,27 +302,10 @@ jobs:
                   if secret:
                       line = line.replace(secret, "***")
               clean.append(line)
-          with open("build-public.log", "w", encoding="utf-8") as fh:
-              fh.writelines(clean)
           with open("build-tail.txt", "w", encoding="utf-8") as fh:
               fh.writelines(clean[-60:] if clean else ["(no log)\n"])
           print("scrubbed %d log lines" % len(clean))
           PY
-          {
-            echo "## ${{ steps.version.outputs.name }}"
-            echo
-            echo "${{ steps.version.outputs.notes }}"
-            echo
-            echo "### Files"
-            echo
-            echo "${{ steps.asset.outputs.sizes }}"
-            echo "### Build log, the last lines"
-            echo
-            echo '```'
-            cat build-tail.txt
-            echo '```'
-          } > release-body.md
-          cat release-body.md
           {
             echo
             echo "### Files"
@@ -367,5 +351,5 @@ jobs:
         if: always()
         shell: bash
         run: |
-          rm -f "$KEYSTORE_PATH" "$BUILD_LOG" build-public.log
+          rm -f "$KEYSTORE_PATH" "$BUILD_LOG" build-tail.txt
           echo "keystore and raw build log removed from the runner"
