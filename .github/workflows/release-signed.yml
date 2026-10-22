@@ -62,16 +62,11 @@ jobs:
       # a blank panel while the build is still going.
       - name: Start
         run: |
-          # Tell GitHub to mask the secrets in everything printed from here
-          # on. The values are masked already because they come from the
-          # secret store, but a derived form of them, a base64 line, a
-          # command line with the password in it, would not be.
-          {
-            echo "::add-mask::$KEYSTORE_BASE64"
-            echo "::add-mask::$KEYSTORE_PASSWORD"
-            echo "::add-mask::$KEY_PASSWORD"
-            echo "::add-mask::$KEY_ALIAS"
-          } >> "$GITHUB_ENV"
+          # No add-mask here on purpose. A value that comes from the secret
+          # store is already masked by GitHub when the step is expanded, so
+          # the runner would receive the mask itself and reject it. The real
+          # risk is the log that goes into the release body: that one is a
+          # file, not a log line, so it is scrubbed before it is published.
           {
             echo "# Release run ${{ github.run_number }}"
             echo
