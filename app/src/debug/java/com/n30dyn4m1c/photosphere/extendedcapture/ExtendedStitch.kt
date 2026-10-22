@@ -231,8 +231,8 @@ object ExtendedStitch {
             }
 
             Logging.i(
-                "Extended reference refinement: ${result.matchedEdges} matched edges, " +
-                    "${decoded.size} frames",
+                "Extended reference refinement: ${result.matchedEdges} of " +
+                    "${result.candidateEdges} candidate edges, ${decoded.size} frames",
             )
             if (result.matchedEdges == 0) return frames
 

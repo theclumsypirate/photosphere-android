@@ -1,6 +1,7 @@
 package com.n30dyn4m1c.photosphere.diagnostics
 
 import android.view.Choreographer
+import com.n30dyn4m1c.photosphere.BuildConfig
 import com.n30dyn4m1c.photosphere.util.Logging
 
 /**
@@ -8,9 +9,12 @@ import com.n30dyn4m1c.photosphere.util.Logging
  *
  * One timestamp per vsync through [Choreographer]: cheap enough to leave
  * on, with no per-frame logging. Only frames slower than [SLOW_MILLIS]
- * are remembered (bounded list), and only near-freezes above
- * [FREEZE_MILLIS] also land in the JSON log. The report renders the
- * counts plus the worst offenders, so "it lags" arrives with numbers.
+ * are remembered (bounded list). In a debug build each of those is also
+ * written to the JSON log as it happens, so the frames survive the
+ * process being killed before a report is opened; release keeps the old
+ * rule and logs only near-freezes above [FREEZE_MILLIS]. The report
+ * renders the counts plus the worst offenders, so "it lags" arrives with
+ * numbers.
  *
  * A frame counts as slow by how late it started, not by the gap since the
  * previous one. The gap includes every idle moment, so an app that sat
@@ -65,8 +69,17 @@ object LagTracker {
                 if (late >= SLOW_MILLIS) {
                     slow.addLast(SlowFrame(System.currentTimeMillis(), late, where))
                     while (slow.size > KEPT) slow.removeFirst()
+                    val screen = if (where.isEmpty()) "" else " on $where"
+                    // A debug build writes each late frame down as it
+                    // happens. The list above only lives in memory, so a
+                    // report opened after the process was killed used to
+                    // lose exactly the frames worth reading. Release keeps
+                    // the old rule: only near-freezes reach the JSON log.
+                    if (BuildConfig.DEBUG && late < FREEZE_MILLIS) {
+                        Logging.i("UI frame ${late}ms late$screen")
+                    }
                     if (late >= FREEZE_MILLIS) {
-                        Logging.w("UI froze for ${late}ms")
+                        Logging.w("UI froze for ${late}ms$screen")
                     }
                 }
             }

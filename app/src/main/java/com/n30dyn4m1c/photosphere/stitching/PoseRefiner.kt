@@ -30,6 +30,9 @@ internal class DecodedFrame(
  * gains that equalise the overlaps. [matchedEdges] is how many pose-graph edges
  * were actually measured against image content; zero means the sensor did all
  * the work and the output is a plain orientation-driven stitch.
+ * [candidateEdges] is how many overlapping pairs the graph offered in the first
+ * place, so the two together say whether a poor refinement means a sparse graph
+ * or feature matching that rejected almost every pair.
  *
  * [focalScales] holds one focal-length multiplier per frame, aligned by position
  * with [bases]: 1.0 when the measured field of view needs no correction, or
@@ -40,6 +43,7 @@ internal data class RefinementResult(
     val bases: List<CameraBasis>,
     val gains: FloatArray,
     val matchedEdges: Int,
+    val candidateEdges: Int,
     val focalScales: DoubleArray,
 )
 
@@ -225,7 +229,13 @@ internal object PoseRefiner {
                 pivotRatio = pivotRatio,
             )
 
-            return RefinementResult(refined, gains, acceptedEdges.size, focalScales)
+            return RefinementResult(
+                bases = refined,
+                gains = gains,
+                matchedEdges = acceptedEdges.size,
+                candidateEdges = candidateEdges.size,
+                focalScales = focalScales,
+            )
         } finally {
             features.forEach { it.descriptors.release() }
             matcher.clear()

@@ -546,6 +546,7 @@ object PhotoSphereStitcher {
                     bases = sensor.map { CameraBasis.fromRotationMatrix(it) },
                     gains = FloatArray(decoded.size) { 1f },
                     matchedEdges = 0,
+                    candidateEdges = 0,
                     focalScales = DoubleArray(decoded.size) { 1.0 },
                 )
             }
@@ -558,7 +559,8 @@ object PhotoSphereStitcher {
                 }
                 val focals = refinement.focalScales.map { "%.4f".format(it) }
                 Logging.i(
-                    "Refinement matched ${refinement.matchedEdges} edges; " +
+                    "Refinement matched ${refinement.matchedEdges} of " +
+                        "${refinement.candidateEdges} candidate edges; " +
                         "refined poses: ${poses.joinToString(", ")}; " +
                         "focal scales: ${focals.joinToString(", ")}",
                 )
