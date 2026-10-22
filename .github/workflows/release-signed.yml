@@ -14,10 +14,11 @@ name: release-signed
 #   A run that is cancelled or fails therefore leaves no tag and consumes no
 #   version number.
 #
-#   Everything the run prints is written to three places the browser shows
-#   without a download: the run summary, the release body, and a log
-#   artifact. The job log alone is not enough, because a run that dies during
-#   a long Gradle build is exactly the run whose tail nobody can read.
+#   Everything the run prints is written to the run summary, where the
+#   browser shows it without a download. The job log alone is not enough,
+#   because a run that dies during a long Gradle build is exactly the run
+#   whose tail nobody can read. The release itself carries the APK files and
+#   no text at all.
 on:
   workflow_dispatch:
     inputs:
@@ -65,8 +66,8 @@ jobs:
           # No add-mask here on purpose. A value that comes from the secret
           # store is already masked by GitHub when the step is expanded, so
           # the runner would receive the mask itself and reject it. The real
-          # risk is the log that goes into the release body: that one is a
-          # file, not a log line, so it is scrubbed before it is published.
+          # risk is the log that goes into the run summary: that one is a
+          # file, not a log line, so it is scrubbed before it is used.
           {
             echo "# Release run ${{ github.run_number }}"
             echo
@@ -267,23 +268,9 @@ jobs:
           echo "apks<<EOF" >> "$GITHUB_OUTPUT"
           printf '%s' "$FILES" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
-          echo "sizes<<EOF" >> "$GITHUB_OUTPUT"
-          printf '%s' "$SIZES" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
-
-      # The body of the release is the version and nothing else. The notes,
-      # the files and the build log belong to the run, and the run summary
-      # is where the browser shows them.
-      - name: Write the release body
-        id: body
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "${{ steps.version.outputs.tag }}" > release-body.md
-          cat release-body.md
-          # The log that goes into the run summary is scrubbed of the
-          # secrets first. GitHub masks a secret in the log it shows, but a
-          # file is not a log line, so the text is cleaned before it is used.
+          # The run summary, where the browser shows what the build did. The
+          # log is scrubbed of the secrets first: GitHub masks a secret in
+          # the log it shows, but a file is not a log line.
           python3 - <<'PY'
           import os
 
@@ -310,7 +297,7 @@ jobs:
             echo
             echo "### Files"
             echo
-            echo "${{ steps.asset.outputs.sizes }}"
+            echo "$SIZES"
             echo
             echo "### Build log, the last lines"
             echo
@@ -338,7 +325,7 @@ jobs:
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: Photo Sphere v${{ steps.version.outputs.name }}
-          body_path: release-body.md
+          # No body. The release page carries the files and nothing else.
           prerelease: ${{ steps.version.outputs.prerelease == 'true' }}
           fail_on_unmatched_files: true
           overwrite_files: true
