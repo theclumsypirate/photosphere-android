@@ -105,6 +105,13 @@ internal object EquirectangularRenderer {
         canvasHeight: Int,
         gains: FloatArray? = null,
         seams: SeamWeights? = null,
+        /**
+         * Debug-only per-block refinement ([BlockExposure.Fields]). When
+         * present, a frame's brightness is looked up per canvas pixel through
+         * it instead of through the scalar [gains] entry alone; null keeps
+         * the scalar path exactly as shipping builds see it.
+         */
+        gainFields: BlockExposure.Fields? = null,
         pivotRatio: Double = 0.0,
         longitudeSpanDegrees: Float = 360f,
         centerLongitudeDegrees: Float = 0f,
@@ -168,6 +175,7 @@ internal object EquirectangularRenderer {
                             bandHeight = bandHeight,
                             sourceScale = 1,
                             gains = gains,
+                            gainFields = gainFields,
                             seams = seams,
                             pivotRatio = pivotRatio,
                             longitudeSpanDegrees = longitudeSpanDegrees,
@@ -213,6 +221,7 @@ internal object EquirectangularRenderer {
                         bandHeight = height,
                         sourceScale = 1 shl level,
                         gains = gains,
+                        gainFields = gainFields,
                         seams = seams,
                         pivotRatio = pivotRatio,
                         longitudeSpanDegrees = longitudeSpanDegrees,
@@ -341,6 +350,7 @@ internal object EquirectangularRenderer {
                             bandHeight = bandHeight,
                             sourceScale = 1,
                             gains = gains,
+                            gainFields = gainFields,
                             seams = seams,
                             pivotRatio = pivotRatio,
                             longitudeSpanDegrees = longitudeSpanDegrees,
@@ -488,6 +498,7 @@ internal object EquirectangularRenderer {
         sourceScale: Int,
         gains: FloatArray?,
         seams: SeamWeights?,
+        gainFields: BlockExposure.Fields? = null,
         pivotRatio: Double,
         longitudeSpanDegrees: Float,
         centerLongitudeDegrees: Float,
@@ -544,6 +555,7 @@ internal object EquirectangularRenderer {
                         columnStart = canvasColumn,
                         columnCount = columnSpan,
                         gain = gains?.getOrNull(frameIndex) ?: 1f,
+                        gainField = gainFields?.frame(frameIndex),
                         seams = seams,
                         pivotRatio = pivotRatio,
                         longitudeSpanDegrees = longitudeSpanDegrees,
@@ -590,6 +602,7 @@ internal object EquirectangularRenderer {
         columnCount: Int,
         gain: Float,
         seams: SeamWeights?,
+        gainField: BlockExposure.FrameField? = null,
         pivotRatio: Double,
         longitudeSpanDegrees: Float,
         centerLongitudeDegrees: Float,
@@ -635,6 +648,7 @@ internal object EquirectangularRenderer {
         val mapX = scratch.mapX
         val mapY = scratch.mapY
         val weights = scratch.weights
+        val gainMap = if (gainField != null) scratch.gains else null
         var anyCovered = false
 
         for (rowOffset in 0 until rowCount) {
@@ -715,6 +729,19 @@ internal object EquirectangularRenderer {
                     featherWeight(idealColumn, idealRow, centreX, centreY).toFloat()
                 }
                 weights[index] = weight
+                if (gainField != null) {
+                    // Debug per-block exposure: the frame's brightness is
+                    // looked up from its refinement grid in canvas space, so
+                    // a brighter seam band gets the bigger part of the
+                    // correction where the frames actually overlap. The
+                    // per-pixel lookup costs a bilinear read on the small
+                    // grid, which is nothing next to the projection above.
+                    val u =
+                        (columnStart + columnOffset).toFloat() / max(1, canvasWidth - 1).toFloat()
+                    val v =
+                        (rowStart + rowOffset).toFloat() / max(1, canvasHeight - 1).toFloat()
+                    gainMap!![index] = gainField.combinedAt(u, v)
+                }
                 if (weight > 0f) anyCovered = true
             }
         }
@@ -724,9 +751,11 @@ internal object EquirectangularRenderer {
         val mapXMat = Mat(rowCount, columnCount, CvType.CV_32FC1)
         val mapYMat = Mat(rowCount, columnCount, CvType.CV_32FC1)
         val weightMat = Mat(rowCount, columnCount, CvType.CV_32FC1)
+        val gainMat = if (gainField != null) Mat(rowCount, columnCount, CvType.CV_32FC1) else Mat()
         val warped = Mat()
         val warpedFloat = Mat()
         val weight3 = Mat()
+        val gain3 = if (gainField != null) Mat(rowCount, columnCount, CvType.CV_32FC3) else Mat()
         try {
             // The scratch arrays are sized to the largest segment seen so far
             // and so are usually longer than this one. `Mat.put` clamps the copy
@@ -735,6 +764,7 @@ internal object EquirectangularRenderer {
             mapXMat.put(0, 0, mapX)
             mapYMat.put(0, 0, mapY)
             weightMat.put(0, 0, weights)
+            if (gainField != null) gainMat.put(0, 0, gainMap)
 
             // Lanczos on the finest level, linear above it: the canvas is now
             // often rendered close to the frames' own resolution, and the
@@ -753,7 +783,14 @@ internal object EquirectangularRenderer {
             warped.convertTo(warpedFloat, CvType.CV_32FC3)
             Core.merge(listOf(weightMat, weightMat, weightMat), weight3)
             Core.multiply(warpedFloat, weight3, warpedFloat)
-            if (gain != 1f) {
+            if (gainField != null) {
+                // Debug per-block exposure: the per-pixel lookup is merged
+                // into three channels once and multiplied like the scalar
+                // gain path would, so the blend sees exactly the brightness
+                // the per-block solve asked for.
+                Core.merge(listOf(gainMat, gainMat, gainMat), gain3)
+                Core.multiply(warpedFloat, gain3, warpedFloat)
+            } else if (gain != 1f) {
                 Core.multiply(warpedFloat, Scalar(gain.toDouble(), gain.toDouble(), gain.toDouble()), warpedFloat)
             }
 
@@ -771,9 +808,11 @@ internal object EquirectangularRenderer {
             mapXMat.release()
             mapYMat.release()
             weightMat.release()
+            gainMat.release()
             warped.release()
             warpedFloat.release()
             weight3.release()
+            gain3.release()
         }
     }
 
@@ -852,6 +891,8 @@ internal object EquirectangularRenderer {
             private set
         var weights: FloatArray = FloatArray(0)
             private set
+        var gains: FloatArray = FloatArray(0)
+            private set
         var forwardHorizontal: DoubleArray = DoubleArray(0)
             private set
         var rightHorizontal: DoubleArray = DoubleArray(0)
@@ -865,6 +906,7 @@ internal object EquirectangularRenderer {
                 mapX = FloatArray(pixels)
                 mapY = FloatArray(pixels)
                 weights = FloatArray(pixels)
+                gains = FloatArray(pixels)
             }
             if (forwardHorizontal.size < columnCount) {
                 forwardHorizontal = DoubleArray(columnCount)

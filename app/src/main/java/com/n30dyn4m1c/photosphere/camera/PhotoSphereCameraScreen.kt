@@ -410,6 +410,13 @@ fun PhotoSphereCameraScreen(
     // carving, or winner-takes-all by optical-centre closeness. Cycles
     // off -> carve -> winner, the sharpness comparison for the same frames.
     var seamMode by remember { mutableStateOf(SeamMode.Blend) }
+    // Debug A/B: mask grid nodes whose covering frames disagree past a
+    // threshold, so the seam is not pulled by anything that moved between
+    // two frames of the overlap.
+    var movingMaskEnabled by remember { mutableStateOf(false) }
+    // Debug A/B: per-block brightness refinement on top of the per-frame
+    // gains, for the steps a whole-frame mean cannot see.
+    var blockExposureEnabled by remember { mutableStateOf(false) }
     // Debug: paint each frame a solid colour so the pano shows where each one
     // was placed — distinguishes a placement bug from a content bug.
     var colorFrames by remember { mutableStateOf(false) }
@@ -1078,6 +1085,8 @@ fun PhotoSphereCameraScreen(
                     useRefinement = refinementEnabled,
                     seamMode = seamMode,
                     debugColorFrames = colorFrames,
+                    movingObjectSeamMask = movingMaskEnabled,
+                    perBlockExposure = blockExposureEnabled,
                     // The canvas region: a full 360° of longitude either way,
                     // and either the whole 180° of latitude (sphere) or the band
                     // a level ring actually covers.
@@ -1350,6 +1359,10 @@ fun PhotoSphereCameraScreen(
                 },
                 colorFrames = colorFrames,
                 onToggleColorFrames = { colorFrames = !colorFrames },
+                movingMaskEnabled = movingMaskEnabled,
+                onToggleMovingMask = { movingMaskEnabled = !movingMaskEnabled },
+                blockExposureEnabled = blockExposureEnabled,
+                onToggleBlockExposure = { blockExposureEnabled = !blockExposureEnabled },
                 evIndex = exposureIndex,
                 evRange = exposureRange,
                 aeLocked = isThreeALocked,
@@ -1482,6 +1495,10 @@ private fun CaptureHud(
     onCycleSeamMode: () -> Unit,
     colorFrames: Boolean,
     onToggleColorFrames: () -> Unit,
+    movingMaskEnabled: Boolean,
+    onToggleMovingMask: () -> Unit,
+    blockExposureEnabled: Boolean,
+    onToggleBlockExposure: () -> Unit,
     evIndex: Int,
     evRange: IntRange?,
     aeLocked: Boolean,
@@ -1671,6 +1688,20 @@ private fun CaptureHud(
                     TextButton(onClick = onToggleColorFrames) {
                         Text(
                             text = "Color: ${if (colorFrames) "on" else "off"}",
+                            color = GlassContentDim,
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                    TextButton(onClick = onToggleMovingMask) {
+                        Text(
+                            text = "Mask: ${if (movingMaskEnabled) "on" else "off"}",
+                            color = GlassContentDim,
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                    TextButton(onClick = onToggleBlockExposure) {
+                        Text(
+                            text = "Block: ${if (blockExposureEnabled) "on" else "off"}",
                             color = GlassContentDim,
                             style = MaterialTheme.typography.labelMedium,
                         )

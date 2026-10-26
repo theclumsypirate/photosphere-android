@@ -346,6 +346,18 @@ object PhotoSphereStitcher {
         useRefinement: Boolean = false,
         seamMode: SeamMode = SeamMode.Blend,
         debugColorFrames: Boolean = false,
+        /**
+         * Debug-only A/B: pixel-level match mask for the seam solve. Only the
+         * moving-object masking applies; nothing changes when unset, and
+         * release callers never set it (see AGENTS.md).
+         */
+        movingObjectSeamMask: Boolean = false,
+        /**
+         * Debug-only A/B: per-block brightness refinement on top of the
+         * per-frame gains. Off by default, so the produced exposure is
+         * exactly the shipped scalar one when unset.
+         */
+        perBlockExposure: Boolean = false,
         longitudeSpanDegrees: Float = 360f,
         centerLongitudeDegrees: Float = 0f,
         latitudeSpanDegrees: Float = 180f,
@@ -594,12 +606,51 @@ object PhotoSphereStitcher {
                 )
             }
 
-            ensureActive()
             // Captured rather than called inside the lambdas below: the seam
             // finder and the renderer are not suspending functions, so the
             // context has to be carried in.
             val context = currentCoroutineContext()
 
+            // Debug-only per-block exposure refinement. The scalar gains stay
+            // the first word everywhere else (seams included); the field only
+            // advises the renderer's per-pixel multiplier. Gated on the debug
+            // flag; every other caller keeps the scalar path exactly as is.
+            val exposureFields = if (perBlockExposure && BuildConfig.DEBUG) {
+                onProgress(StitchProgress(StitchStage.Seaming))
+                try {
+                    val fields = BlockExposure.solve(
+                        frames = prepared,
+                        canvasWidth = canvasWidth,
+                        canvasHeight = canvasHeight,
+                        scalarGains = refinement.gains,
+                        pivotRatio = pivot.ratio,
+                        longitudeSpanDegrees = longitudeSpanDegrees,
+                        centerLongitudeDegrees = centerLongitudeDegrees,
+                        latitudeSpanDegrees = latitudeSpanDegrees,
+                        centerLatitudeDegrees = centerLatitudeDegrees,
+                        wrapColumns = longitudeSpanDegrees >= 360f,
+                    )
+                    if (fields != null) {
+                        Logging.i(
+                            "Stitch block exposure: ${fields.gridColumns} x " +
+                                "${fields.gridRows} blocks over ${prepared.size} frames",
+                        )
+                    } else {
+                        Logging.i("Stitch block exposure: nothing usable to refine")
+                    }
+                    fields
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // A refinement that cannot run must never sink a stitch.
+                    Logging.w("Stitch block exposure solve failed; using scalar gains", e)
+                    null
+                }
+            } else {
+                null
+            }
+
+            ensureActive()
             // Seams: decide which frame paints each pixel, then render with the
             // wide cross-fade replaced by a near-hard cut that fades only a
             // few pixels across it. Without them the render falls back to the
@@ -635,6 +686,7 @@ object PhotoSphereStitcher {
                             centerLongitudeDegrees = centerLongitudeDegrees,
                             latitudeSpanDegrees = latitudeSpanDegrees,
                             centerLatitudeDegrees = centerLatitudeDegrees,
+                            movingMask = movingObjectSeamMask,
                             onProgress = { completed, total ->
                                 onProgress(StitchProgress(StitchStage.Seaming, completed, total))
                             },
@@ -657,6 +709,7 @@ object PhotoSphereStitcher {
                 canvasWidth = canvasWidth,
                 canvasHeight = canvasHeight,
                 gains = refinement.gains,
+                gainFields = exposureFields,
                 seams = seams,
                 pivotRatio = pivot.ratio,
                 longitudeSpanDegrees = longitudeSpanDegrees,

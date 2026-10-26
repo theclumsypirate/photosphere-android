@@ -77,6 +77,16 @@ internal object SeamFinder {
     /** Full-resolution half-width of the cross-fade across a seam, in pixels. */
     private const val FEATHER_FULL_RES_PIXELS = 12
 
+    /**
+     * RGB distance (0..441) two gain-corrected covers of one grid node must
+     * exceed before the debug moving-object mask declares the node masked.
+     *
+     * Full-scale difference a large object moving against its own background
+     * produces; honest residual disagreement after the gain solve sits far
+     * below it. Only read when the mask is switched on.
+     */
+    internal const val MOVING_MASK_THRESHOLD = 90f
+
     /** α-expansion passes over the labels; two almost always converges. */
     private const val MAX_PASSES = 2
 
@@ -100,6 +110,7 @@ internal object SeamFinder {
         centerLongitudeDegrees: Float,
         latitudeSpanDegrees: Float,
         centerLatitudeDegrees: Float,
+        movingMask: Boolean = false,
         onProgress: (completed: Int, total: Int) -> Unit = { _, _ -> },
         checkCancelled: () -> Unit = {},
     ): SeamWeights {
@@ -212,12 +223,52 @@ internal object SeamFinder {
                 nodeMean[meanBase + 1] = meanG
                 nodeMean[meanBase + 2] = meanB
 
+                // Debug moving-object mask: a node whose covering frames,
+                // each already gain-corrected, still disagree by more than
+                // [MOVING_MASK_THRESHOLD] is somewhere something moved between
+                // the two shots. Leaving it in the solve lets the outlier pull
+                // the data term and lets the seam snake around the object to
+                // dodge a cost the scene, not the frames, created. The mask
+                // instead makes the node neutral: every cover reads the same
+                // mean colour there and the border penalty is dropped, so the
+                // disagreement drives neither the assignment nor the seam
+                // path, and the cut crosses the region for free.
+                var masked = false
+                if (movingMask && count >= 2) {
+                    val limit = MOVING_MASK_THRESHOLD * MOVING_MASK_THRESHOLD
+                    outer@ for (a in 0 until count) {
+                        for (b in a + 1 until count) {
+                            val dr = tempColor[a * 3] - tempColor[b * 3]
+                            val dg = tempColor[a * 3 + 1] - tempColor[b * 3 + 1]
+                            val db = tempColor[a * 3 + 2] - tempColor[b * 3 + 2]
+                            if (dr * dr + dg * dg + db * db > limit) {
+                                masked = true
+                                break@outer
+                            }
+                        }
+                    }
+                }
+
                 for (k in 0 until count) {
                     if (packedSize >= capacity) {
                         capacity *= 2
                         packedLabels = packedLabels.copyOf(capacity)
                         packedData = packedData.copyOf(capacity)
                         packedColors = packedColors.copyOf(capacity * 3)
+                    }
+                    if (masked) {
+                        // Every cover of a masked node sees the mean, so the
+                        // pairwise seam cost there is zero however the seam
+                        // is cut, and the data term does not judge any frame
+                        // by a moving object it did not mean to keep.
+                        packedLabels[packedSize] = tempCover[k]
+                        packedData[packedSize] = 0f
+                        val colorBase = packedSize * 3
+                        packedColors[colorBase] = meanR
+                        packedColors[colorBase + 1] = meanG
+                        packedColors[colorBase + 2] = meanB
+                        packedSize++
+                        continue
                     }
                     val r = tempColor[k * 3]
                     val g = tempColor[k * 3 + 1]
@@ -404,7 +455,7 @@ internal object SeamFinder {
      * loop can project through the full-resolution lens model and read through
      * the small buffer in one step.
      */
-    private class WorkingFrame(
+    internal class WorkingFrame(
         val pixels: ByteArray,
         val width: Int,
         val height: Int,
@@ -420,7 +471,7 @@ internal object SeamFinder {
      * seam loop actually needs. The downsampled Mat is released once its bytes
      * are in hand.
      */
-    private fun downsampleAndRead(image: Mat): WorkingFrame {
+    internal fun downsampleAndRead(image: Mat): WorkingFrame {
         val sourceWidth = image.cols()
         val sourceHeight = image.rows()
         val longest = max(sourceWidth, sourceHeight)
@@ -463,7 +514,7 @@ internal object SeamFinder {
      * sample in 0..2 and the full-resolution pixel position in 3..4 (for the
      * caller's border penalty, which is scale-invariant).
      */
-    private fun sampleInto(
+    internal fun sampleInto(
         frame: PreparedFrame,
         bytes: ByteArray,
         width: Int,
