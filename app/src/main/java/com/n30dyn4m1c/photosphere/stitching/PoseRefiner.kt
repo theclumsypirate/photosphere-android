@@ -11,6 +11,8 @@ import org.opencv.imgproc.Imgproc
 import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlin.random.Random
+import com.n30dyn4m1c.photosphere.util.Logging
+import kotlinx.coroutines.CancellationException
 
 /**
  * One decoded frame on its way into refinement: the pixels, the lens model, and
@@ -45,6 +47,18 @@ internal data class RefinementResult(
     val matchedEdges: Int,
     val candidateEdges: Int,
     val focalScales: DoubleArray,
+    /**
+     * The pose-graph edges the image content accepted, as frame index pairs,
+     * and how many of them each frame took part in. Debug-only subset
+     * selection reads them; production consumers ignore the extras.
+     */
+    val acceptedEdges: List<Pair<Int, Int>> = emptyList(),
+    val matchedEdgesPerFrame: IntArray = IntArray(0),
+    /**
+     * Debug-only local alignment meshes ([LocalWarp.Mesh]), one per frame or
+     * null, present only when the caller asked the refinement to build them.
+     */
+    val localWarps: Array<LocalWarp.Mesh?>? = null,
 )
 
 /**
@@ -153,6 +167,7 @@ internal object PoseRefiner {
         horizontalFovDegrees: Float,
         verticalFovDegrees: Float,
         pivotRatio: Double = 0.0,
+        buildLocalWarps: Boolean = false,
         onProgress: (completed: Int, total: Int) -> Unit = { _, _ -> },
     ): RefinementResult {
         val candidateEdges = overlapGraph(frames, horizontalFovDegrees, verticalFovDegrees)
@@ -229,12 +244,47 @@ internal object PoseRefiner {
                 pivotRatio = pivotRatio,
             )
 
+            // The pose-graph extras the debug tools read: which edges the
+            // content accepted, how loaded each frame came out of it, and -
+            // on request - the per-frame local alignment meshes.
+            val acceptedPairs = acceptedEdges.map { it.from to it.to }
+            val matchedPerFrame = IntArray(frames.size)
+            for ((from, to) in acceptedPairs) {
+                matchedPerFrame[from]++
+                matchedPerFrame[to]++
+            }
+            val warps = if (buildLocalWarps && acceptedEdges.isNotEmpty()) {
+                try {
+                    buildLocalWarps(
+                        frames = frames,
+                        features = features,
+                        edges = acceptedEdges,
+                        edgeInliers = edgeInliers,
+                        refined = refined,
+                        focalScales = focalScales,
+                        pivotRatio = pivotRatio,
+                    )
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // A debug experiment that cannot run must never sink a
+                    // stitch the normal path would have produced.
+                    Logging.w("Local warp mesh building failed; none applied", e)
+                    null
+                }
+            } else {
+                null
+            }
+
             return RefinementResult(
                 bases = refined,
                 gains = gains,
                 matchedEdges = acceptedEdges.size,
                 candidateEdges = candidateEdges.size,
                 focalScales = focalScales,
+                acceptedEdges = acceptedPairs,
+                matchedEdgesPerFrame = matchedPerFrame,
+                localWarps = warps,
             )
         } finally {
             features.forEach { it.descriptors.release() }
@@ -615,4 +665,123 @@ internal object PoseRefiner {
     }
 
     private fun seedFor(a: Int, b: Int): Long = (a.toLong() * 31 + b.toLong() * 17) and 0x7fffffffL
+
+    /** Below this depth a projected direction points behind the other lens. */
+    private const val MIN_MESH_DEPTH = 0.05
+
+    /**
+     * The debug-only local alignment meshes ([LocalWarp.Mesh]), one per frame.
+     *
+     * For every RANSAC inlier of every accepted edge, each frame's recorded
+     * ideal pixel is carried forward: the raw camera bearing goes through the
+     * refined pose into world space, then back into the *other* frame through
+     * its refined pose and corrected focal scale, which predicts where the
+     * two frames should see the same scene point. The difference between that
+     * prediction and where the pixel was actually recorded is the parallax
+     * residual the global rotation cannot absorb; it lands in the recording
+     * frame's cell grid as the sample shift the renderer will add back.
+     *
+     * The projection is deliberately the plain camera-frame one the renderer
+     * itself runs (no pivot referral): the renderer subtracts the pivot's
+     * lever arm only from the depth of the canvas direction, and
+     * [MIN_MESH_DEPTH] plus the [pivotRatio] subtraction below guard the same
+     * degenerate behind-the-lens directions it skips.
+     */
+    private fun buildLocalWarps(
+        frames: List<DecodedFrame>,
+        features: List<FrameFeatures>,
+        edges: List<RotationMath.RotationEdge>,
+        edgeInliers: List<List<Pair<Int, Int>>>,
+        refined: List<CameraBasis>,
+        focalScales: DoubleArray,
+        pivotRatio: Double,
+    ): Array<LocalWarp.Mesh?> {
+        val grids = Array(frames.size) { frameIndex ->
+            val intrinsics = frames[frameIndex].intrinsics
+            val (columns, rows) = LocalWarp.cellCounts(
+                intrinsics.widthPx.toDouble(),
+                intrinsics.heightPx.toDouble(),
+            )
+            LocalWarp.FrameMeshGrid(
+                columns = columns,
+                rows = rows,
+                widthPx = intrinsics.widthPx.toDouble(),
+                heightPx = intrinsics.heightPx.toDouble(),
+            )
+        }
+
+        // An ideal pixel under the corrected focal length: the focal scale
+        // moves every pixel radially out from the optical centre, exactly as
+        // the stitcher's scaledBy does to the intrinsics themselves.
+        fun scaledPixel(
+            frame: Int,
+            pixel: DoubleArray,
+        ): DoubleArray {
+            val intrinsics = frames[frame].intrinsics
+            val scale = focalScales[frame]
+            return doubleArrayOf(
+                intrinsics.centerXPx +
+                    (pixel[0] - intrinsics.centerXPx) * scale,
+                intrinsics.centerYPx +
+                    (pixel[1] - intrinsics.centerYPx) * scale,
+            )
+        }
+
+        // Where the [from] frame's ideal pixel should appear in the [to]
+        // frame, under the refined poses and the corrected focal lengths, in
+        // scaled ideal pixels. Null past the edge of the other lens's view.
+        fun predictedPixel(
+            from: Int,
+            to: Int,
+            pixel: DoubleArray,
+        ): DoubleArray? {
+            val source = frames[from].intrinsics
+            var x = (pixel[0] - source.centerXPx) / source.focalXPx
+            var y = -(pixel[1] - source.centerYPx) / source.focalYPx
+            val length = Math.sqrt(x * x + y * y + 1.0)
+            x /= length
+            y /= length
+            val world = refined[from].toWorld(x, y, 1.0 / length)
+            val target = frames[to].intrinsics
+            val basis = refined[to]
+            val depth = basis.depthOf(world[0], world[1], world[2]) - pivotRatio
+            if (depth <= MIN_MESH_DEPTH) return null
+            val lateral = basis.lateralOf(world[0], world[1], world[2])
+            val vertical = basis.verticalOf(world[0], world[1], world[2])
+            val scale = focalScales[to]
+            return doubleArrayOf(
+                target.centerXPx + target.focalXPx * scale * lateral / depth,
+                target.centerYPx - target.focalYPx * scale * vertical / depth,
+            )
+        }
+
+        for (edgeIndex in edges.indices) {
+            val edge = edges[edgeIndex]
+            for ((fromMatch, toMatch) in edgeInliers[edgeIndex]) {
+                val aPixel = scaledPixel(edge.from, features[edge.from].idealPixels[fromMatch])
+                val bPixel = scaledPixel(edge.to, features[edge.to].idealPixels[toMatch])
+                val predictedInB = predictedPixel(edge.from, edge.to, aPixel) ?: continue
+                // The shift this frame's sample needs where the content sits:
+                // where it was recorded, minus where the pose predicts it.
+                grids[edge.to].add(
+                    bPixel[0], bPixel[1],
+                    bPixel[0] - predictedInB[0], bPixel[1] - predictedInB[1],
+                )
+                val predictedInA = predictedPixel(edge.to, edge.from, bPixel)
+                if (predictedInA != null) {
+                    grids[edge.from].add(
+                        aPixel[0], aPixel[1],
+                        aPixel[0] - predictedInA[0], aPixel[1] - predictedInA[1],
+                    )
+                }
+            }
+        }
+
+        // An empty accumulator builds an all-zero mesh, which the renderer
+        // would read as a no-op pass; handing null instead keeps the logs
+        // honest about which frames actually learned a correction.
+        return Array(frames.size) { index ->
+            if (grids[index].isEmpty()) null else grids[index].build()
+        }
+    }
 }

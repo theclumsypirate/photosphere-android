@@ -112,6 +112,14 @@ internal object EquirectangularRenderer {
          * the scalar path exactly as shipping builds see it.
          */
         gainFields: BlockExposure.Fields? = null,
+        /**
+         * Debug-only local alignment meshes ([LocalWarp.Mesh]), one per
+         * [frames] entry or null. When present, a frame's sampled ideal pixel
+         * is shifted by its mesh's correction before the lens model is
+         * applied; null keeps the projection exactly as shipping builds see
+         * it.
+         */
+        localWarps: Array<LocalWarp.Mesh?>? = null,
         pivotRatio: Double = 0.0,
         longitudeSpanDegrees: Float = 360f,
         centerLongitudeDegrees: Float = 0f,
@@ -177,6 +185,7 @@ internal object EquirectangularRenderer {
                             gains = gains,
                             gainFields = gainFields,
                             seams = seams,
+                            localWarps = localWarps,
                             pivotRatio = pivotRatio,
                             longitudeSpanDegrees = longitudeSpanDegrees,
                             centerLongitudeDegrees = centerLongitudeDegrees,
@@ -223,6 +232,7 @@ internal object EquirectangularRenderer {
                         gains = gains,
                         gainFields = gainFields,
                         seams = seams,
+                        localWarps = localWarps,
                         pivotRatio = pivotRatio,
                         longitudeSpanDegrees = longitudeSpanDegrees,
                         centerLongitudeDegrees = centerLongitudeDegrees,
@@ -352,6 +362,7 @@ internal object EquirectangularRenderer {
                             gains = gains,
                             gainFields = gainFields,
                             seams = seams,
+                            localWarps = localWarps,
                             pivotRatio = pivotRatio,
                             longitudeSpanDegrees = longitudeSpanDegrees,
                             centerLongitudeDegrees = centerLongitudeDegrees,
@@ -499,6 +510,7 @@ internal object EquirectangularRenderer {
         gains: FloatArray?,
         seams: SeamWeights?,
         gainFields: BlockExposure.Fields? = null,
+        localWarps: Array<LocalWarp.Mesh?>? = null,
         pivotRatio: Double,
         longitudeSpanDegrees: Float,
         centerLongitudeDegrees: Float,
@@ -557,6 +569,7 @@ internal object EquirectangularRenderer {
                         gain = gains?.getOrNull(frameIndex) ?: 1f,
                         gainField = gainFields?.frame(frameIndex),
                         seams = seams,
+                        localWarp = localWarps?.getOrNull(frameIndex),
                         pivotRatio = pivotRatio,
                         longitudeSpanDegrees = longitudeSpanDegrees,
                         centerLongitudeDegrees = centerLongitudeDegrees,
@@ -603,6 +616,8 @@ internal object EquirectangularRenderer {
         gain: Float,
         seams: SeamWeights?,
         gainField: BlockExposure.FrameField? = null,
+        /** Debug-only mesh ([LocalWarp.Mesh]) for this frame, when enabled. */
+        localWarp: LocalWarp.Mesh? = null,
         pivotRatio: Double,
         longitudeSpanDegrees: Float,
         centerLongitudeDegrees: Float,
@@ -692,8 +707,23 @@ internal object EquirectangularRenderer {
                 // pixel is what the feather measures against — it is proportional
                 // to the angle off the optical axis — while the distorted pixel
                 // is what `remap` samples.
-                val idealColumn = centreX + intrinsics.focalXPx * lateral / depth
-                val idealRow = centreY - intrinsics.focalYPx * vertical / depth
+                var idealColumn = centreX + intrinsics.focalXPx * lateral / depth
+                var idealRow = centreY - intrinsics.focalYPx * vertical / depth
+                if (localWarp != null) {
+                    // Debug local warp: the parallax residual the global pose
+                    // could not absorb, added to the ideal pixel before the
+                    // lens model. The mesh was solved in exactly these
+                    // scaled ideal pixels, so the lookup is the correction
+                    // itself, not a mapping between coordinate systems.
+                    val correction = localWarp.correctionAt(
+                        idealColumn,
+                        idealRow,
+                        intrinsics.widthPx.toDouble(),
+                        intrinsics.heightPx.toDouble(),
+                    )
+                    idealColumn += correction[0]
+                    idealRow += correction[1]
+                }
                 var sourceColumn = idealColumn
                 var sourceRow = idealRow
                 if (radial != null) {

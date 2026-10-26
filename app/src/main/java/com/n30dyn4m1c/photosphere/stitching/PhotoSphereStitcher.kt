@@ -358,6 +358,21 @@ object PhotoSphereStitcher {
          * exactly the shipped scalar one when unset.
          */
         perBlockExposure: Boolean = false,
+        /**
+         * Debug-only A/B: drop the frames the pose refiner matched nothing
+         * for (Brown and Lowe weak-node pruning). Applies to the sensor
+         * fallback too, where nothing is measured at all: there no frame is
+         * judged and none is dropped. Off, so the shipped frame set runs
+         * untouched.
+         */
+        graphSubsetSelection: Boolean = false,
+        /**
+         * Debug-only A/B: the APAP-lite local alignment meshes
+         * ([LocalWarp.Mesh]) shift each frame's sampled pixels by the
+         * parallax residual the global pose solve left behind. Needs
+         * refinement; off, so the shipped projection stays exactly as it is.
+         */
+        localWarpAlignment: Boolean = false,
         longitudeSpanDegrees: Float = 360f,
         centerLongitudeDegrees: Float = 0f,
         latitudeSpanDegrees: Float = 180f,
@@ -545,6 +560,7 @@ object PhotoSphereStitcher {
                     horizontalFovDegrees = horizontalFov,
                     verticalFovDegrees = verticalFov,
                     pivotRatio = pivot.ratio,
+                    buildLocalWarps = localWarpAlignment && BuildConfig.DEBUG,
                     onProgress = { completed, total ->
                         onProgress(StitchProgress(StitchStage.Refining, completed, total))
                     },
@@ -578,8 +594,41 @@ object PhotoSphereStitcher {
                 )
             }
 
-            val prepared = ArrayList<PreparedFrame>(decoded.size)
-            decoded.indices.forEach { index ->
+            // Debug-only weak-node pruning: after the content has spoken,
+            // frames with no accepted overlap edge are asked for their
+            // opinion no longer. Everything else (poses, gains, focals) keeps
+            // original indices; only which frames reach the render changes.
+            val keptIndices = if (graphSubsetSelection && BuildConfig.DEBUG) {
+                val kept = FrameGraphQuality.select(decoded.size, refinement.acceptedEdges)
+                if (kept.isEmpty()) {
+                    throw StitchException(
+                        StitchStatus.NeedMoreImages,
+                        "Frame graph selection kept no frames",
+                    )
+                }
+                if (kept.size < decoded.size) {
+                    val keptSet = kept.toSet()
+                    val dropped = decoded.indices.filterNot { it in keptSet }
+                    Logging.i(
+                        "Frame graph: kept ${kept.size} of ${decoded.size} frames, " +
+                            "dropped: ${dropped.joinToString()}",
+                    )
+                } else {
+                    Logging.i("Frame graph: keeping all ${decoded.size} frames")
+                }
+                kept
+            } else {
+                (0 until decoded.size).toList()
+            }
+            // After pruning the lists downstream index by *kept* position, so
+            // the per-frame gains are remapped once here: the seam solve, the
+            // block exposure and the renderer all read them positionally.
+            val renderGains = FloatArray(keptIndices.size) { position ->
+                refinement.gains[keptIndices[position]]
+            }
+
+            val prepared = ArrayList<PreparedFrame>(keptIndices.size)
+            keptIndices.forEach { index ->
                 ensureActive()
                 val basis = refinement.bases[index]
                 // The focal refinement may have decided the reported field of
@@ -622,7 +671,7 @@ object PhotoSphereStitcher {
                         frames = prepared,
                         canvasWidth = canvasWidth,
                         canvasHeight = canvasHeight,
-                        scalarGains = refinement.gains,
+                        scalarGains = renderGains,
                         pivotRatio = pivot.ratio,
                         longitudeSpanDegrees = longitudeSpanDegrees,
                         centerLongitudeDegrees = centerLongitudeDegrees,
@@ -680,7 +729,7 @@ object PhotoSphereStitcher {
                             frames = prepared,
                             canvasWidth = canvasWidth,
                             canvasHeight = canvasHeight,
-                            gains = refinement.gains,
+                            gains = renderGains,
                             pivotRatio = pivot.ratio,
                             longitudeSpanDegrees = longitudeSpanDegrees,
                             centerLongitudeDegrees = centerLongitudeDegrees,
@@ -704,13 +753,25 @@ object PhotoSphereStitcher {
 
             onProgress(StitchProgress(StitchStage.Stitching))
             Logging.i("Stitch rendering ${canvasWidth}x$canvasHeight")
+            // The meshes are indexed by prepared position: they remap from the
+            // refinement's frame indices to what the render list holds.
+            val localWarps = refinement.localWarps?.let { warps ->
+                Array(keptIndices.size) { position -> warps[keptIndices[position]] }
+            }
+            if (BuildConfig.DEBUG && localWarps != null) {
+                Logging.i(
+                    "Stitch local warps: ${localWarps.count { it != null }} of " +
+                        "${localWarps.size} frames carry a mesh",
+                )
+            }
             val rendered = EquirectangularRenderer.render(
                 frames = prepared,
                 canvasWidth = canvasWidth,
                 canvasHeight = canvasHeight,
-                gains = refinement.gains,
+                gains = renderGains,
                 gainFields = exposureFields,
                 seams = seams,
+                localWarps = localWarps,
                 pivotRatio = pivot.ratio,
                 longitudeSpanDegrees = longitudeSpanDegrees,
                 centerLongitudeDegrees = centerLongitudeDegrees,

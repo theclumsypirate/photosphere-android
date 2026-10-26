@@ -417,6 +417,12 @@ fun PhotoSphereCameraScreen(
     // Debug A/B: per-block brightness refinement on top of the per-frame
     // gains, for the steps a whole-frame mean cannot see.
     var blockExposureEnabled by remember { mutableStateOf(false) }
+    // Debug A/B: drop frames the refinement matched nothing for (weak-node
+    // pruning), so an orphaned capture cannot paint an unmeasured patch.
+    var graphSelectionEnabled by remember { mutableStateOf(false) }
+    // Debug A/B: APAP-lite local alignment meshes, one per frame, absorbing
+    // the parallax residual the global pose solve leaves behind.
+    var warpEnabled by remember { mutableStateOf(false) }
     // Debug: paint each frame a solid colour so the pano shows where each one
     // was placed — distinguishes a placement bug from a content bug.
     var colorFrames by remember { mutableStateOf(false) }
@@ -1087,6 +1093,8 @@ fun PhotoSphereCameraScreen(
                     debugColorFrames = colorFrames,
                     movingObjectSeamMask = movingMaskEnabled,
                     perBlockExposure = blockExposureEnabled,
+                    graphSubsetSelection = graphSelectionEnabled,
+                    localWarpAlignment = warpEnabled,
                     // The canvas region: a full 360° of longitude either way,
                     // and either the whole 180° of latitude (sphere) or the band
                     // a level ring actually covers.
@@ -1363,6 +1371,10 @@ fun PhotoSphereCameraScreen(
                 onToggleMovingMask = { movingMaskEnabled = !movingMaskEnabled },
                 blockExposureEnabled = blockExposureEnabled,
                 onToggleBlockExposure = { blockExposureEnabled = !blockExposureEnabled },
+                graphSelectionEnabled = graphSelectionEnabled,
+                onToggleGraphSelection = { graphSelectionEnabled = !graphSelectionEnabled },
+                warpEnabled = warpEnabled,
+                onToggleWarp = { warpEnabled = !warpEnabled },
                 evIndex = exposureIndex,
                 evRange = exposureRange,
                 aeLocked = isThreeALocked,
@@ -1499,6 +1511,10 @@ private fun CaptureHud(
     onToggleMovingMask: () -> Unit,
     blockExposureEnabled: Boolean,
     onToggleBlockExposure: () -> Unit,
+    graphSelectionEnabled: Boolean,
+    onToggleGraphSelection: () -> Unit,
+    warpEnabled: Boolean,
+    onToggleWarp: () -> Unit,
     evIndex: Int,
     evRange: IntRange?,
     aeLocked: Boolean,
@@ -1702,6 +1718,20 @@ private fun CaptureHud(
                     TextButton(onClick = onToggleBlockExposure) {
                         Text(
                             text = "Block: ${if (blockExposureEnabled) "on" else "off"}",
+                            color = GlassContentDim,
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                    TextButton(onClick = onToggleGraphSelection) {
+                        Text(
+                            text = "Graph: ${if (graphSelectionEnabled) "on" else "off"}",
+                            color = GlassContentDim,
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                    TextButton(onClick = onToggleWarp) {
+                        Text(
+                            text = "Warp: ${if (warpEnabled) "on" else "off"}",
                             color = GlassContentDim,
                             style = MaterialTheme.typography.labelMedium,
                         )
