@@ -113,14 +113,42 @@ data class SphereDeviceProfile(
         )
 
         /** The profile for the device this process is running on. */
-        fun forDevice(): SphereDeviceProfile =
-            if (isSamsungGalaxyS23()) {
-                SAMSUNG_S23
-            } else if (BuildConfig.DEBUG && isSamsungGalaxyS21()) {
-                SAMSUNG_S21
-            } else {
-                DEFAULT
-            }
+        fun forDevice(): SphereDeviceProfile {
+            val profile =
+                if (isSamsungGalaxyS23()) {
+                    SAMSUNG_S23
+                } else if (BuildConfig.DEBUG && isSamsungGalaxyS21()) {
+                    SAMSUNG_S21
+                } else {
+                    DEFAULT
+                }
+            return if (BuildConfig.DEBUG) debugTuned(profile) else profile
+        }
+
+        /**
+         * Debug-only capture and stitch tuning, from what the full pilot runs
+         * actually showed. The pivot is the one at play here: the prototype's
+         * scene distance for the runs past was 3.5 m, and the room the runs
+         * shot in sits that close, while the shipped profile nominally assumes
+         * 10 m. A near scene wants the bigger correction, and the pose
+         * refiner absorbs what the nominal value leaves over (see
+         * [PivotModel]). Release builds keep the shipped numbers untouched;
+         * see AGENTS.md.
+         */
+        private fun debugTuned(profile: SphereDeviceProfile): SphereDeviceProfile {
+            val tuned = profile.copy(
+                pivot = profile.pivot.copy(sceneDistanceMeters = DEBUG_SCENE_DISTANCE_METERS),
+            )
+            Logging.i(
+                "Debug pivot tuning: scene distance " +
+                    "${profile.pivot.sceneDistanceMeters} -> " +
+                    "${tuned.pivot.sceneDistanceMeters} m",
+            )
+            return tuned
+        }
+
+        /** Scene distance the debug pivot tuning assumes, in metres. */
+        private const val DEBUG_SCENE_DISTANCE_METERS = 3.0f
 
         private fun isSamsungGalaxyS23(): Boolean =
             Build.MANUFACTURER.equals("samsung", ignoreCase = true) &&
