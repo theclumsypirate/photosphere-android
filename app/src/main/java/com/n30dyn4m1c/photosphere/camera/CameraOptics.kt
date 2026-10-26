@@ -249,8 +249,13 @@ internal fun estimateSphereOptics(
     }
 
     val relativeRotation = ((sensorOrientation - displayRotation.toDegrees()) % 360 + 360) % 360
-    val fieldOfView =
+    var fieldOfView =
         if (relativeRotation % 180 == 90) sensorFieldOfView.transposed() else sensorFieldOfView
+    // Debug-only: rescale onto the lens calibration solved from real runs. The
+    // reported active array covers more of the world than the cropped stills
+    // actually do, and the solve that fixed it is this block; see
+    // [DebugFovCalibration]. Release builds pass straight through.
+    fieldOfView = DebugFovCalibration.apply(fieldOfView)
     return SphereOptics(
         fieldOfView = fieldOfView,
         radialDistortion = radialDistortion,
