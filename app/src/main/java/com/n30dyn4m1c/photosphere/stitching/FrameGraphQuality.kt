@@ -46,6 +46,19 @@ object FrameGraphQuality {
     private const val MAX_DROPPED_ABSOLUTE = 4
 
     /**
+     * The OpenCV detail stitcher's confidence cut (cv.detail
+     * leaveBiggestComponent, which OpenStitching's [Subsetter] drives at the
+     * default threshold 1).
+     */
+    const val CONFIDENCE_THRESHOLD = 1f
+
+    /**
+     * Below this share of the run the biggest component is not trusted and
+     * the whole capture stays - a pruned pano worse than the raw one.
+     */
+    private const val MIN_KEPT_SHARE = 0.5
+
+    /**
      * Which frames to keep.
      *
      * [frames] is the total run; [acceptedEdges] holds the pairs the pose
@@ -74,5 +87,82 @@ object FrameGraphQuality {
         val dropped = orphans.take(maxDropped)
         val droppedSet = dropped.toSet()
         return (0 until frameCount).filter { it !in droppedSet }
+    }
+
+    /**
+     * The OpenCV DetailConfidenceThreshold rule, ported: keep the biggest
+     * connected component of the *confidence-weighted* match graph
+     * (cv.detail.leaveBiggestComponent, which the OpenStitching subsetter
+     * drives at the default threshold 1).
+     *
+     * The confidence an edge carries is the OpenCV one:
+     *
+     *     confidence = inliers / (8 + 0.3 * matches)
+     *
+     * an edge with almost nothing but matches (few inliers) scores low even
+     * when its inlier count is huge, so repetitive texture cannot buy a node
+     * in - and a component splits where the honest measurement is weaker than
+     * the threshold. The kept set is the largest component after splitting,
+     * with the rest of the frames handed to the sensor poses.
+     *
+     * A safety floor is added here that leaveBiggestComponent does not have:
+     * this pipeline's covers are on purpose, not a casual photo heap, so when
+     * the biggest component reaches under [MIN_KEPT_SHARE] of the run the
+     * judgement is treated as failed and the whole run stays (logged). Same
+     * rule as [select]: with no measured edge at all, nothing is dropped.
+     */
+    fun selectLargestComponent(
+        frameCount: Int,
+        acceptedEdges: List<Pair<Int, Int>>,
+        confidences: List<Float>,
+        confidenceThreshold: Float = CONFIDENCE_THRESHOLD,
+    ): List<Int> {
+        if (frameCount <= 0) return emptyList()
+        if (confidences.size != acceptedEdges.size) {
+            return select(frameCount, acceptedEdges)
+        }
+
+        val adjacency = Array(frameCount) { ArrayList<Int>() }
+        for ((index, edge) in acceptedEdges.withIndex()) {
+            if (confidences[index] < confidenceThreshold) continue
+            val (from, to) = edge
+            if (from in 0 until frameCount && to in 0 until frameCount) {
+                adjacency[from] += to
+                adjacency[to] += from
+            }
+        }
+
+        // Depth-first components, biggest wins.
+        val component = IntArray(frameCount) { -1 }
+        var bestComponent = -1
+        var bestSize = 0
+        var nextComponent = 0
+        for (start in 0 until frameCount) {
+            if (component[start] != -1) continue
+            val stack = ArrayDeque<Int>()
+            stack.addLast(start)
+            component[start] = nextComponent
+            var size = 0
+            while (stack.isNotEmpty()) {
+                val node = stack.removeLast()
+                size++
+                for (next in adjacency[node]) {
+                    if (component[next] == -1) {
+                        component[next] = nextComponent
+                        stack.addLast(next)
+                    }
+                }
+            }
+            if (size > bestSize) {
+                bestSize = size
+                bestComponent = nextComponent
+            }
+            nextComponent++
+        }
+
+        if (bestSize * 100 < frameCount * (MIN_KEPT_SHARE * 100)) {
+            return (0 until frameCount).toList()
+        }
+        return (0 until frameCount).filter { component[it] == bestComponent }
     }
 }

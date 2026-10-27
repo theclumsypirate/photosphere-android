@@ -3,6 +3,7 @@ package com.n30dyn4m1c.photosphere.stitching
 import org.opencv.core.Mat
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
+import com.n30dyn4m1c.photosphere.BuildConfig
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.max
@@ -111,6 +112,16 @@ internal object SeamFinder {
         latitudeSpanDegrees: Float,
         centerLatitudeDegrees: Float,
         movingMask: Boolean = false,
+        /**
+         * Debug-only switch: convert the packed colours and the node means to
+         * OKLab before the solve (the pano-blend seam cost, src/seam.cpp of
+         * pavel-perina/pano-blend: perceptual distances pick cuts through
+         * exposed highlights and dark corners where an RGB distance over-
+         * weights the channel that moved). The [SeamSolver] then reads its
+         * usual triples as OKLab ones, so no costs change shape, only the
+         * space they live in. False keeps the shipped RGB path.
+         */
+        perceptualSeamCost: Boolean = false,
         onProgress: (completed: Int, total: Int) -> Unit = { _, _ -> },
         checkCancelled: () -> Unit = {},
     ): SeamWeights {
@@ -298,6 +309,15 @@ internal object SeamFinder {
                 IntArray(nodeCount) { -1 },
                 FloatArray(nodeCount),
             )
+        }
+
+        if (perceptualSeamCost && BuildConfig.DEBUG) {
+            // Debug OKLab seam cost: every triple the solve reads is written
+            // back as OKLab scaled into the RGB budget, shared by the packed
+            // colours and the node means so a masked node's mean comparison
+            // stays consistent. In place; these arrays belong to this call.
+            toOkLab(packedColors, 0, packedSize * 3)
+            toOkLab(nodeMean, 0, nodeMean.size)
         }
 
         val grid = PackedGrid(
@@ -573,5 +593,55 @@ internal object SeamFinder {
         val down = 1.0 - abs(row - intrinsics.centerYPx) / intrinsics.centerYPx
         if (across <= 0.0 || down <= 0.0) return BORDER_PENALTY
         return BORDER_PENALTY * (1.0 - across * down)
+    }
+
+    /** OKLab colour budget is scaled to read like the RGB one (0..255). */
+    private const val OKLAB_SCALE = 255.0
+
+    /**
+     * Converts [count] packed RGB triples in [values] to OKLab, in place.
+     *
+     * The Björn Ottosson formulation, exactly as pano-blend's src/colors.cpp
+     * carries it: linearise the sRGB channels, run the M1 and M2 matrix pair
+     * through two cube-root stages, and land in the three L, a and b
+     * components. Each result is scaled by [OKLAB_SCALE] so the solver's
+     * distances keep the magnitude the RGB distance had - a full black-to-
+     * white jump reads near 255 in either space, which keeps the seam lambda
+     * and the border penalty balanced the way the shipped cost is.
+     */
+    private fun toOkLab(values: FloatArray, start: Int, end: Int) {
+        var index = start
+        while (index + 2 < end) {
+            var r = 0.0
+            var g = 0.0
+            var b = 0.0
+            for (channel in 0 until 3) {
+                val c = values[index + channel].toDouble() / 255.0
+                val linear =
+                    if (c <= 0.04045) c / 12.92
+                    else Math.pow((c + 0.055) / 1.055, 2.4)
+                when (channel) {
+                    0 -> r = linear
+                    1 -> g = linear
+                    else -> b = linear
+                }
+            }
+            val l = 0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b
+            val m = 0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b
+            val s = 0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b
+            val l3 = Math.cbrt(l)
+            val m3 = Math.cbrt(m)
+            val s3 = Math.cbrt(s)
+            values[index] =
+                (OKLAB_SCALE * (0.2104542553 * l3 + 0.7936177850 * m3 - 0.0040720468 * s3))
+                    .toFloat()
+            values[index + 1] =
+                (OKLAB_SCALE * (1.9779984951 * l3 - 2.4285922050 * m3 + 0.4505937099 * s3))
+                    .toFloat()
+            values[index + 2] =
+                (OKLAB_SCALE * (0.0259040371 * l3 + 0.7827717662 * m3 - 0.8086757660 * s3))
+                    .toFloat()
+            index += 3
+        }
     }
 }

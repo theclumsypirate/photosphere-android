@@ -107,52 +107,61 @@ object LocalWarp {
         private val heightPx: Double,
     ) {
         private val sums = DoubleArray(columns * rows * 2)
-        private val counts = IntArray(columns * rows)
+        private val weights = DoubleArray(columns * rows)
 
         /**
-         * Accumulates one inlier residual at an ideal source pixel. Residuals
-         * landing fractionally outside the frame are clamped onto the border
-         * instead of dropped: a feature at the very edge is exactly where the
-         * parallax correction matters most.
+         * Accumulates one inlier residual at an ideal source pixel.
+         *
+         * The residual is splatted across the four surrounding cell centres
+         * with bilinear weights, the exact dual of [Mesh.correctionAt]'s
+         * lookup: counting the whole residual into the nearest cell would
+         * make the mesh staircase at cell boundaries, while the APAP-style
+         * distance weighting keeps the underlying field smooth. Residuals
+         * landing outside the frame clamp onto the border: a feature at the
+         * very edge is exactly where the parallax correction matters most.
          */
         fun add(columnPx: Double, rowPx: Double, dx: Double, dy: Double) {
             val clampedColumn = min(max(columnPx, 0.0), widthPx - 1.0)
             val clampedRow = min(max(rowPx, 0.0), heightPx - 1.0)
-            val cell = clampedCell(clampedColumn, clampedRow)
-            sums[cell * 2] += dx
-            sums[cell * 2 + 1] += dy
-            counts[cell]++
+            val u = clampedColumn / max(1.0, widthPx) * columns - 0.5
+            val v = clampedRow / max(1.0, heightPx) * rows - 0.5
+            val x0 = Math.floor(u).toInt()
+            val fx = u - x0
+            val y0 = Math.floor(v).toInt()
+            val fy = v - y0
+            for (cellY in y0..y0 + 1) {
+                val wy = if (cellY == y0) 1.0 - fy else fy
+                val row = min(max(cellY, 0), rows - 1)
+                for (cellX in x0..x0 + 1) {
+                    val wx = if (cellX == x0) 1.0 - fx else fx
+                    val column = min(max(cellX, 0), columns - 1)
+                    val cell = row * columns + column
+                    val weight = wx * wy
+                    if (weight <= 0.0) continue
+                    sums[cell * 2] += dx * weight
+                    sums[cell * 2 + 1] += dy * weight
+                    weights[cell] += weight
+                }
+            }
         }
 
-        /** Whether any inlier landed anywhere on this frame's grid. */
-        fun isEmpty(): Boolean = counts.sum() == 0
-
-        private fun clampedCell(columnPx: Double, rowPx: Double): Int {
-            val cellColumn = min(
-                (columnPx * columns / widthPx).toInt(),
-                columns - 1,
-            )
-            val cellRow = min(
-                (rowPx * rows / heightPx).toInt(),
-                rows - 1,
-            )
-            return cellRow * columns + cellColumn
-        }
+        /** Whether any inlier weight landed anywhere on this frame's grid. */
+        fun isEmpty(): Boolean = weights.sum() <= 0.0
 
         /**
-         * Builds the mesh: per-cell mean residual, smoothed [SMOOTH_PASSES]
-         * times so a lone noisy inlier cannot pull one cell, and clamped so a
-         * bad solve can never re-warp a frame by more than
+         * Builds the mesh: per-cell weighted mean residual, smoothed
+         * [SMOOTH_PASSES] times so a lone noisy inlier cannot pull one cell,
+         * and clamped so a bad solve can never re-warp a frame by more than
          * [MAX_CORRECTION_SHARE] of its long edge.
          */
         fun build(): Mesh {
             val cells = columns * rows
             val mean = DoubleArray(cells * 2)
             for (cell in 0 until cells) {
-                val count = counts[cell]
-                if (count > 0) {
-                    mean[cell * 2] = sums[cell * 2] / count
-                    mean[cell * 2 + 1] = sums[cell * 2 + 1] / count
+                val weight = weights[cell]
+                if (weight > 0.0) {
+                    mean[cell * 2] = sums[cell * 2] / weight
+                    mean[cell * 2 + 1] = sums[cell * 2 + 1] / weight
                 }
             }
             var field = mean

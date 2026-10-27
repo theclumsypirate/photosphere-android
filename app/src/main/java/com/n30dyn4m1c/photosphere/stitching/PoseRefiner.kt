@@ -55,6 +55,13 @@ internal data class RefinementResult(
     val acceptedEdges: List<Pair<Int, Int>> = emptyList(),
     val matchedEdgesPerFrame: IntArray = IntArray(0),
     /**
+     * The cv.detail match-graph confidence per [acceptedEdges] entry
+     * (inliers over a function of the match count), aligned by position.
+     * Debug-only subset selection reads them; production consumers ignore
+     * the extras.
+     */
+    val edgeConfidences: List<Float> = emptyList(),
+    /**
      * Debug-only local alignment meshes ([LocalWarp.Mesh]), one per frame or
      * null, present only when the caller asked the refinement to build them.
      */
@@ -181,6 +188,8 @@ internal object PoseRefiner {
         // The inlier match indices of each accepted edge, kept in the same order
         // as [acceptedEdges] so the focal solve knows which pixels to re-project.
         val edgeInliers = ArrayList<List<Pair<Int, Int>>>()
+        // The cv.detail match-graph confidence per accepted edge, same order.
+        val edgeConfidences = ArrayList<Float>()
         // One matcher for the whole pass: `create` builds a native object, and
         // the pose graph asks it for a hundred-odd pairs.
         val matcher = DescriptorMatcher.create(DescriptorMatcher.BRUTEFORCE_HAMMING)
@@ -217,6 +226,14 @@ internal object PoseRefiner {
                                 weight = estimate.inlierCount.toDouble(),
                             )
                             edgeInliers += estimate.inliers.map { matches[it] }
+                            // The OpenCV match-graph confidence: inliers over
+                            // a function of the raw match count, so a wide
+                            // but shallow match cannot buy the edge into the
+                            // graph (FrameGraphQuality.selectLargestComponent).
+                            edgeConfidences += (
+                                estimate.inlierCount.toDouble() /
+                                    (8.0 + 0.3 * matches.size)
+                                ).toFloat()
                         }
                     }
                 }
@@ -284,6 +301,7 @@ internal object PoseRefiner {
                 focalScales = focalScales,
                 acceptedEdges = acceptedPairs,
                 matchedEdgesPerFrame = matchedPerFrame,
+                edgeConfidences = edgeConfidences,
                 localWarps = warps,
             )
         } finally {

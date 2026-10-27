@@ -373,6 +373,12 @@ object PhotoSphereStitcher {
          * refinement; off, so the shipped projection stays exactly as it is.
          */
         localWarpAlignment: Boolean = false,
+        /**
+         * Debug-only A/B: the seam solver's colour distance in OKLab instead
+         * of RGB (the pano-blend seam cost). Off, so the shipped RGB cost
+         * runs exactly as before.
+         */
+        perceptualSeamCost: Boolean = false,
         longitudeSpanDegrees: Float = 360f,
         centerLongitudeDegrees: Float = 0f,
         latitudeSpanDegrees: Float = 180f,
@@ -599,7 +605,17 @@ object PhotoSphereStitcher {
             // opinion no longer. Everything else (poses, gains, focals) keeps
             // original indices; only which frames reach the render changes.
             val keptIndices = if (graphSubsetSelection && BuildConfig.DEBUG) {
-                val kept = FrameGraphQuality.select(decoded.size, refinement.acceptedEdges)
+                val kept = if (refinement.edgeConfidences.size == refinement.acceptedEdges.size) {
+                    // The OpenCV rule: biggest connected component of the
+                    // confidence-weighted match graph (leaveBiggestComponent).
+                    FrameGraphQuality.selectLargestComponent(
+                        frameCount = decoded.size,
+                        acceptedEdges = refinement.acceptedEdges,
+                        confidences = refinement.edgeConfidences,
+                    )
+                } else {
+                    FrameGraphQuality.select(decoded.size, refinement.acceptedEdges)
+                }
                 if (kept.isEmpty()) {
                     throw StitchException(
                         StitchStatus.NeedMoreImages,
@@ -735,7 +751,8 @@ object PhotoSphereStitcher {
                             centerLongitudeDegrees = centerLongitudeDegrees,
                             latitudeSpanDegrees = latitudeSpanDegrees,
                             centerLatitudeDegrees = centerLatitudeDegrees,
-                            movingMask = movingObjectSeamMask,
+                    movingMask = movingObjectSeamMask,
+                perceptualSeamCost = perceptualSeamCost,
                             onProgress = { completed, total ->
                                 onProgress(StitchProgress(StitchStage.Seaming, completed, total))
                             },
