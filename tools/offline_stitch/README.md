@@ -48,7 +48,11 @@ Useful options:
 - `--w 4096` for a taller output
 - `--hfov 55` starts the FOV scan closer when you know the calibration
 - `--no-refine` renders on the raw poses (the old behaviour, for A/B)
-- `--detector akaze` when SIFT descriptors are too slow
+- `--matcher superglue` for the learned SuperPoint/SuperGlue matcher from
+  the local clone of the Factral layout (it needs torch on the laptop:
+  `pip install torch`, CPU wheel, and the weights under models/); the
+  SuperGlue sources carry a proprietary banner, so the tool loads them
+  from the clone at runtime instead of vendoring them
 - `--lever 0.35 --scene 3.5` for hand-held pivot referral
 
 Confirm every run with `--run yeah`; the dry-run form is there so a

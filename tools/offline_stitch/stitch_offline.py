@@ -54,6 +54,115 @@ FOV_SCAN_STEP = 2.5
 FOV_SCAN_HALFSPAN = 15.0
 FOV_FLOOR = 35.0
 MIN_PAIR_INLIERS = 30
+# SuperPoint + SuperGlue backend, loaded lazily from a local clone of the
+# Factral/image-stitching-supeglue style layout (models/matching.py with the
+# MagicLeap weights). The SuperGlue sources carry a proprietary banner, so
+# they are never vendored into this repo: the tool looks for the clone on
+# disk, uses what is there, and says exactly what is missing otherwise.
+SUPERGLUE_SOURCE_CANDIDATES = (
+    "~/image-stitching-supeglue-main",
+    "~/image-stitching-supeglue",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "third_party",
+                 "image-stitching-supeglue"),
+)
+SUPERGLUE_CONFIG = {
+    "superpoint": {
+        "nms_radius": 5,
+        "keypoint_threshold": 0.05,
+        "max_keypoints": 2048,
+    },
+    "superglue": {
+        "weights": "outdoor",
+        "sinkhorn_iterations": 20,
+        "match_threshold": 0.9,
+    },
+}
+# SuperPoint feeds on a capped grayscale tensor, to keep one frame at a
+# sane memory size on a laptop CPU.
+SUPERGLUE_WIDTH = 1024
+
+_BACKEND = {}
+
+
+def find_superglue_source():
+    """The local clone directory the SuperGlue loads out of, if any."""
+    for candidate in SUPERGLUE_SOURCE_CANDIDATES:
+        expanded = os.path.expanduser(candidate)
+        if os.path.isfile(os.path.join(expanded, "models", "matching.py")):
+            return expanded
+    return None
+
+
+def superglue_backend():
+    """Loads torch plus the clone's Matching module once; dies loudly when
+    the pieces are missing so the run tells the user what to install."""
+    if not _BACKEND:
+        try:
+            import torch
+        except ImportError as error:
+            raise SystemExit(
+                "SuperGlue backend needs torch on the laptop: "
+                "pip install torch (CPU wheel) and rerun") from error
+        source = find_superglue_source()
+        if source is None:
+            raise SystemExit(
+                "SuperGlue backend needs the models clone on disk; looked "
+                "under: %s" % ", ".join(SUPERGLUE_SOURCE_CANDIDATES))
+        torch.set_grad_enabled(False)
+        if source not in sys.path:
+            sys.path.insert(0, source)
+        from models.matching import Matching
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        print("SuperGlue backend: %s on %s" % (source, device), flush=True)
+        _BACKEND["matching"] = Matching(SUPERGLUE_CONFIG).eval().to(device)
+        _BACKEND["torch"] = torch
+        _BACKEND["device"] = device
+    return _BACKEND
+
+
+def superglue_tensors(paths, torch, device):
+    """One capped grayscale tensor per frame, cached for the whole run."""
+    tensors = []
+    for path in paths:
+        gray = cv2.cvtColor(cv2.imread(path), cv2.COLOR_BGR2GRAY)
+        scale = min(1.0, SUPERGLUE_WIDTH / max(gray.shape))
+        small = cv2.resize(gray, None, fx=scale, fy=scale,
+                           interpolation=cv2.INTER_AREA)
+        image = small.astype("float32") / 255.0
+        tensor = torch.from_numpy(image)[None, None].to(device)
+        tensors.append(tensor)
+    return tensors
+
+
+def superglue_pair(images, index_i, index_j, scale_back):
+    """One pair's matched pixels through SuperPoint + SuperGlue, with
+    MagSAC outliers culled on top of the learned confidence. Returns
+    (src, dst) full-res pixel arrays or None."""
+    backend = superglue_backend()
+    pred = backend["matching"]({
+        "image0": images[index_i],
+        "image1": images[index_j],
+    })
+    keys_i = pred["keypoints0"][0].cpu().numpy()
+    keys_j = pred["keypoints1"][0].cpu().numpy()
+    links = pred["matches0"][0].cpu().numpy().astype(int)
+    keep = links > -1
+    if keep.sum() == 0:
+        return None
+    src = keys_i[keep] / scale_back
+    dst = keys_j[links[keep]] / scale_back
+    try:
+        _, mask = cv2.findHomography(src, dst, cv2.USAC_MAGSAC, 3.0,
+                                     maxIters=10000, confidence=0.9999)
+    except cv2.error:
+        return None
+    if mask is None or mask[:, 0].sum() < MIN_PAIR_INLIERS:
+        return None
+    usable = mask[:, 0].astype(bool)
+    return src[usable], dst[usable]
+
+
+
 
 
 def read_exif_string(path):
@@ -288,7 +397,12 @@ def main():
                     help="initial field of view guess, horizontal, degrees")
     ap.add_argument("--no-refine", action="store_true",
                     help="skip the feature alignment, render on raw poses")
-    ap.add_argument("--detector", choices=["sift", "akaze"], default="sift")
+    ap.add_argument("--detector", choices=["sift", "akaze"], default="sift",
+                    help="legacy name for --matcher's SIFT/AKAZE half")
+    ap.add_argument("--matcher", choices=["sift", "akaze", "superglue"],
+                    default="sift",
+                    help="superglue needs torch plus the local clone of "
+                         "the SuperPoint/SuperGlue models on disk")
     ap.add_argument("--lever", type=float, default=0.0,
                     help="pivot lever arm in scene units")
     ap.add_argument("--scene", type=float, default=3.5,
@@ -342,17 +456,32 @@ def main():
 
     chosen_fov = args.hfov
     refined = False
+    superglue_scale = min(1.0, SUPERGLUE_WIDTH / max(fw, fh))
     if not args.no_refine:
-        detector, kind = make_detector(args.detector)
-        print("detector: %s" % kind)
-        keys, descs = features(files, detector)
+        if args.matcher == "superglue":
+            backend = superglue_backend()
+            images = superglue_tensors(files, backend["torch"],
+                                       backend["device"])
+            print("matcher: SuperPoint+SuperGlue on %d tensors"
+                  % len(images), flush=True)
+        else:
+            detector, kind = make_detector(
+                "sift" if args.matcher == "sift" else "akaze")
+            print("backend: %s features" % kind)
+            keys, descs = features(files, detector)
 
-        # One inlier pixel set per consecutive pair, plus the ring closure,
-        # matched once at the initial field of view.
-        pairs = {i: match_pair(keys[i], descs[i], keys[i + 1], descs[i + 1],
-                               kind)
-                 for i in range(len(files) - 1)}
-        closure = match_pair(keys[-1], descs[-1], keys[0], descs[0], kind)
+        def match(index_i, index_j):
+            """One pair's inlier pixels, through the chosen backend."""
+            if args.matcher == "superglue":
+                return superglue_pair(images, index_i, index_j,
+                                      superglue_scale)
+            return match_pair(keys[index_i], descs[index_i],
+                              keys[index_j], descs[index_j], kind)
+
+        # One inlier pixel set per consecutive pair, plus the ring
+        # closure, matched once at the initial field of view.
+        pairs = {i: match(i, i + 1) for i in range(len(files) - 1)}
+        closure = match(len(files) - 1, 0)
         missing = [str(i) for i, p in pairs.items() if p is None]
         if missing or closure is None:
             print("WARNING: pairs without matches: %s%s" % (
