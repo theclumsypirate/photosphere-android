@@ -14,6 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -32,6 +33,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.n30dyn4m1c.photosphere.BuildConfig
 import com.n30dyn4m1c.photosphere.R
+import com.n30dyn4m1c.photosphere.camera.DebugTargetPlans
 import com.n30dyn4m1c.photosphere.camera.SamsungHighRes
 import com.n30dyn4m1c.photosphere.diagnostics.LagTracker
 import com.n30dyn4m1c.photosphere.diagnostics.Report
@@ -80,6 +82,7 @@ fun SettingsScreen(
         }
         if (BuildConfig.DEBUG) {
             LagRows(modifier = Modifier.padding(top = 20.dp))
+            TargetPlanRows(modifier = Modifier.padding(top = 20.dp))
         }
         ReportRows(modifier = Modifier.padding(top = 28.dp))
         if (BuildConfig.DEBUG && SamsungHighRes.isSamsung()) {
@@ -87,6 +90,64 @@ fun SettingsScreen(
         }
         TextButton(onClick = onBack, modifier = Modifier.padding(top = 12.dp)) {
             Text(text = stringResource(R.string.report_back))
+        }
+    }
+}
+
+/**
+ * Debug-only target plan picker.
+ *
+ * Changes the capture pattern: full sphere, horizon ring, tiny planet,
+ * asteroid, freeze frame, surrounding, three steps, or forward overturn.
+ * The user still aims manually; this only changes which targets the plan
+ * lays out and in what order.
+ */
+@Composable
+private fun TargetPlanRows(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var selectedType by remember { mutableStateOf(DebugTargetPlans.getSavedType(context)) }
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        Text(
+            text = "Debug Target Plan",
+            style = MaterialTheme.typography.titleMedium,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text(
+            text = "Changes capture pattern (debug only). User still aims manually.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
+        )
+        DebugTargetPlans.Type.entries.forEach { type ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = type.label,
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Text(
+                        text = type.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                RadioButton(
+                    selected = (selectedType == type),
+                    onClick = {
+                        selectedType = type
+                        DebugTargetPlans.setSavedType(context, type)
+                    },
+                )
+            }
         }
     }
 }

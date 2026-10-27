@@ -118,6 +118,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.n30dyn4m1c.photosphere.BuildConfig
 import com.n30dyn4m1c.photosphere.R
+import com.n30dyn4m1c.photosphere.camera.DebugTargetPlans
 import com.n30dyn4m1c.photosphere.metadata.GPanoMetadata
 import com.n30dyn4m1c.photosphere.sensor.OrientationAccuracy
 import com.n30dyn4m1c.photosphere.sensor.OrientationData
@@ -330,7 +331,14 @@ fun PhotoSphereCameraScreen(
     // reach, widened past the vertical field of view so tilt or refinement can
     // not push content off the canvas. A ring is capped at 180°: GPano cannot
     // express a taller span, and throwing over it would discard the render.
-    val latitudeSpanDegrees = when (captureScope) {
+    val latitudeSpanDegrees = if (BuildConfig.DEBUG) {
+        val planType = DebugTargetPlans.getSavedType(context)
+        when (planType) {
+            DebugTargetPlans.Type.HORIZON_RING ->
+                (fieldOfView.verticalDegrees * RING_LATITUDE_SPAN_FACTOR).coerceAtMost(180f)
+            else -> 180f
+        }
+    } else when (captureScope) {
         SphereCaptureScope.Sphere -> 180f
         SphereCaptureScope.Ring ->
             (fieldOfView.verticalDegrees * RING_LATITUDE_SPAN_FACTOR).coerceAtMost(180f)
@@ -423,6 +431,9 @@ fun PhotoSphereCameraScreen(
     // Debug A/B: APAP-lite local alignment meshes, one per frame, absorbing
     // the parallax residual the global pose solve leaves behind.
     var warpEnabled by remember { mutableStateOf(false) }
+    // Debug A/B: seam cost in OKLab instead of RGB (pano-blend's seam cost),
+    // so the cut reads through exposure differences rather than channel sums.
+    var perceptualSeamEnabled by remember { mutableStateOf(false) }
     // Debug: paint each frame a solid colour so the pano shows where each one
     // was placed — distinguishes a placement bug from a content bug.
     var colorFrames by remember { mutableStateOf(false) }
@@ -909,13 +920,36 @@ fun PhotoSphereCameraScreen(
                     val startYaw =
                         if (planStartYawDegrees.isNaN()) yawNow else planStartYawDegrees
                     planStartYawDegrees = startYaw
-                    SphereTargetPlan.createForFieldOfView(
-                        startYawDegrees = startYaw,
-                        fieldOfView = currentFieldOfView,
-                        scope = captureScope,
-                    ).also { plan ->
-                        Logging.i("Plan laid: startYaw=${startYaw.roundToInt()}° targets=${plan.size}")
+                    val plan = if (BuildConfig.DEBUG) {
+                        val planType = DebugTargetPlans.getSavedType(context)
+                        DebugTargetPlans.create(
+                            planType,
+                            fov = currentFieldOfView,
+                            startYaw = startYaw,
+                        )
+                    } else {
+                        SphereTargetPlan.createForFieldOfView(
+                            startYawDegrees = startYaw,
+                            fieldOfView = currentFieldOfView,
+                            scope = captureScope,
+                        )
                     }
+                    Logging.i("Plan laid: startYaw=${startYaw.roundToInt()}° targets=${plan.size} type=${if (BuildConfig.DEBUG) DebugTargetPlans.getSavedType(context).label else captureScope}")
+                    if (BuildConfig.DEBUG) {
+                        // Sidecar for the offline Python stitcher: the FOV, the
+                        // rotation and the plan live here so the laptop tool
+                        // never has to guess them from the JPEGs alone.
+                        SphereImageStore.writeDebugCaptureSummary(
+                            context = context,
+                            sessionId = buffer.sessionId.value,
+                            horizontalFovDegrees = currentFieldOfView.horizontalDegrees,
+                            verticalFovDegrees = currentFieldOfView.verticalDegrees,
+                            portraitRotationDegrees = optics.portraitRotationDegrees,
+                            planType = DebugTargetPlans.getSavedType(context).name,
+                            targetCount = plan.size,
+                        )
+                    }
+                    plan
                 },
             )
 
@@ -1095,6 +1129,7 @@ fun PhotoSphereCameraScreen(
                     perBlockExposure = blockExposureEnabled,
                     graphSubsetSelection = graphSelectionEnabled,
                     localWarpAlignment = warpEnabled,
+                    perceptualSeamCost = perceptualSeamEnabled,
                     // The canvas region: a full 360° of longitude either way,
                     // and either the whole 180° of latitude (sphere) or the band
                     // a level ring actually covers.
@@ -1309,11 +1344,11 @@ fun PhotoSphereCameraScreen(
                 ),
                 lockBadge = lockBadge,
                 isComplete = run.isComplete,
-                captureScope = captureScope,
-                // A mode change would renumber the targets already-shot frames
-                // were aimed at, so the choice is made before the first frame.
-                canChangeScope = bufferedFrames.isEmpty() && stitchJob == null,
-                onScopeChange = { captureScope = it },
+                // In debug mode, the plan type is chosen in Settings and has
+                // its own scope built in; hide the Ring/Sphere toggle.
+                captureScope = if (BuildConfig.DEBUG) null else captureScope,
+                canChangeScope = !BuildConfig.DEBUG && bufferedFrames.isEmpty() && stitchJob == null,
+                onScopeChange = if (BuildConfig.DEBUG) null else { scope -> captureScope = scope },
                 guidanceEnabled = guidanceEnabled,
                 onToggleGuidance = { guidanceEnabled = !guidanceEnabled },
                 // Three overlapping frames are already a panorama. Whether one
@@ -1375,6 +1410,8 @@ fun PhotoSphereCameraScreen(
                 onToggleGraphSelection = { graphSelectionEnabled = !graphSelectionEnabled },
                 warpEnabled = warpEnabled,
                 onToggleWarp = { warpEnabled = !warpEnabled },
+                perceptualSeamEnabled = perceptualSeamEnabled,
+                onTogglePerceptualSeam = { perceptualSeamEnabled = !perceptualSeamEnabled },
                 evIndex = exposureIndex,
                 evRange = exposureRange,
                 aeLocked = isThreeALocked,
@@ -1494,9 +1531,9 @@ private fun CaptureHud(
     canUndo: Boolean,
     undoEnabled: Boolean,
     onUndo: () -> Unit,
-    captureScope: SphereCaptureScope,
+    captureScope: SphereCaptureScope?,
     canChangeScope: Boolean,
-    onScopeChange: (SphereCaptureScope) -> Unit,
+    onScopeChange: ((SphereCaptureScope) -> Unit)?,
     guidanceEnabled: Boolean,
     onToggleGuidance: () -> Unit,
     distortionEnabled: Boolean,
@@ -1515,6 +1552,8 @@ private fun CaptureHud(
     onToggleGraphSelection: () -> Unit,
     warpEnabled: Boolean,
     onToggleWarp: () -> Unit,
+    perceptualSeamEnabled: Boolean,
+    onTogglePerceptualSeam: () -> Unit,
     evIndex: Int,
     evRange: IntRange?,
     aeLocked: Boolean,
@@ -1624,11 +1663,13 @@ private fun CaptureHud(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            CaptureScopeSelector(
-                scope = captureScope,
-                enabled = canChangeScope,
-                onScopeChange = onScopeChange,
-            )
+            if (captureScope != null) {
+                CaptureScopeSelector(
+                    scope = captureScope,
+                    enabled = canChangeScope,
+                    onScopeChange = onScopeChange!!,
+                )
+            }
             CaptureProgressPill(
                 capturedCount = capturedCount,
                 totalTargets = totalTargets,
@@ -1732,6 +1773,13 @@ private fun CaptureHud(
                     TextButton(onClick = onToggleWarp) {
                         Text(
                             text = "Warp: ${if (warpEnabled) "on" else "off"}",
+                            color = GlassContentDim,
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                    TextButton(onClick = onTogglePerceptualSeam) {
+                        Text(
+                            text = "Percept: ${if (perceptualSeamEnabled) "on" else "off"}",
                             color = GlassContentDim,
                             style = MaterialTheme.typography.labelMedium,
                         )

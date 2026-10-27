@@ -8,6 +8,7 @@ import android.util.Log
 import androidx.camera.core.ImageCapture
 import androidx.core.content.FileProvider
 import androidx.exifinterface.media.ExifInterface
+import com.n30dyn4m1c.photosphere.BuildConfig
 import com.n30dyn4m1c.photosphere.metadata.GPanoMetadata
 import com.n30dyn4m1c.photosphere.metadata.GPanoXmpInjector
 import com.n30dyn4m1c.photosphere.orbit.OrbitStore
@@ -228,6 +229,49 @@ object SphereImageStore {
     }
 
     /**
+     * The debug capture sidecar: a small JSON beside the session's frames
+     * with what an offline stitcher needs besides the per-frame EXIF
+     * (the field of view the capture actually ran with, the EXIF-rotation
+     * turn, the debug plan type, the target count). Written once when the
+     * plan is laid; debug builds only, so it never appears in a release run.
+     */
+    fun writeDebugCaptureSummary(
+        context: Context,
+        sessionId: String,
+        horizontalFovDegrees: Float,
+        verticalFovDegrees: Float,
+        portraitRotationDegrees: Int,
+        planType: String,
+        targetCount: Int,
+    ) {
+        if (!BuildConfig.DEBUG) return
+        val directory = sessionDirectory(context, sessionId)
+        val file = File(directory, CAPTURE_SUMMARY_FILE)
+        val json = buildString {
+            append("{\n")
+            append("  \"horizontalFovDegrees\": $horizontalFovDegrees,\n")
+            append("  \"verticalFovDegrees\": $verticalFovDegrees,\n")
+            append("  \"portraitRotationDegrees\": $portraitRotationDegrees,\n")
+            append("  \"planType\": \"$planType\",\n")
+            append("  \"targetCount\": $targetCount\n")
+            append("}\n")
+        }
+        try {
+            directory.mkdirs()
+            file.writeText(json)
+            Logging.i(
+                "Debug capture summary: $planType, $targetCount targets, FOV " +
+                    "$horizontalFovDegrees x $verticalFovDegrees -> ${file.name}",
+            )
+        } catch (e: Exception) {
+            Logging.w("Could not write debug capture summary", e)
+        }
+    }
+
+    /** Sidecar file name the debug capture summary is written under. */
+    const val CAPTURE_SUMMARY_FILE = "capture_debug.json"
+
+    /**
      * Records the device attitude a frame was shot at, in EXIF.
      *
      * The stitcher gets a starting guess at each frame's place on the sphere
@@ -249,8 +293,25 @@ object SphereImageStore {
         yawDegrees: Float,
         pitchDegrees: Float,
         rollDegrees: Float,
+        /**
+         * The captured rotation matrix, in the CameraBasis layout. Debug
+         * builds append it to the same comment so an offline tool reading the
+         * exported JPEGs gets the full orientation - the angles collapse and
+         * yaw lands arbitrary near the poles, which is exactly where a
+         * laptop-side stitcher needs the matrix - while release builds keep
+         * writing the angles-only form the importer parses.
+         */
+        cameraBasis: FloatArray? = null,
     ) {
         try {
+            val matrixComment = if (BuildConfig.DEBUG) {
+                cameraBasis?.joinToString(
+                    separator = ",",
+                    prefix = ";matrix=",
+                ) { "%.6f".format(Locale.US, it) } ?: ""
+            } else {
+                ""
+            }
             ExifInterface(file).apply {
                 // Read the rotation CameraX recorded first and write it back
                 // explicitly: saveAttributes() must not silently reset it to
@@ -264,8 +325,11 @@ object SphereImageStore {
                 setAttribute(ExifInterface.TAG_IMAGE_DESCRIPTION, "$ALBUM frame $index")
                 setAttribute(
                     ExifInterface.TAG_USER_COMMENT,
-                    "index=%d;yaw=%.3f;pitch=%.3f;roll=%.3f"
-                        .format(Locale.US, index, yawDegrees, pitchDegrees, rollDegrees),
+                    ("index=%d;yaw=%.3f;pitch=%.3f;roll=%.3f%s")
+                        .format(
+                            Locale.US, index, yawDegrees, pitchDegrees, rollDegrees,
+                            matrixComment,
+                        ),
                 )
                 saveAttributes()
             }

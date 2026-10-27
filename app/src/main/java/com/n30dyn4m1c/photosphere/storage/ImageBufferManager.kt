@@ -253,6 +253,7 @@ class ImageBufferManager(
                     yawDegrees = orientation.yawDegrees,
                     pitchDegrees = orientation.pitchDegrees,
                     rollDegrees = orientation.rollDegrees,
+                    cameraBasis = orientation.cameraBasis,
                 )
             }
 
