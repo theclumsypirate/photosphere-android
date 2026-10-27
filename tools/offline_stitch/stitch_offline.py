@@ -134,7 +134,7 @@ def list_frames(directory, count):
 def main():
     ap = argparse.ArgumentParser(
         description="Stitch session frames from their EXIF poses.")
-    ap.add_argument("directory")
+    ap.add_argument("directory", nargs="?", default=None)
     ap.add_argument("-o", "--output", default="offline_pano.jpg")
     ap.add_argument("--w", type=int, default=2048)
     ap.add_argument("--every", type=int, default=0,
@@ -152,6 +152,9 @@ def main():
     if args.run != RUN_CONFIRM:
         ap.error('dry run: rerun with --run "%s" to actually stitch'
                  % RUN_CONFIRM)
+    args.directory = args.directory or os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "..", "pano_proto", "ref", "all36")
 
     H = args.w // 2
     files = list_frames(args.directory, args.every)

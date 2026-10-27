@@ -22,7 +22,7 @@ the 180 degree meridian.
 
 Nine photos, one ring, default 2048 wide:
 
-    python3 stitch_offline.py ../../pano_proto/ref/all36 -o ring9.jpg --every 9 --run yeah
+    python3 stitch_offline.py ../pano_proto/ref/all36 -o ring9.jpg --every 9 --run yeah
 
 Confirm the run with `--run yeah`; the dry-run form is there so a stray
 enter key on the laptop does not start a minute of work.
