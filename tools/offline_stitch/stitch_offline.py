@@ -292,11 +292,14 @@ def match_pair(keys_i, desc_i, keys_j, desc_j, kind):
         return None
     norm = cv2.NORM_HAMMING if kind == "AKAZE" else cv2.NORM_L2
     raw = cv2.BFMatcher(norm).knnMatch(desc_i, desc_j, k=2)
-    good = [
-        (keys_i[m.queryIdx][:2].copy(), keys_j[m.trainIdx][:2].copy())
-        for m in (pair[0] for pair in raw if len(pair) == 2)
-        if m[0].distance < 0.75 * m[1].distance
-    ]
+    good = []
+    for pair in raw:
+        if len(pair) != 2:
+            continue
+        best, second = pair
+        if best.distance < 0.75 * second.distance:
+            good.append((keys_i[best.queryIdx][:2].copy(),
+                         keys_j[best.trainIdx][:2].copy()))
     if len(good) < MIN_PAIR_INLIERS:
         return None
     src = np.float32([g[0] for g in good])
