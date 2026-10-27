@@ -82,3 +82,7 @@ secrets/
 credentials/
 google-services.json
 GoogleService-Info.plist
+
+#ippi offline stitcher outputs: personal photos, never in the repo
+tools/offline_stitch/*.jpg
+tools/offline_stitch/*.jpeg
