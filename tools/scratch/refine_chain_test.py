@@ -116,7 +116,10 @@ def main():
     measured = [(i, i + 1,
                  so.pair_measured_rotation(src, dst, fx, fy, FW, FH)[0])
                 for i, (src, dst) in pairs_true.items()]
-    refined = so.refine_components(guess, measured, lambda ref, a, d: ref)
+    # The guesses are perturbed by up to 4 degrees, so the clamp has
+    # to allow at least that much for the chain to converge here.
+    refined = so.refine_components(guess, measured, lambda ref, a, d: ref,
+                                   max_deg=6.0)
     # The absolute orientation is a gauge: matching only sees relative
     # rotations, so frame 0 keeps its guess and every other frame can only
     # agree with it. The assertion strips the common offset and demands

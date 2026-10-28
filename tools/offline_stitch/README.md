@@ -95,6 +95,34 @@ voting for an artificial small FOV, so it is a check, not the default.
 Confirm every run with `--run yeah`; the dry-run form is there so a
 stray enter key on the laptop does not start work.
 
+## Content-only mode
+
+`--content-only` ignores every pose the frames carry and rebuilds the
+sphere from matched pixels alone: identity seeds, every pair tried,
+the biggest matched component kept, and the full 180 degree clamp so
+the chain can move freely. It is the honest answer to "does this
+session need the EXIF at all".
+
+On the all36 test session it chains 26 of 37 frames, drops the plain
+wall band, covers 58 percent of the sphere and comes out incoherent:
+the turquoise walls and the ceiling match each other, so some pairs
+are false and the unseeded chain follows them. The seeded run matches
+32 pairs and frames the room cleanly. The EXIF seed is what makes the
+difference here, not the feature detector.
+
+## The OpenStitching attempt
+
+`stitch_openstitching.py` is a separate, complete script that hands
+the frames to the `stitching` package (OpenStitching on top of
+OpenCV's native stitcher) and reads nothing but pixels. Same test
+session, same outcome in every configuration tried: the automatic
+pipeline keeps only the biggest matched component (the horizon row,
+or on looser settings the floor), and with full connectivity the ray
+adjustment fails or places one frame as a grey blob over the rest.
+That is the library behaving as designed on a multi-row sphere with
+large featureless walls, not a settings problem. It is kept because it
+works for a flat pan, and because the comparison is useful.
+
 ## What is phone-portable
 
 Every piece the refinement needs exists on Android OpenCV 4.7+:
@@ -106,5 +134,7 @@ NPU run such as the SuperPoint+LightGlue pairing on the AXERA boards.
 ## Files
 
 - `stitch_offline.py`: the whole tool, no imports from pano_proto.
+- `stitch_openstitching.py`: the pixel-only attempt on the
+  OpenStitching package, kept with its limits documented above.
 - `pano_proto/out/stairs_perfect.jpg` stays the quality reference it
   was built against.

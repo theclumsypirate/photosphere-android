@@ -428,6 +428,28 @@ def pair_measured_rotation(src, dst, fx, fy, fw, fh):
     return rot, rotation_residual(rot, rays_i, rays_j)
 
 
+def connected_components(count, edges):
+    """Every node grouped with the nodes its matched edges reach, biggest
+    component first. Content-only runs keep just the first one, because a
+    frame the matches never reach has no pose to render with."""
+    parent = list(range(count))
+
+    def find(node):
+        while parent[node] != node:
+            parent[node] = parent[parent[node]]
+            node = parent[node]
+        return node
+
+    for first, second, _rotation in edges:
+        root_a, root_b = find(first), find(second)
+        if root_a != root_b:
+            parent[root_a] = root_b
+    groups = {}
+    for node in range(count):
+        groups.setdefault(find(node), []).append(node)
+    return sorted(groups.values(), key=len, reverse=True)
+
+
 def refine_components(frames, edges, spread_ring, max_deg=REFINE_MAX_DEG):
     """Chains every connected component of the matched-pair graph forward
     from its anchor node, and for the component that wraps the whole frame
@@ -524,6 +546,9 @@ def main():
                     default="sift",
                     help="superglue needs torch plus the local clone of "
                          "the SuperPoint/SuperGlue models on disk")
+    ap.add_argument("--content-only", action="store_true",
+                    help="ignore every pose the frames carry and rebuild "
+                         "the sphere from matched pixels alone")
     ap.add_argument("--refine-max", type=float, default=REFINE_MAX_DEG,
                     help="how far one refined pose may stray from its "
                          "seed, degrees")
@@ -538,6 +563,9 @@ def main():
     if args.run != RUN_CONFIRM:
         ap.error('dry run: rerun with --run "%s" to actually stitch'
                  % RUN_CONFIRM)
+    if args.content_only and args.no_refine:
+        ap.error("--content-only needs the refinement pass it builds the "
+                 "poses in")
     args.directory = args.directory or os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
         "..", "pano_proto", "ref", "all36")
@@ -550,7 +578,10 @@ def main():
     for path in files:
         bases.append(read_basis(path))
         poses.append(read_pose(path))
-    if all(b is not None for b in bases):
+    if args.content_only:
+        print("poses: none, %d frames rebuilt from matched pixels"
+              % len(files))
+    elif all(b is not None for b in bases):
         print("poses: EXIF camera basis (%d frames)" % len(bases))
     elif all(p is not None for p in poses):
         print("poses: EXIF angles (%d frames)" % len(poses))
@@ -619,9 +650,13 @@ def main():
     # Basis per frame: the EXIF matrix wins over the angles, and the ring
     # fallback is last resort.
     frames = []
-    for basis, pose in zip(bases, poses):
-        frames.append(basis_frame(basis) if basis is not None
-                      else camera_frame(*pose))
+    if args.content_only:
+        # No seed to clamp to: every pose comes out of the matched graph.
+        frames = [np.eye(3) for _ in files]
+    else:
+        for basis, pose in zip(bases, poses):
+            frames.append(basis_frame(basis) if basis is not None
+                          else camera_frame(*pose))
 
     chosen_fov = hfov
     refined = False
@@ -657,12 +692,19 @@ def main():
         for fwd in fwds:
             fwd /= np.linalg.norm(fwd)
         candidates = []
-        for i in range(len(files)):
-            for j in range(i + 1, len(files)):
-                arc = float(np.degrees(np.arccos(np.clip(
-                    float(fwds[i] @ fwds[j]), -1, 1))))
-                if arc < hfov * 0.8:
-                    candidates.append((i, j))
+        if args.content_only:
+            # No poses, so no neighbourhood to narrow the pairs down with.
+            # Every pair is tried; the inlier gate and the component
+            # filter throw away the rest.
+            candidates = [(i, j) for i in range(len(files))
+                          for j in range(i + 1, len(files))]
+        else:
+            for i in range(len(files)):
+                for j in range(i + 1, len(files)):
+                    arc = float(np.degrees(np.arccos(np.clip(
+                        float(fwds[i] @ fwds[j]), -1, 1))))
+                    if arc < hfov * 0.8:
+                        candidates.append((i, j))
         print("candidate pairs from poses: %d" % len(candidates), flush=True)
 
         pairs = {}
@@ -707,8 +749,24 @@ def main():
             (i, j, pair_measured_rotation(*edge, fx, fy, fw, fh)[0])
             for (i, j), edge in pairs.items()
         ]
+        clamp = 180.0 if args.content_only else args.refine_max
+        if args.content_only:
+            components = connected_components(len(frames), edges)
+            keep = components[0] if components else list(range(len(frames)))
+            if len(keep) < len(frames):
+                dropped = sorted(set(range(len(frames))) - set(keep))
+                remap = {old: new for new, old in enumerate(keep)}
+                frames = [frames[i] for i in keep]
+                files = [files[i] for i in keep]
+                edges = [(remap[i], remap[j], rotation)
+                         for (i, j, rotation) in edges
+                         if i in remap and j in remap]
+                print("content only: %d frames chained, dropped %s "
+                      "(no matched overlap to the rest)" % (len(keep), dropped))
+            if not edges:
+                ap.error("no pair matched; these frames need more overlap")
         frames = refine_components(frames, edges, lambda ref, anchor,
-                                   distances: ref, args.refine_max)
+                                   distances: ref, clamp)
         refined = True
         print("poses refined on %d matched edges" % len(edges))
         if not refined:
