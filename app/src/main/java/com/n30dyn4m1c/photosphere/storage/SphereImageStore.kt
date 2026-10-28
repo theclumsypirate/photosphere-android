@@ -302,6 +302,14 @@ object SphereImageStore {
          * writing the angles-only form the importer parses.
          */
         cameraBasis: FloatArray? = null,
+        /**
+         * The field of view the capture ran with, horizontal and vertical.
+         * Debug builds append it to the comment so every frame carries its
+         * own calibration and a laptop stitcher never has to guess the focal
+         * length from the sensor size. Null in release builds, where the
+         * comment shape must stay exactly what the importer expects.
+         */
+        debugFovDegrees: FloatArray? = null,
     ) {
         try {
             val matrixComment = if (BuildConfig.DEBUG) {
@@ -309,6 +317,15 @@ object SphereImageStore {
                     separator = ",",
                     prefix = ";matrix=",
                 ) { "%.6f".format(Locale.US, it) } ?: ""
+            } else {
+                ""
+            }
+            val fovComment = if (BuildConfig.DEBUG && debugFovDegrees != null &&
+                debugFovDegrees.size >= 2
+            ) {
+                ";hfov=%.4f;vfov=%.4f".format(
+                    Locale.US, debugFovDegrees[0], debugFovDegrees[1],
+                )
             } else {
                 ""
             }
@@ -325,10 +342,10 @@ object SphereImageStore {
                 setAttribute(ExifInterface.TAG_IMAGE_DESCRIPTION, "$ALBUM frame $index")
                 setAttribute(
                     ExifInterface.TAG_USER_COMMENT,
-                    ("index=%d;yaw=%.3f;pitch=%.3f;roll=%.3f%s")
+                    ("index=%d;yaw=%.3f;pitch=%.3f;roll=%.3f%s%s")
                         .format(
                             Locale.US, index, yawDegrees, pitchDegrees, rollDegrees,
-                            matrixComment,
+                            matrixComment, fovComment,
                         ),
                 )
                 saveAttributes()

@@ -122,6 +122,15 @@ class ImageBufferManager(
 
     private val _frames = MutableStateFlow<List<BufferedFrame>>(emptyList())
 
+    /**
+     * Debug-only calibration stamped into each frame's EXIF comment: the
+     * capture field of view, horizontal then vertical. Set once when the plan
+     * is laid, from the same numbers the debug capture summary carries, so a
+     * laptop stitcher reads the focal length off the JPEG instead of guessing
+     * it. Null in release, and never read by the stitch itself.
+     */
+    var debugCaptureFovDegrees: FloatArray? = null
+
     /** Everything captured so far this session, ordered by capture index. */
     val frames: StateFlow<List<BufferedFrame>> = _frames.asStateFlow()
 
@@ -254,6 +263,7 @@ class ImageBufferManager(
                     pitchDegrees = orientation.pitchDegrees,
                     rollDegrees = orientation.rollDegrees,
                     cameraBasis = orientation.cameraBasis,
+                    debugFovDegrees = debugCaptureFovDegrees,
                 )
             }
 

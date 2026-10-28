@@ -936,6 +936,15 @@ fun PhotoSphereCameraScreen(
                     }
                     Logging.i("Plan laid: startYaw=${startYaw.roundToInt()}° targets=${plan.size} type=${if (BuildConfig.DEBUG) DebugTargetPlans.getSavedType(context).label else captureScope}")
                     if (BuildConfig.DEBUG) {
+                        // The same numbers, baked into each frame's EXIF
+                        // comment as well as the session sidecar, so the
+                        // offline stitcher reads the calibration off the
+                        // JPEG itself. Debug only: the release comment
+                        // shape stays exactly what the importer parses.
+                        buffer.debugCaptureFovDegrees = floatArrayOf(
+                            currentFieldOfView.horizontalDegrees,
+                            currentFieldOfView.verticalDegrees,
+                        )
                         // Sidecar for the offline Python stitcher: the FOV, the
                         // rotation and the plan live here so the laptop tool
                         // never has to guess them from the JPEGs alone.
