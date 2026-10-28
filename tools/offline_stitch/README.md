@@ -73,16 +73,20 @@ structure away.
 
 In priority order:
 
-1. the frames' own EXIF comment, when a debug build captured them.
+1. an explicit `--hfov` value, which is a manual override.
+2. the frames' own EXIF comment, when a debug build captured them.
    Debug builds append `;hfov=..;vfov=..` (and the `;matrix=` basis)
    after the attitude, so every JPEG carries its calibration and a
    multi-row session no longer needs a guessed focal length.
-2. `capture_debug.json` in the session folder, the same numbers as a
+3. `capture_debug.json` in the session folder, the same numbers as a
    sidecar.
-3. the `--hfov` value scaled by the frame aspect, for release sessions.
+4. 65 degrees scaled by the frame aspect, for release sessions.
 
 The FOV scan is opt-in (`--auto-fov`). On sliver overlaps it keeps
 voting for an artificial small FOV, so it is a check, not the default.
+When the session carries a baked field of view the scan overrides it
+and says so in the log, which is the way to cross-check a lens the
+capture reported wrong.
 For the all36 test session the sensor geometry says about 48 x 61
 degrees, and 48 renders correctly, while the release-build default of
 65 made the room look stretched and too close.
