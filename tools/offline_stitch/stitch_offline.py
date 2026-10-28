@@ -51,9 +51,13 @@ WINNER_BLUR_PX = 7
 RUN_CONFIRM = "yeah"
 DETECT_WIDTH = 640
 FOV_SCAN_STEP = 2.5
-FOV_SCAN_HALFSPAN = 15.0
-FOV_FLOOR = 35.0
-MIN_PAIR_INLIERS = 30
+FOV_SCAN_HALFSPAN = 25.0
+FOV_FLOOR = 30.0
+MIN_PAIR_INLIERS = 12
+# How far a frame's refined pose may stray from its seed, degrees. The
+# seeds carry the multi-row structure the content cannot recover on its
+# own (texture-poor bands, pole frames), so the refinement only nudges.
+REFINE_MAX_DEG = 6.0
 # SuperPoint + SuperGlue backend, loaded lazily from a local clone of the
 # Factral/image-stitching-supeglue style layout (models/matching.py with the
 # MagicLeap weights). The SuperGlue sources carry a proprietary banner, so
@@ -93,10 +97,32 @@ def find_superglue_source():
     return None
 
 
+def find_pipx_torch():
+    """A pipx-installed torch's site-packages, probed on disk; the
+    script runs on the system python, which does not see venvs."""
+    import glob
+    patterns = (
+        os.path.expanduser("~/.local/share/pipx/venvs/torch/lib/"
+                           "python*/site-packages"),
+        os.path.expanduser("~/.local/pipx/venvs/torch/lib/"
+                           "python*/site-packages"),
+        os.path.expanduser("~/.local/share/pipx/venvs/torch/lib/"
+                           "python*/site-packages"),
+    )
+    for pattern in patterns:
+        for found in sorted(glob.glob(pattern)):
+            if os.path.isdir(os.path.join(found, "torch")):
+                return found
+    return None
+
+
 def superglue_backend():
     """Loads torch plus the clone's Matching module once; dies loudly when
     the pieces are missing so the run tells the user what to install."""
     if not _BACKEND:
+        probe = find_pipx_torch()
+        if probe and probe not in sys.path:
+            sys.path.insert(0, probe)
         try:
             import torch
         except ImportError as error:
@@ -346,6 +372,20 @@ def rotation_residual(rot, rays_src, rays_dst):
     return float(np.sqrt(((wrong ** 2).sum(axis=1).mean())))
 
 
+def pair_reprojection_error(rot, src, dst, fx, fy, fw, fh):
+    """Mean pixel distance between the matched destination pixels and the
+    rotation re-projected through this focal length. The scan criterion:
+    unlike the ray-space residual, it has a true minimum at the correct
+    field of view, because the pixel offsets grow with the distance from
+    the optical axis."""
+    rays = rays_from_pixels(src, fx, fy, fw / 2.0, fh / 2.0)
+    mapped = rays @ rot.T
+    xs = fw / 2.0 + mapped[:, 0] / mapped[:, 2] * fx
+    ys = fh / 2.0 - mapped[:, 1] / mapped[:, 2] * fy
+    error = np.hypot(xs - dst[:, 0], ys - dst[:, 1])
+    return float(error.mean())
+
+
 def pair_measured_rotation(src, dst, fx, fy, fw, fh):
     """Rotation fit of one matched pair at a given focal length, with the
     fit residual."""
@@ -355,36 +395,71 @@ def pair_measured_rotation(src, dst, fx, fy, fw, fh):
     return rot, rotation_residual(rot, rays_i, rays_j)
 
 
-def refine_chain(frames, measured, closure_rot):
-    """Chains the poses forward through the measured relative rotations
-    and spreads the loop-closure residual back over the chain.
+def refine_components(frames, edges, spread_ring):
+    """Chains every connected component of the matched-pair graph forward
+    from its anchor node, and for the component that wraps the whole frame
+    list with as many matched edges as nodes, spreads the closing residual
+    back by graph distance.
 
     [frames] start from the initial guess, one right/up/forward triple per
-    frame. [measured][i] carries frame i rays onto frame i+1 rays, and
-    [closure_rot] carries the last frame's rays onto the first frame's.
-    Returns the refined triples.
+    frame. [edges] are (i, j, rot) triples whose rot carries frame i's
+    rays onto frame j's rays; frames in components without matches keep
+    their initial guesses untouched. [spread_ring] is the loop-closure
+    residual distributor, called with the refined frames.
     """
+    count = len(frames)
     refined = [np.array(triple, dtype=np.float64) for triple in frames]
-    count = len(refined)
-    for i in range(count - 1):
-        refined[i + 1] = refined[i] @ measured[i].T
+    adjacency = {i: [] for i in range(count)}
+    for i, j, rot in edges:
+        adjacency[i].append((j, rot, True))   # forward: rays i onto j
+        adjacency[j].append((i, rot, False))  # backward: rays j onto i
 
-    # The chain predicts B0^T B_last; the measured closure says what it
-    # must be. Their mismatch, conjugated into the world frame and spread
-    # with an exponent that anchors frame 0 and fully applies at the last
-    # frame, closes the ring.
-    chain_pred = refined[0].T @ refined[-1]
-    corr = closure_rot @ chain_pred.T
-    world = refined[0] @ corr @ refined[0].T
-    gold, _ = cv2.Rodrigues(np.float32(world))
-    axis = gold[:, 0].astype(np.float64)
-    angle = float(np.linalg.norm(axis))
-    if angle > 1e-9:
-        axis /= angle
-        for k in range(1, count):
-            share = k / max(1, count - 1)
-            rot, _ = cv2.Rodrigues(np.float32(axis * angle * share))
-            refined[k] = rot.astype(np.float64) @ refined[k]
+    visited = set()
+    for anchor in range(count):
+        if anchor in visited:
+            continue
+        # Breadth-first chain: every basis follows its matched neighbour.
+        component = {anchor}
+        distances = {anchor: 0}
+        queue = [anchor]
+        visited.add(anchor)
+        while queue:
+            node = queue.pop(0)
+            for neighbour, rot, forward in adjacency[node]:
+                if neighbour in visited:
+                    continue
+                if forward:
+                    refined[neighbour] = refined[node] @ rot.T
+                else:
+                    refined[neighbour] = refined[node] @ rot
+                distances[neighbour] = distances[node] + 1
+                visited.add(neighbour)
+                component.add(neighbour)
+                queue.append(neighbour)
+
+        # The ring case: as many matched edges as nodes in the whole
+        # component. The residual goes back by graph distance, anchored
+        # on the node the component started from.
+        inside = sum(1 for i, j, _ in edges
+                     if i in component and j in component)
+        if len(component) == count and inside == len(component):
+            refined = spread_ring(refined, anchor, distances)
+
+    # Clamp: every refined basis stays within REFINE_MAX_DEG of its seed.
+    # Match pairs that live on thin overlap slivers or a distorted lens
+    # can pull poses far away; the seeds carry the multi-row structure
+    # the content alone cannot rebuild.
+    limit = np.radians(REFINE_MAX_DEG)
+    for node in range(count):
+        initial = np.asarray(frames[node], dtype=np.float64)
+        corr = refined[node] @ initial.T
+        gold, _ = cv2.Rodrigues(np.float32(corr))
+        axis = gold[:, 0].astype(np.float64)
+        angle = float(np.linalg.norm(axis))
+        if angle > limit:
+            axis = axis / angle * limit
+            capped, _ = cv2.Rodrigues(np.float32(axis))
+            refined[node] = capped.astype(np.float64) @ initial
     return refined
 
 
@@ -397,7 +472,11 @@ def main():
     ap.add_argument("--every", type=int, default=0,
                     help="pick only this many frames, spread evenly")
     ap.add_argument("--hfov", type=float, default=65.0,
-                    help="initial field of view guess, horizontal, degrees")
+                    help="field of view guess, horizontal, degrees")
+    ap.add_argument("--auto-fov", action="store_true",
+                    help="scan the field of view instead of the --hfov "
+                         "value; the scan prefers thin overlaps, so "
+                         "this is off by default")
     ap.add_argument("--no-refine", action="store_true",
                     help="skip the feature alignment, render on raw poses")
     ap.add_argument("--detector", choices=["sift", "akaze"], default="sift",
@@ -481,47 +560,69 @@ def main():
             return match_pair(keys[index_i], descs[index_i],
                               keys[index_j], descs[index_j], kind)
 
-        # One inlier pixel set per consecutive pair, plus the ring
-        # closure, matched once at the initial field of view.
-        pairs = {i: match(i, i + 1) for i in range(len(files) - 1)}
-        closure = match(len(files) - 1, 0)
-        missing = [str(i) for i, p in pairs.items() if p is None]
-        if missing or closure is None:
-            print("WARNING: pairs without matches: %s%s" % (
-                ", ".join(missing), " and ring closure"
-                if closure is None else ""), file=sys.stderr)
-        else:
-            # Field of view scan: the winner minimises the mean rotation
-            # residual over every pair. The matched pixels are fixed
-            # already, so a whole scan is only cheap ray algebra.
+        # Candidate pairs come from the seeded poses, not the capture
+        # order: a sphere session is captured on several rows and the
+        # file sequence jumps between rows. Any two frames whose forward
+        # directions sit closer than 80 percent of the horizontal field
+        # of view are worth matching.
+        fwds = [np.asarray(f, dtype=np.float64)[:, 2]
+                for f in frames]
+        for fwd in fwds:
+            fwd /= np.linalg.norm(fwd)
+        candidates = []
+        for i in range(len(files)):
+            for j in range(i + 1, len(files)):
+                arc = float(np.degrees(np.arccos(np.clip(
+                    float(fwds[i] @ fwds[j]), -1, 1))))
+                if arc < args.hfov * 0.8:
+                    candidates.append((i, j))
+        print("candidate pairs from poses: %d" % len(candidates), flush=True)
+
+        pairs = {}
+        for i, j in candidates:
+            found = match(i, j)
+            if found is not None:
+                pairs[(i, j)] = found
+        print("matched pairs: %d of %d candidates" % (
+            len(pairs), len(candidates)), flush=True)
+        if not pairs:
+            print("WARNING: no pair matched; keeping the initial poses",
+                  file=sys.stderr)
+        elif args.auto_fov:
+            # Field of view scan: the winner minimises the median pixel
+            # reprojection error over the matched pairs. The median keeps
+            # one noisy pair from dragging the choice, and the pixel
+            # metric, unlike a ray-space residual, has its true minimum
+            # at the correct field of view. Ran over the fixed matched
+            # pixels, so a scan is only cheap ray algebra.
             low = max(FOV_FLOOR, args.hfov - FOV_SCAN_HALFSPAN)
             scores = {}
             for candidate in np.arange(low, args.hfov + FOV_SCAN_HALFSPAN +
                                        1e-9, FOV_SCAN_STEP):
                 fx, fy = fov_to_focal(float(candidate))
-                total = 0.0
-                for i, edge in pairs.items():
-                    total += pair_measured_rotation(*edge, fx, fy, fw, fh)[1]
-                closure_resid = pair_measured_rotation(
-                    *closure, fx, fy, fw, fh)[1]
-                scores[float(candidate)] = \
-                    (total + closure_resid) / len(pairs)
+                errs = []
+                for edge in pairs.values():
+                    rot = pair_measured_rotation(*edge, fx, fy, fw, fh)[0]
+                    errs.append(pair_reprojection_error(
+                        rot, edge[0], edge[1], fx, fy, fw, fh))
+                scores[float(candidate)] = float(np.median(errs))
             best = min(scores, key=scores.get)
-            print("fov scan: chosen %.1f (residual %.3e; initial %.1f "
-                  "scored %.3e)" % (best, scores[best], args.hfov,
-                                    scores.get(float(args.hfov),
-                                               float("inf"))))
+            print("fov scan: chosen %.1f (median px err %.2f; initial "
+                  "%.1f scored %.2f)" % (best, scores[best], args.hfov,
+                                         scores.get(float(args.hfov),
+                                                    float("inf"))))
             chosen_fov = best
-            fx, fy = fov_to_focal(best)
-
-            measured = {
-                i: pair_measured_rotation(*edge, fx, fy, fw, fh)[0]
-                for i, edge in pairs.items()
-            }
-            closure_rot = pair_measured_rotation(*closure, fx, fy, fw, fh)[0]
-            frames = refine_chain(frames, measured, closure_rot)
-            refined = True
-            print("poses refined through %d pairs + ring closure" % len(files))
+        # Chain the seed bases through every matched edge, with the
+        # clamp keeping each pose near its seed.
+        fx, fy = fov_to_focal(chosen_fov)
+        edges = [
+            (i, j, pair_measured_rotation(*edge, fx, fy, fw, fh)[0])
+            for (i, j), edge in pairs.items()
+        ]
+        frames = refine_components(frames, edges, lambda ref, anchor,
+                                   distances: ref)
+        refined = True
+        print("poses refined on %d matched edges" % len(edges))
         if not refined:
             print("keeping the initial poses (refinement failed)",
                   file=sys.stderr)

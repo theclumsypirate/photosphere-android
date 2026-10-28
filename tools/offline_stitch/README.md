@@ -52,8 +52,24 @@ Useful options:
   the local clone of the Factral layout (it needs torch on the laptop:
   `pip install torch`, CPU wheel, and the weights under models/); the
   SuperGlue sources carry a proprietary banner, so the tool loads them
-  from the clone at runtime instead of vendoring them
+  from the clone at runtime instead of vendoring them, and a pipx
+  torch install is found automatically
 - `--lever 0.35 --scene 3.5` for hand-held pivot referral
+
+## Sessions with more than one row
+
+Sphere capture runs several rows (horizon, tilted up, tilted down,
+poles), so the file sequence jumps between rows and the raw index
+order is not a ring. Candidate pairs come from the seeded poses: any
+two frames whose forward directions sit closer than 80 percent of the
+horizontal field of view get matched, which covers the row grid, the
+cross-row arcs and the pole links. Every connected component of that
+graph chains forward from its anchor, and every refined pose stays
+within REFINE_MAX_DEG (6 degrees) of its seed, so thin sliver matches
+on a texture-poor band cannot drag the structure away. The field of
+view keeps the --hfov value; --auto-fov opts into the pixel-error
+scan, which prefers thin overlaps and is an opt-in check, not the
+default.
 
 Confirm every run with `--run yeah`; the dry-run form is there so a
 stray enter key on the laptop does not start work.
