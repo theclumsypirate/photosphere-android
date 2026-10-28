@@ -85,4 +85,9 @@ GoogleService-Info.plist
 
 #ippi offline stitcher outputs: personal photos, never in the repo
 tools/offline_stitch/*.jpg
+tools/offline_stitch/*_work/
 tools/offline_stitch/*.jpeg
+# Personal capture sessions. Never commit photos, and never commit a
+# folder named like one, even by accident.
+tools/offline_stitch/all_38_exif/
+tools/offline_stitch/session_*/
