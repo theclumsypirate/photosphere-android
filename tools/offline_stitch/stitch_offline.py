@@ -54,12 +54,17 @@ DETECT_WIDTH = 640
 FOV_SCAN_STEP = 2.5
 FOV_SCAN_HALFSPAN = 25.0
 FOV_FLOOR = 30.0
-DEFAULT_HFOV = 65.0
+# The field of view the renders the user kept were made with. It is the
+# horizontal span of an upright portrait frame at this lens; the vertical
+# follows from the frame aspect, about 61 degrees tall.
+DEFAULT_HFOV = 48.0
 MIN_PAIR_INLIERS = 12
 # How far a frame's refined pose may stray from its seed, degrees. The
 # seeds carry the multi-row structure the content cannot recover on its
 # own (texture-poor bands, pole frames), so the refinement only nudges.
-REFINE_MAX_DEG = 6.0
+# 3 degrees is the setting the render that framed the room cleanly used;
+# a wider clamp lets thin sliver matches pull the rows apart.
+REFINE_MAX_DEG = 3.0
 # SuperPoint + SuperGlue backend, loaded lazily from a local clone of the
 # Factral/image-stitching-supeglue style layout (models/matching.py with the
 # MagicLeap weights). The SuperGlue sources carry a proprietary banner, so
@@ -239,7 +244,7 @@ def read_capture_summary(directory):
     """The debug build's capture_debug.json beside the frames, when the
     session came off a debug capture: the exact field of view the capture
     ran with, plus the plan type. Release sessions have no such file and
-    the tool falls back to --hfov and the frame aspect."""
+    the tool falls back to the 48 degree default and the frame aspect."""
     import json
     path = os.path.join(directory, "capture_debug.json")
     try:
@@ -501,13 +506,16 @@ def main():
                     help="pick only this many frames, spread evenly")
     ap.add_argument("--hfov", type=float, default=None,
                     help="field of view override, horizontal, degrees; "
-                         "defaults to the calibration the frames carry, "
-                         "then to 65 with the frame aspect")
+                         "defaults to 48 with the frame aspect, which is "
+                         "what the lens frames this room at")
+    ap.add_argument("--fov-from-exif", action="store_true",
+                    help="render with the field of view the capture "
+                         "stamped into the frames (or the session "
+                         "sidecar) instead of the default")
     ap.add_argument("--auto-fov", action="store_true",
                     help="scan the field of view instead of using the "
-                         "calibration or the --hfov value; the scan "
-                         "prefers thin overlaps, so this is off by "
-                         "default")
+                         "default or the --hfov value; the scan prefers "
+                         "thin overlaps, so this is off by default")
     ap.add_argument("--no-refine", action="store_true",
                     help="skip the feature alignment, render on raw poses")
     ap.add_argument("--detector", choices=["sift", "akaze"], default="sift",
@@ -571,33 +579,41 @@ def main():
         and the frame aspect, for the scan and for release sessions."""
         return focal_for(hfov_deg, aspect_vfov(hfov_deg))
 
-    # Calibration, best source first: an explicit --hfov is a manual
-    # override and wins, then the field of view the debug build bakes into
-    # every frame's EXIF comment, then the session sidecar, then a release
-    # session falls back to 65 degrees scaled by the frame aspect.
+    # Field of view, best source first: an explicit --hfov is a manual
+    # override; otherwise the default this lens renders correctly at; and
+    # --fov-from-exif opts into the capture's own calibration instead. The
+    # debug build stamps that calibration into every frame and into the
+    # session sidecar, but on this device it reports about 39.7 degrees
+    # where the content frames the room at 48, so it is not the default.
     stamped = [fov for fov in (read_frame_fov(path) for path in files)
                if fov is not None]
     summary = read_capture_summary(args.directory)
-    calibrated = False
+    hint = None
+    if stamped:
+        hint = (float(np.median([fov[0] for fov in stamped])),
+                float(np.median([fov[1] for fov in stamped])))
+    elif summary and summary.get("horizontalFovDegrees") \
+            and summary.get("verticalFovDegrees"):
+        hint = (float(summary["horizontalFovDegrees"]),
+                float(summary["verticalFovDegrees"]))
+
     if args.hfov is not None:
         hfov = args.hfov
         vfov = aspect_vfov(hfov)
         fov_source = "--hfov %.1f (explicit override)" % hfov
-    elif stamped:
-        hfov = float(np.median([fov[0] for fov in stamped]))
-        vfov = float(np.median([fov[1] for fov in stamped]))
-        fov_source = "frame EXIF (%d/%d frames)" % (len(stamped), len(files))
-        calibrated = True
-    elif summary and summary.get("horizontalFovDegrees") \
-            and summary.get("verticalFovDegrees"):
-        hfov = float(summary["horizontalFovDegrees"])
-        vfov = float(summary["verticalFovDegrees"])
-        fov_source = "capture_debug.json"
-        calibrated = True
+    elif args.fov_from_exif and hint is not None:
+        hfov, vfov = hint
+        fov_source = (
+            "the capture's own calibration (%d/%d frames)"
+            % (len(stamped), len(files))
+            if stamped else "capture_debug.json")
     else:
         hfov = DEFAULT_HFOV
         vfov = aspect_vfov(hfov)
-        fov_source = "default %.1f with the frame aspect" % hfov
+        fov_source = "the default %.1f with the frame aspect" % hfov
+        if hint is not None:
+            fov_source += "; the frames report %.2f x %.2f, pass " \
+                          "--fov-from-exif to use that" % hint
     print("field of view: %.2f x %.2f deg from %s" % (hfov, vfov, fov_source))
 
     # Basis per frame: the EXIF matrix wins over the angles, and the ring
@@ -682,9 +698,6 @@ def main():
                   "%.1f scored %.2f)" % (best, scores[best], hfov,
                                          scores.get(float(hfov),
                                                     float("inf"))))
-            if calibrated:
-                print("fov scan overrides the baked field of view %.2f x "
-                      "%.2f" % (hfov, vfov))
             chosen_fov = best
             vfov = aspect_vfov(best)
         # Chain the seed bases through every matched edge, with the

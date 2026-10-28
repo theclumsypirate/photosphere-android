@@ -65,31 +65,32 @@ two frames whose forward directions sit closer than 80 percent of the
 horizontal field of view get matched, which covers the row grid, the
 cross-row arcs and the pole links. Every connected component of that
 graph chains forward from its anchor, and every refined pose stays
-within `--refine-max` degrees of its seed (6 by default, 3 is a gentler
-nudge), so thin sliver matches on a texture-poor band cannot drag the
-structure away.
+within `--refine-max` degrees of its seed (3 by default), so thin
+sliver matches on a texture-poor band cannot drag the structure away.
 
 ## Where the field of view comes from
 
+The default is 48 degrees horizontal, about 61 degrees vertical with
+this frame aspect. That is the number the render that framed the room
+correctly was made with. 65 stretched the room and made it look too
+close, and the 39.7 the debug build calibrates this lens to left a
+stretched band along the bottom of the equirectangular.
+
 In priority order:
 
-1. an explicit `--hfov` value, which is a manual override.
-2. the frames' own EXIF comment, when a debug build captured them.
-   Debug builds append `;hfov=..;vfov=..` (and the `;matrix=` basis)
-   after the attitude, so every JPEG carries its calibration and a
-   multi-row session no longer needs a guessed focal length.
-3. `capture_debug.json` in the session folder, the same numbers as a
-   sidecar.
-4. 65 degrees scaled by the frame aspect, for release sessions.
+1. an explicit `--hfov` value.
+2. `--fov-from-exif`, which renders with the calibration the capture
+   carried instead: the `;hfov=..;vfov=..` comment a debug build bakes
+   into every frame, or `capture_debug.json` beside them.
+3. the 48 degree default scaled by the frame aspect.
+
+The log always prints the chosen pair and, when the frames carry a
+different one, how to use it. `--fov-from-exif` is the way to compare a
+fresh session against the capture's own numbers without changing the
+default for everyone.
 
 The FOV scan is opt-in (`--auto-fov`). On sliver overlaps it keeps
 voting for an artificial small FOV, so it is a check, not the default.
-When the session carries a baked field of view the scan overrides it
-and says so in the log, which is the way to cross-check a lens the
-capture reported wrong.
-For the all36 test session the sensor geometry says about 48 x 61
-degrees, and 48 renders correctly, while the release-build default of
-65 made the room look stretched and too close.
 
 Confirm every run with `--run yeah`; the dry-run form is there so a
 stray enter key on the laptop does not start work.
