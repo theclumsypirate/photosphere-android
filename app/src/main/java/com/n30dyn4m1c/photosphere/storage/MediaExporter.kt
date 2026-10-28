@@ -8,6 +8,8 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
+import androidx.exifinterface.media.ExifInterface
+import com.n30dyn4m1c.photosphere.BuildConfig
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -118,8 +120,10 @@ object MediaExporter {
      * photo — the "save what I shot" escape hatch.
      *
      * Names carry the session id and the position, so re-exporting the same run
-     * does not collide. The attitude EXIF stamped at capture travels along
-     * untouched. Returns how many landed; any failure fails the whole batch.
+     * does not collide. The EXIF stamped at capture travels along untouched,
+     * because this is a byte copy: the attitude in every build, and the camera
+     * basis plus the field of view a debug build bakes in. Returns how many
+     * landed; any failure fails the whole batch.
      */
     suspend fun exportFrames(
         context: Context,
@@ -129,6 +133,7 @@ object MediaExporter {
         runCatching {
             var saved = 0
             sources.forEachIndexed { position, source ->
+                if (BuildConfig.DEBUG) verifyFrameMetadata(source)
                 export(context, source, displayName = frameDisplayName(source, position))
                     .getOrThrow()
                 saved++
@@ -142,6 +147,26 @@ object MediaExporter {
     /** Gallery name for one frame: session + position, sorts chronologically. */
     fun frameDisplayName(source: File, position: Int): String =
         "frame_%s_%02d.jpg".format(source.parentFile?.name ?: "session", position)
+
+    /**
+     * Debug-only: says so in the log when a frame about to be exported does
+     * not carry the capture attitude and the field of view the debug build
+     * bakes in. Nothing is rewritten here. The export is a byte copy, so a
+     * warning at this point means the file the user is about to get has the
+     * same gap.
+     */
+    private fun verifyFrameMetadata(source: File) {
+        val comment = runCatching {
+            ExifInterface(source).getAttribute(ExifInterface.TAG_USER_COMMENT)
+        }.getOrNull().orEmpty()
+        val missing = listOf("yaw=", "pitch=", "roll=", "hfov=")
+            .filterNot { key -> comment.contains(key) }
+        if (missing.isEmpty()) {
+            Logging.i("Exporting ${source.name} with its baked pose and field of view")
+        } else {
+            Logging.w("Exporting ${source.name} without ${missing.joinToString()}")
+        }
+    }
 
     /** API 29+: insert pending, stream the bytes in, then publish. */
     private fun exportPending(

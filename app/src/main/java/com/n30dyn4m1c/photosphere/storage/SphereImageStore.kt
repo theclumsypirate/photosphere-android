@@ -350,6 +350,26 @@ object SphereImageStore {
                 )
                 saveAttributes()
             }
+            // Debug builds prove the write landed by reading the file back.
+            // A comment that quietly lost a key is the frame the offline
+            // stitcher would fall back to guessing on, and finding that out
+            // here is far cheaper than finding it out at stitch time.
+            if (BuildConfig.DEBUG) {
+                val written = ExifInterface(file)
+                    .getAttribute(ExifInterface.TAG_USER_COMMENT).orEmpty()
+                val expected = mutableListOf("yaw=", "pitch=", "roll=")
+                if (cameraBasis != null) expected += "matrix="
+                if (debugFovDegrees != null && debugFovDegrees.size >= 2) {
+                    expected += "hfov="
+                    expected += "vfov="
+                }
+                val missing = expected.filterNot { key -> written.contains(key) }
+                if (missing.isEmpty()) {
+                    Logging.i("Frame ${file.name}: EXIF pose baked in (${written.length} chars)")
+                } else {
+                    Logging.w("Frame ${file.name}: EXIF lost ${missing.joinToString()}")
+                }
+            }
         } catch (e: Exception) {
             // Metadata is a nice-to-have; never lose the frame over it.
             Logging.w("Could not write EXIF for ${file.name}", e)
