@@ -45,6 +45,7 @@ ATTITUDE_PATTERN = re.compile(
     r"roll=(-?\d+(?:\.\d+)?)")
 MATRIX_PATTERN = re.compile(
     r"matrix=(?P<matrix>-?\d+(?:\.\d+)?(?:,-?\d+(?:\.\d+)?){8})")
+FOV_PATTERN = re.compile(r";hfov=(-?\d+(?:\.\d+)?);vfov=(-?\d+(?:\.\d+)?)")
 FEATHER_PX = 80
 WRAP_SEAM_PX = 64
 WINNER_BLUR_PX = 7
@@ -224,6 +225,32 @@ def read_basis(path):
                     dtype=np.float64).reshape(3, 3)
 
 
+def read_frame_fov(path):
+    """The (horizontal, vertical) field of view a debug build baked into
+    one frame's EXIF comment, or None for a release frame."""
+    match = FOV_PATTERN.search(read_exif_string(path))
+    if not match:
+        return None
+    return float(match.group(1)), float(match.group(2))
+
+
+def read_capture_summary(directory):
+    """The debug build's capture_debug.json beside the frames, when the
+    session came off a debug capture: the exact field of view the capture
+    ran with, plus the plan type. Release sessions have no such file and
+    the tool falls back to --hfov and the frame aspect."""
+    import json
+    path = os.path.join(directory, "capture_debug.json")
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            summary = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(summary, dict):
+        return None
+    return summary
+
+
 def ring_pose(i, count, hfov):
     """Fallback pose: an even horizon ring, centred, in pick order."""
     step = hfov * 0.65
@@ -395,7 +422,7 @@ def pair_measured_rotation(src, dst, fx, fy, fw, fh):
     return rot, rotation_residual(rot, rays_i, rays_j)
 
 
-def refine_components(frames, edges, spread_ring):
+def refine_components(frames, edges, spread_ring, max_deg=REFINE_MAX_DEG):
     """Chains every connected component of the matched-pair graph forward
     from its anchor node, and for the component that wraps the whole frame
     list with as many matched edges as nodes, spreads the closing residual
@@ -449,7 +476,7 @@ def refine_components(frames, edges, spread_ring):
     # Match pairs that live on thin overlap slivers or a distorted lens
     # can pull poses far away; the seeds carry the multi-row structure
     # the content alone cannot rebuild.
-    limit = np.radians(REFINE_MAX_DEG)
+    limit = np.radians(max_deg)
     for node in range(count):
         initial = np.asarray(frames[node], dtype=np.float64)
         corr = refined[node] @ initial.T
@@ -485,6 +512,9 @@ def main():
                     default="sift",
                     help="superglue needs torch plus the local clone of "
                          "the SuperPoint/SuperGlue models on disk")
+    ap.add_argument("--refine-max", type=float, default=REFINE_MAX_DEG,
+                    help="how far one refined pose may stray from its "
+                         "seed, degrees")
     ap.add_argument("--lever", type=float, default=0.0,
                     help="pivot lever arm in scene units")
     ap.add_argument("--scene", type=float, default=3.5,
@@ -522,12 +552,44 @@ def main():
     fh, fw = probe.shape[:2]
     aspect = fw / fh
 
-    def fov_to_focal(hfov_deg):
-        """Per-axis focal length for one horizontal field of view."""
-        vfov = float(np.degrees(
-            2 * np.arctan(np.tan(np.radians(hfov_deg) / 2)) / aspect))
+    def focal_for(hfov_deg, vfov_deg):
+        """Per-axis focal length for one field of view pair."""
         return ((fw / 2) / np.tan(np.radians(hfov_deg / 2)),
-                (fh / 2) / np.tan(np.radians(vfov / 2)))
+                (fh / 2) / np.tan(np.radians(vfov_deg / 2)))
+
+    def aspect_vfov(hfov_deg):
+        """Vertical field of view implied by the frame aspect ratio."""
+        return float(np.degrees(
+            2 * np.arctan(np.tan(np.radians(hfov_deg) / 2) / aspect)))
+
+    def fov_to_focal(hfov_deg):
+        """Per-axis focal length derived from a horizontal field of view
+        and the frame aspect, for the scan and for release sessions."""
+        return focal_for(hfov_deg, aspect_vfov(hfov_deg))
+
+    # Calibration, best source first: the debug build bakes horizontal and
+    # vertical field of view into every frame's EXIF comment, the session
+    # sidecar carries the same numbers, and a release session falls back to
+    # the --hfov guess scaled by the frame aspect.
+    stamped = [fov for fov in (read_frame_fov(path) for path in files)
+               if fov is not None]
+    summary = read_capture_summary(args.directory)
+    if stamped:
+        hfov = float(np.median([fov[0] for fov in stamped]))
+        vfov = float(np.median([fov[1] for fov in stamped]))
+        fov_source = "frame EXIF (%d/%d frames)" % (len(stamped), len(files))
+    elif summary and summary.get("horizontalFovDegrees") \
+            and summary.get("verticalFovDegrees"):
+        hfov = float(summary["horizontalFovDegrees"])
+        vfov = float(summary["verticalFovDegrees"])
+        fov_source = "capture_debug.json"
+    else:
+        hfov = args.hfov
+        vfov = aspect_vfov(hfov)
+        fov_source = "--hfov %.1f with the frame aspect" % hfov
+    calibrated = bool(stamped) or bool(
+        summary and summary.get("horizontalFovDegrees"))
+    print("field of view: %.2f x %.2f deg from %s" % (hfov, vfov, fov_source))
 
     # Basis per frame: the EXIF matrix wins over the angles, and the ring
     # fallback is last resort.
@@ -536,7 +598,7 @@ def main():
         frames.append(basis_frame(basis) if basis is not None
                       else camera_frame(*pose))
 
-    chosen_fov = args.hfov
+    chosen_fov = hfov
     refined = False
     superglue_scale = min(1.0, SUPERGLUE_WIDTH / max(fw, fh))
     if not args.no_refine:
@@ -574,7 +636,7 @@ def main():
             for j in range(i + 1, len(files)):
                 arc = float(np.degrees(np.arccos(np.clip(
                     float(fwds[i] @ fwds[j]), -1, 1))))
-                if arc < args.hfov * 0.8:
+                if arc < hfov * 0.8:
                     candidates.append((i, j))
         print("candidate pairs from poses: %d" % len(candidates), flush=True)
 
@@ -588,6 +650,10 @@ def main():
         if not pairs:
             print("WARNING: no pair matched; keeping the initial poses",
                   file=sys.stderr)
+        elif args.auto_fov and calibrated:
+            # A debug session already carries the calibration the capture
+            # ran with; scanning against it could only make it worse.
+            print("fov scan skipped: the session carries its own field of view")
         elif args.auto_fov:
             # Field of view scan: the winner minimises the median pixel
             # reprojection error over the matched pairs. The median keeps
@@ -595,9 +661,9 @@ def main():
             # metric, unlike a ray-space residual, has its true minimum
             # at the correct field of view. Ran over the fixed matched
             # pixels, so a scan is only cheap ray algebra.
-            low = max(FOV_FLOOR, args.hfov - FOV_SCAN_HALFSPAN)
+            low = max(FOV_FLOOR, hfov - FOV_SCAN_HALFSPAN)
             scores = {}
-            for candidate in np.arange(low, args.hfov + FOV_SCAN_HALFSPAN +
+            for candidate in np.arange(low, hfov + FOV_SCAN_HALFSPAN +
                                        1e-9, FOV_SCAN_STEP):
                 fx, fy = fov_to_focal(float(candidate))
                 errs = []
@@ -608,26 +674,29 @@ def main():
                 scores[float(candidate)] = float(np.median(errs))
             best = min(scores, key=scores.get)
             print("fov scan: chosen %.1f (median px err %.2f; initial "
-                  "%.1f scored %.2f)" % (best, scores[best], args.hfov,
-                                         scores.get(float(args.hfov),
+                  "%.1f scored %.2f)" % (best, scores[best], hfov,
+                                         scores.get(float(hfov),
                                                     float("inf"))))
             chosen_fov = best
+            vfov = aspect_vfov(best)
         # Chain the seed bases through every matched edge, with the
         # clamp keeping each pose near its seed.
-        fx, fy = fov_to_focal(chosen_fov)
+        fx, fy = focal_for(chosen_fov, vfov)
         edges = [
             (i, j, pair_measured_rotation(*edge, fx, fy, fw, fh)[0])
             for (i, j), edge in pairs.items()
         ]
         frames = refine_components(frames, edges, lambda ref, anchor,
-                                   distances: ref)
+                                   distances: ref, args.refine_max)
         refined = True
         print("poses refined on %d matched edges" % len(edges))
         if not refined:
             print("keeping the initial poses (refinement failed)",
                   file=sys.stderr)
 
-    fx, fy = fov_to_focal(chosen_fov)
+    # Render focal: the calibration pair exactly, never a re-derived
+    # vertical from the aspect ratio, when the source carried one.
+    fx, fy = focal_for(chosen_fov, vfov)
     right = [np.float64(f[0]) for f in frames]
     ups = [np.float64(f[1]) for f in frames]
     fwds = [np.float64(f[2]) for f in frames]

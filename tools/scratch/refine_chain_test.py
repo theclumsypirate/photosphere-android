@@ -113,11 +113,10 @@ def main():
                               1.0, -1.0, 0.5][k]
         g = basis_of(yaw, pitch)
         guess.append(g)
-    measured = {}
-    for i, (src, dst) in pairs_true.items():
-        measured[i] = so.pair_measured_rotation(src, dst, fx, fy, FW, FH)[0]
-    closure_rot = so.pair_measured_rotation(*closure_px, fx, fy, FW, FH)[0]
-    refined = so.refine_chain(guess, measured, closure_rot)
+    measured = [(i, i + 1,
+                 so.pair_measured_rotation(src, dst, fx, fy, FW, FH)[0])
+                for i, (src, dst) in pairs_true.items()]
+    refined = so.refine_components(guess, measured, lambda ref, a, d: ref)
     # The absolute orientation is a gauge: matching only sees relative
     # rotations, so frame 0 keeps its guess and every other frame can only
     # agree with it. The assertion strips the common offset and demands

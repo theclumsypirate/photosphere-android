@@ -65,11 +65,27 @@ two frames whose forward directions sit closer than 80 percent of the
 horizontal field of view get matched, which covers the row grid, the
 cross-row arcs and the pole links. Every connected component of that
 graph chains forward from its anchor, and every refined pose stays
-within REFINE_MAX_DEG (6 degrees) of its seed, so thin sliver matches
-on a texture-poor band cannot drag the structure away. The field of
-view keeps the --hfov value; --auto-fov opts into the pixel-error
-scan, which prefers thin overlaps and is an opt-in check, not the
-default.
+within `--refine-max` degrees of its seed (6 by default, 3 is a gentler
+nudge), so thin sliver matches on a texture-poor band cannot drag the
+structure away.
+
+## Where the field of view comes from
+
+In priority order:
+
+1. the frames' own EXIF comment, when a debug build captured them.
+   Debug builds append `;hfov=..;vfov=..` (and the `;matrix=` basis)
+   after the attitude, so every JPEG carries its calibration and a
+   multi-row session no longer needs a guessed focal length.
+2. `capture_debug.json` in the session folder, the same numbers as a
+   sidecar.
+3. the `--hfov` value scaled by the frame aspect, for release sessions.
+
+The FOV scan is opt-in (`--auto-fov`). On sliver overlaps it keeps
+voting for an artificial small FOV, so it is a check, not the default.
+For the all36 test session the sensor geometry says about 48 x 61
+degrees, and 48 renders correctly, while the release-build default of
+65 made the room look stretched and too close.
 
 Confirm every run with `--run yeah`; the dry-run form is there so a
 stray enter key on the laptop does not start work.
