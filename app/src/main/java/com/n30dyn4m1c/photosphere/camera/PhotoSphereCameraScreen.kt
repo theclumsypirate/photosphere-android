@@ -42,7 +42,10 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -1120,7 +1123,13 @@ fun PhotoSphereCameraScreen(
                     frames = frames,
                     horizontalFovDegrees = fieldOfView.horizontalDegrees,
                     verticalFovDegrees = fieldOfView.verticalDegrees,
-                    radialDistortion = if (distortionEnabled) optics.radialDistortion else null,
+                    // The lens model stays on the shipping path: only a debug
+                    // build can turn it off, with the A/B switch.
+                    radialDistortion = if (BuildConfig.DEBUG && !distortionEnabled) {
+                        null
+                    } else {
+                        optics.radialDistortion
+                    },
                     maxInputDimension = deviceProfile.stitchMaxInputDimension,
                     maxOutputWidth = deviceProfile.stitchMaxOutputWidth,
                     unsharpAmount = deviceProfile.unsharpAmount,
@@ -1706,94 +1715,35 @@ private fun CaptureHud(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            if (showExposure && evRange != null) {
-                ExposureRow(
-                    evIndex = evIndex,
-                    evRange = evRange,
-                    aeLocked = aeLocked,
-                    onEvChange = onEvChange,
-                    onToggleAeLock = onToggleAeLock,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
             HintCard(text = hint)
-            // Debug-only A/B control for the lens model: a device that reports
-            // LENS_DISTORTION in the wrong convention warps every frame, and
-            // re-stitching the same frames as a pinhole isolates it.
-            if (BuildConfig.DEBUG && canStitch) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    TextButton(onClick = onToggleDistortion) {
-                        Text(
-                            text = "Dist: ${if (distortionEnabled) "on" else "off"}",
-                            color = GlassContentDim,
-                            style = MaterialTheme.typography.labelMedium,
-                        )
-                    }
-                    TextButton(onClick = onToggleRefinement) {
-                        Text(
-                            text = "Refine: ${if (refinementEnabled) "on" else "off"}",
-                            color = GlassContentDim,
-                            style = MaterialTheme.typography.labelMedium,
-                        )
-                    }
-                    TextButton(onClick = onCycleSeamMode) {
-                        Text(
-                            text = "Seam: ${when (seamMode) {
-                                SeamMode.Blend -> "off"
-                                SeamMode.Carve -> "carve"
-                                SeamMode.WinnerTakeAll -> "winner"
-                            }}",
-                            color = GlassContentDim,
-                            style = MaterialTheme.typography.labelMedium,
-                        )
-                    }
-                    TextButton(onClick = onToggleColorFrames) {
-                        Text(
-                            text = "Color: ${if (colorFrames) "on" else "off"}",
-                            color = GlassContentDim,
-                            style = MaterialTheme.typography.labelMedium,
-                        )
-                    }
-                    TextButton(onClick = onToggleMovingMask) {
-                        Text(
-                            text = "Mask: ${if (movingMaskEnabled) "on" else "off"}",
-                            color = GlassContentDim,
-                            style = MaterialTheme.typography.labelMedium,
-                        )
-                    }
-                    TextButton(onClick = onToggleBlockExposure) {
-                        Text(
-                            text = "Block: ${if (blockExposureEnabled) "on" else "off"}",
-                            color = GlassContentDim,
-                            style = MaterialTheme.typography.labelMedium,
-                        )
-                    }
-                    TextButton(onClick = onToggleGraphSelection) {
-                        Text(
-                            text = "Graph: ${if (graphSelectionEnabled) "on" else "off"}",
-                            color = GlassContentDim,
-                            style = MaterialTheme.typography.labelMedium,
-                        )
-                    }
-                    TextButton(onClick = onToggleWarp) {
-                        Text(
-                            text = "Warp: ${if (warpEnabled) "on" else "off"}",
-                            color = GlassContentDim,
-                            style = MaterialTheme.typography.labelMedium,
-                        )
-                    }
-                    TextButton(onClick = onTogglePerceptualSeam) {
-                        Text(
-                            text = "Percept: ${if (perceptualSeamEnabled) "on" else "off"}",
-                            color = GlassContentDim,
-                            style = MaterialTheme.typography.labelMedium,
-                        )
-                    }
-                }
+            // Debug-only A/B switches, on one scrolling line.
+            //
+            // This used to appear only once three frames had landed, which
+            // grew the bottom stack upward into the middle of the viewfinder
+            // exactly while the user was aiming, and nine buttons in one Row
+            // overflowed a phone's width. Present from the start and
+            // scrollable, the layout no longer moves under the aim.
+            if (BuildConfig.DEBUG) {
+                DebugSwitches(
+                    distortionEnabled = distortionEnabled,
+                    onToggleDistortion = onToggleDistortion,
+                    refinementEnabled = refinementEnabled,
+                    onToggleRefinement = onToggleRefinement,
+                    seamMode = seamMode,
+                    onCycleSeamMode = onCycleSeamMode,
+                    colorFrames = colorFrames,
+                    onToggleColorFrames = onToggleColorFrames,
+                    movingMaskEnabled = movingMaskEnabled,
+                    onToggleMovingMask = onToggleMovingMask,
+                    blockExposureEnabled = blockExposureEnabled,
+                    onToggleBlockExposure = onToggleBlockExposure,
+                    graphSelectionEnabled = graphSelectionEnabled,
+                    onToggleGraphSelection = onToggleGraphSelection,
+                    warpEnabled = warpEnabled,
+                    onToggleWarp = onToggleWarp,
+                    perceptualSeamEnabled = perceptualSeamEnabled,
+                    onTogglePerceptualSeam = onTogglePerceptualSeam,
+                )
             }
             // Offered as soon as there is enough to stitch, not only at the
             // end: a user who has covered what they care about should not have
@@ -1861,6 +1811,21 @@ private fun CaptureHud(
                     )
                 }
             }
+            // Last in the bottom-anchored column, so the bottom edge holds it
+            // still. Everything above grows upward when the finish button and
+            // the debug switches arrive at the third frame; with the row any
+            // earlier in the column it was pushed up to the middle of the
+            // viewfinder, over the target square, just as the user aimed.
+            if (showExposure && evRange != null) {
+                ExposureRow(
+                    evIndex = evIndex,
+                    evRange = evRange,
+                    aeLocked = aeLocked,
+                    onEvChange = onEvChange,
+                    onToggleAeLock = onToggleAeLock,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
     }
 }
@@ -1920,6 +1885,100 @@ private fun ExposureRow(
             }
         }
     }
+}
+
+/**
+ * The debug A/B switches, as one horizontally scrolling line.
+ *
+ * Kept visually quiet and single-line on purpose: these are the lens-model,
+ * seam and exposure experiments for a debug build, and they must never grow
+ * the capture chrome into the middle of the viewfinder or overflow the width
+ * of a phone.
+ */
+@Composable
+private fun DebugSwitches(
+    distortionEnabled: Boolean,
+    onToggleDistortion: () -> Unit,
+    refinementEnabled: Boolean,
+    onToggleRefinement: () -> Unit,
+    seamMode: SeamMode,
+    onCycleSeamMode: () -> Unit,
+    colorFrames: Boolean,
+    onToggleColorFrames: () -> Unit,
+    movingMaskEnabled: Boolean,
+    onToggleMovingMask: () -> Unit,
+    blockExposureEnabled: Boolean,
+    onToggleBlockExposure: () -> Unit,
+    graphSelectionEnabled: Boolean,
+    onToggleGraphSelection: () -> Unit,
+    warpEnabled: Boolean,
+    onToggleWarp: () -> Unit,
+    perceptualSeamEnabled: Boolean,
+    onTogglePerceptualSeam: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(PillShape)
+            .background(GlassSurfaceDim)
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        DebugSwitch(
+            label = "Dist: ${if (distortionEnabled) "on" else "off"}",
+            onClick = onToggleDistortion,
+        )
+        DebugSwitch(
+            label = "Refine: ${if (refinementEnabled) "on" else "off"}",
+            onClick = onToggleRefinement,
+        )
+        DebugSwitch(
+            label = "Seam: ${when (seamMode) {
+                SeamMode.Blend -> "off"
+                SeamMode.Carve -> "carve"
+                SeamMode.WinnerTakeAll -> "winner"
+            }}",
+            onClick = onCycleSeamMode,
+        )
+        DebugSwitch(
+            label = "Color: ${if (colorFrames) "on" else "off"}",
+            onClick = onToggleColorFrames,
+        )
+        DebugSwitch(
+            label = "Mask: ${if (movingMaskEnabled) "on" else "off"}",
+            onClick = onToggleMovingMask,
+        )
+        DebugSwitch(
+            label = "Block: ${if (blockExposureEnabled) "on" else "off"}",
+            onClick = onToggleBlockExposure,
+        )
+        DebugSwitch(
+            label = "Graph: ${if (graphSelectionEnabled) "on" else "off"}",
+            onClick = onToggleGraphSelection,
+        )
+        DebugSwitch(
+            label = "Warp: ${if (warpEnabled) "on" else "off"}",
+            onClick = onToggleWarp,
+        )
+        DebugSwitch(
+            label = "Percept: ${if (perceptualSeamEnabled) "on" else "off"}",
+            onClick = onTogglePerceptualSeam,
+        )
+    }
+}
+
+/** One compact, tappable debug switch. */
+@Composable
+private fun DebugSwitch(label: String, onClick: () -> Unit) {
+    Text(
+        text = label,
+        color = GlassContentDim,
+        style = MaterialTheme.typography.labelSmall,
+        modifier = Modifier
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+    )
 }
 
 /**
