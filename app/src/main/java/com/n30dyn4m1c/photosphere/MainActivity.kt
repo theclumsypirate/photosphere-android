@@ -227,21 +227,41 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
         )
     }
     var externalBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    val externalContentResolver = (LocalContext.current as? ComponentActivity)?.applicationContext?.contentResolver
+    var externalError by remember { mutableStateOf<String?>(null) }
+    val externalContentResolver = activityContext?.contentResolver
+        ?: activityContext?.applicationContext?.contentResolver
     LaunchedEffect(externalUri) {
         val u = externalUri ?: return@LaunchedEffect
+        Logging.i("External panorama: opening $u")
+        externalError = null
         val bmp = withContext(Dispatchers.IO) {
             try {
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 externalContentResolver?.openInputStream(u)?.use { stream ->
-                    val opts = BitmapFactory.Options().apply { inSampleSize = 2 }
+                    BitmapFactory.decodeStream(stream, null, bounds)
+                }
+                val sample = com.n30dyn4m1c.photosphere.stitching.sampleSizeFor(
+                    bounds.outWidth.coerceAtLeast(1),
+                    bounds.outHeight.coerceAtLeast(1),
+                    com.n30dyn4m1c.photosphere.result.PANO_TEXTURE_MAX_DIMENSION,
+                )
+                externalContentResolver?.openInputStream(u)?.use { stream ->
+                    val opts = BitmapFactory.Options().apply { inSampleSize = sample }
                     BitmapFactory.decodeStream(stream, null, opts)
                 }
             } catch (e: Exception) {
-                Logging.e("External panorama decode failed", e)
+                Logging.e("External panorama decode failed for $u", e)
                 null
             }
         }
+        Logging.i("External panorama: decoded ${bmp?.width}x${bmp?.height}")
         externalBitmap = bmp
+        if (bmp == null) externalError = "Could not open this image"
+    }
+
+    val context = LocalContext.current
+    LaunchedEffect(externalError) {
+        externalError?.let { android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_LONG).show() }
     }
 
     // The capture buffer outlives the camera screen (ViewModel store), so the
@@ -333,13 +353,19 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
 
             externalUri != null -> {
                 BackHandler {
-                    // Drop the external file and fall through to the app's
-                    // normal entry screen instead of leaving the app.
                     externalUri = null
                     externalBitmap = null
                 }
                 Box(modifier = Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
-                    PanoramaSphereView(bitmap = externalBitmap, modifier = Modifier.fillMaxSize())
+                    if (externalBitmap != null) {
+                        PanoramaSphereView(bitmap = externalBitmap, modifier = Modifier.fillMaxSize())
+                    } else {
+                        Text(
+                            text = externalError ?: "Opening panorama…",
+                            color = androidx.compose.ui.graphics.Color.White,
+                            modifier = Modifier.align(Alignment.Center),
+                        )
+                    }
                 }
             }
 
