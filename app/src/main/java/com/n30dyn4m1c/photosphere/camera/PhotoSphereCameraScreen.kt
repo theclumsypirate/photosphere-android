@@ -1123,13 +1123,7 @@ fun PhotoSphereCameraScreen(
                     frames = frames,
                     horizontalFovDegrees = fieldOfView.horizontalDegrees,
                     verticalFovDegrees = fieldOfView.verticalDegrees,
-                    // The lens model stays on the shipping path: only a debug
-                    // build can turn it off, with the A/B switch.
-                    radialDistortion = if (BuildConfig.DEBUG && !distortionEnabled) {
-                        null
-                    } else {
-                        optics.radialDistortion
-                    },
+                    radialDistortion = if (distortionEnabled) optics.radialDistortion else null,
                     maxInputDimension = deviceProfile.stitchMaxInputDimension,
                     maxOutputWidth = deviceProfile.stitchMaxOutputWidth,
                     unsharpAmount = deviceProfile.unsharpAmount,
