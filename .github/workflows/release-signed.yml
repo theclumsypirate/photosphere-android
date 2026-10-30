@@ -40,6 +40,11 @@ on:
         type: boolean
         default: false
 
+      upload_artifact_only:
+        description: "Build and sign only; upload the APKs as a workflow artifact, no tag, no release"
+        type: boolean
+        default: false
+
 permissions:
   contents: write
 
@@ -310,6 +315,7 @@ jobs:
       # committed and tagged. Before this point a cancelled run leaves
       # nothing behind.
       - name: Commit and tag the release
+        if: ${{ !inputs.upload_artifact_only }}
         shell: bash
         run: |
           set -euo pipefail
@@ -321,6 +327,7 @@ jobs:
           git push origin main "${{ steps.version.outputs.tag }}"
 
       - name: Create GitHub Release
+        if: ${{ !inputs.upload_artifact_only }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
@@ -330,6 +337,14 @@ jobs:
           fail_on_unmatched_files: true
           overwrite_files: true
           files: ${{ steps.asset.outputs.apks }}
+
+      - name: Upload APKs as workflow artifact
+        if: ${{ inputs.upload_artifact_only }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: photosphere-release-apk
+          path: photosphere_android_v*.apk
+          if-no-files-found: error
 
       # The keystore and the raw log leave the runner with the job. The
       # keystore is not needed past the signing, and the raw log may hold a
