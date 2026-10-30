@@ -5,6 +5,8 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.net.Uri
 import android.os.Build
@@ -12,6 +14,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -64,6 +67,7 @@ import com.n30dyn4m1c.photosphere.diagnostics.LagTracker
 import com.n30dyn4m1c.photosphere.importer.ImportPhotosScreen
 import com.n30dyn4m1c.photosphere.storage.rememberImageBufferManager
 import com.n30dyn4m1c.photosphere.result.PanoramaResultScreen
+import com.n30dyn4m1c.photosphere.result.PanoramaSphereView
 import com.n30dyn4m1c.photosphere.sensor.OrientationDebugScreen
 import com.n30dyn4m1c.photosphere.settings.SettingsScreen
 import com.n30dyn4m1c.photosphere.stitching.RestitchOffer
@@ -80,6 +84,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
 
@@ -111,6 +116,14 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // A new "Open with" while we are already up: just restart so the
+        // new file is picked up. Keeps the external-viewer path stateless.
+        setIntent(intent)
+        recreate()
     }
 
     override fun onStart() {
@@ -204,6 +217,33 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
     // Bundle, and re-showing a stale result would be worse than starting over.
     var sphere by remember { mutableStateOf<StitchedSphere?>(null) }
 
+    // Opened from another app via "Open with" / share: no UI button for this,
+    // it is reachable only through an external intent. The bitmap is decoded
+    // off the main thread and shown full-screen in the sphere viewer.
+    val activityContext = LocalContext.current as? ComponentActivity
+    var externalUri by remember {
+        mutableStateOf(
+            activityContext?.intent?.data ?: activityContext?.intent?.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM)
+        )
+    }
+    var externalBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    val externalContentResolver = (LocalContext.current as? ComponentActivity)?.applicationContext?.contentResolver
+    LaunchedEffect(externalUri) {
+        val u = externalUri ?: return@LaunchedEffect
+        val bmp = withContext(Dispatchers.IO) {
+            try {
+                externalContentResolver?.openInputStream(u)?.use { stream ->
+                    val opts = BitmapFactory.Options().apply { inSampleSize = 2 }
+                    BitmapFactory.decodeStream(stream, null, opts)
+                }
+            } catch (e: Exception) {
+                Logging.e("External panorama decode failed", e)
+                null
+            }
+        }
+        externalBitmap = bmp
+    }
+
     // The capture buffer outlives the camera screen (ViewModel store), so the
     // result screen can still offer the frames after a stitch. Snapshot at
     // handover: nothing captures while the result is up.
@@ -290,6 +330,18 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
         LaunchedEffect(screen) { LagTracker.where(screen) }
         when {
             showOrientationDebug -> OrientationDebugScreen()
+
+            externalUri != null -> {
+                BackHandler {
+                    // Drop the external file and fall through to the app's
+                    // normal entry screen instead of leaving the app.
+                    externalUri = null
+                    externalBitmap = null
+                }
+                Box(modifier = Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
+                    PanoramaSphereView(bitmap = externalBitmap, modifier = Modifier.fillMaxSize())
+                }
+            }
 
             showSettings -> SettingsScreen(onBack = { showSettings = false })
 
