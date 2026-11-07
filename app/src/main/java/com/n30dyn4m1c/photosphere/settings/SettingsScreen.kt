@@ -89,9 +89,7 @@ fun SettingsScreen(
         if (BuildConfig.DEBUG && SamsungHighRes.isSamsung()) {
             SamsungRows(modifier = Modifier.padding(top = 20.dp))
         }
-        if (BuildConfig.DEBUG) {
-            AdvancedSettingsRows(onBack = onBack, modifier = Modifier.padding(top = 28.dp))
-        }
+        AdvancedSettingsRows(onBack = onBack, modifier = Modifier.padding(top = 28.dp))
 
         // Export section
         Divider(modifier = Modifier.padding(top = 24.dp, bottom = 16.dp))
@@ -513,8 +511,6 @@ private fun AdvancedSettingsRows(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    if (!BuildConfig.DEBUG) return
-
     var showEditor by remember { mutableStateOf(false) }
     var showGpano by remember { mutableStateOf(false) }
 
@@ -549,7 +545,7 @@ private fun AdvancedSettingsRows(
                 .height(44.dp),
         ) {
             Text(
-                text = "Add GPano Metadata to Photo",
+                text = "Add GPano Metadata to 360 photo",
                 style = MaterialTheme.typography.labelLarge,
             )
         }
