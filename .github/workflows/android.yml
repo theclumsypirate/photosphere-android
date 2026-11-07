@@ -50,6 +50,8 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-disabled: true
 
       # arm64-v8a only: the ABI every modern phone runs. The OpenCV AAR still
       # carries native libraries for all ABIs, but only this split is packaged.
