@@ -49,6 +49,7 @@ FOV_PATTERN = re.compile(r";hfov=(-?\d+(?:\.\d+)?);vfov=(-?\d+(?:\.\d+)?)")
 FEATHER_PX = 80
 WRAP_SEAM_PX = 64
 WINNER_BLUR_PX = 7
+GAIN_BLOCK_PX = 256
 RUN_CONFIRM = "yeah"
 DETECT_WIDTH = 640
 FOV_SCAN_STEP = 2.5
@@ -518,6 +519,168 @@ def refine_components(frames, edges, spread_ring, max_deg=REFINE_MAX_DEG):
     return refined
 
 
+def parse_distortion(text):
+    """Brown-Conrady radial coefficients from a "k1,k2[,k3]" string.
+
+    Camera2's LENS_DISTORTION uses exactly this convention: the distorted
+    coordinate is the ideal one scaled by the polynomial, with the
+    coordinates normalized by the focal length. Returns None when no
+    coefficients were passed, which leaves the lens model off.
+    """
+    if not text:
+        return None
+    values = [float(part) for part in text.replace(" ", "").split(",") if part]
+    if len(values) < 2:
+        raise ValueError("--distortion needs k1,k2 or k1,k2,k3")
+    return values[:3] + [0.0] * (3 - len(values[:3]))
+
+
+def rotation_log(rot):
+    """The rotation vector of a rotation matrix, in radians."""
+    return cv2.Rodrigues(np.asarray(rot, dtype=np.float64))[0].ravel()
+
+
+def rotation_exp(vector):
+    """The rotation matrix of a rotation vector, in radians."""
+    rot, _ = cv2.Rodrigues(np.asarray(vector, dtype=np.float64).reshape(3, 1))
+    return rot
+
+
+def bundle_adjust(frames, edges, max_deg, iterations=30, prior_weight=0.02):
+    """Rotation-only bundle adjustment over every matched edge.
+
+    Chaining pairs gives each pose the noise of its own chain; solving
+    them together spreads that noise over the whole graph instead, which
+    is what removes the residual drift that shows up as ghosting at the
+    overlaps. Each frame moves by a left-multiplied correction starting
+    from its seed (the EXIF pose), with a weak prior pulling the
+    corrections to zero so thin overlaps cannot drag a pose away from the
+    seed, and the same [max_deg] clamp the chain pass uses.
+
+    [frames] are right/up/forward bases, camera to world. [edges] are
+    (i, j, rot) with rot = C_j^T C_i as measured from the pair's rays, so
+    the residual of an edge is log(rot^T C_j^T C_i).
+    """
+    count = len(frames)
+    seeds = [np.asarray(frame, dtype=np.float64) for frame in frames]
+    if not edges:
+        return seeds
+
+    def rotations_of(parameters):
+        return [rotation_exp(parameters[3 * i:3 * i + 3]) @ seeds[i]
+                for i in range(count)]
+
+    def residuals(parameters, rotations):
+        values = []
+        for i, j, measured in edges:
+            values.extend(rotation_log(
+                measured.T @ (rotations[j].T @ rotations[i])))
+        values.extend(parameters * prior_weight)
+        return np.asarray(values, dtype=np.float64)
+
+    parameters = np.zeros(3 * count)
+    rotations = rotations_of(parameters)
+    cost = float(residuals(parameters, rotations) @
+                 residuals(parameters, rotations))
+    damping = 1e-3
+    step_size = 1e-6
+    for _ in range(iterations):
+        base = residuals(parameters, rotations)
+        jacobian = np.zeros((base.size, 3 * count))
+        for column in range(3 * count):
+            frame = column // 3
+            probe = parameters.copy()
+            probe[column] += step_size
+            probe_rotations = list(rotations)
+            probe_rotations[frame] = (
+                rotation_exp(probe[3 * frame:3 * frame + 3]) @ seeds[frame])
+            jacobian[:, column] = (
+                residuals(parameters, probe_rotations) - base) / step_size
+        normal = jacobian.T @ jacobian
+        gradient = jacobian.T @ base
+        improved = False
+        for _attempt in range(8):
+            damped = normal + damping * np.diag(np.diag(normal) + 1e-9)
+            try:
+                trial = parameters - np.linalg.solve(damped, gradient)
+            except np.linalg.LinAlgError:
+                damping *= 10
+                continue
+            trial_rotations = rotations_of(trial)
+            trial_cost = float(residuals(trial, trial_rotations) @
+                               residuals(trial, trial_rotations))
+            if trial_cost < cost:
+                parameters, rotations, cost = trial, trial_rotations, trial_cost
+                damping = max(damping * 0.3, 1e-6)
+                improved = True
+                break
+            damping *= 10
+        if not improved:
+            break
+
+    limit = np.radians(max_deg)
+    adjusted = []
+    for frame, seed in zip(rotations, seeds):
+        correction = rotation_log(frame @ seed.T)
+        angle = float(np.linalg.norm(correction))
+        if angle > limit:
+            frame = rotation_exp(correction / angle * limit) @ seed
+        adjusted.append(frame)
+    return adjusted
+
+
+def compensate_exposure(images, corners, masks, mode):
+    """Equalise frame brightness before the blend.
+
+    "global" fits one gain per frame, which is cheap and enough when only
+    the overall level drifts. "blocks" fits a grid of gains, so a frame
+    that is half in window light and half in shade meets its neighbour at
+    the seam with matching levels. The grid is deliberately coarse: at the
+    32 px default OpenCV allocates a gain per block per frame per channel,
+    which is what ran the machine out of memory on a 38 frame sphere. Falls
+    back to the global gain, and then to no compensation at all, rather
+    than failing the render.
+    """
+    makers = []
+    if mode == "blocks":
+        makers.append(lambda: cv2.detail.BlocksGainCompensator(
+            GAIN_BLOCK_PX, GAIN_BLOCK_PX, 1))
+    makers.append(lambda: cv2.detail.ExposureCompensator_createDefault(
+        cv2.detail.ExposureCompensator_GAIN))
+    for make in makers:
+        try:
+            compensator = make()
+            compensator.feed(corners, images, masks)
+            return [compensator.apply(index, corners[index], image,
+                                      masks[index])
+                    for index, image in enumerate(images)]
+        except Exception as error:
+            print("exposure compensation (%s) skipped: %s" % (mode, error),
+                  file=sys.stderr)
+    return images
+
+
+def compose_median(warped, weights, band_rows=64):
+    """Per-pixel median of every frame that covers the pixel.
+
+    Averaging a moving person smears them; a median throws the outlier
+    frames away instead, so a walking body, a curtain or a screen that
+    scrolled between shots simply is not in the result. Works in bands
+    because the full stack of canvas-space frames does not fit in memory.
+    """
+    canvas_h, canvas_w = weights[0].shape
+    stack = np.stack(weights)
+    pano = np.zeros((canvas_h, canvas_w, 3), np.float32)
+    for top in range(0, canvas_h, band_rows):
+        bottom = min(canvas_h, top + band_rows)
+        present = stack[:, top:bottom] > 0.01
+        images = np.stack([image[top:bottom] for image in warped])
+        masked = np.where(present[..., None], images,
+                          np.float32(np.nan))
+        pano[top:bottom] = np.nanmedian(masked, axis=0)
+    return np.nan_to_num(pano)
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Stitch session frames with content-refined poses.")
@@ -546,6 +709,36 @@ def main():
                     default="sift",
                     help="superglue needs torch plus the local clone of "
                          "the SuperPoint/SuperGlue models on disk")
+    ap.add_argument("--compose", choices=["winner", "multiband", "median"],
+                    default="winner",
+                    help="how overlapping frames are combined: winner "
+                         "keeps the sharpest single frame, multiband "
+                         "blends them the way OpenCV's stitcher does, "
+                         "median takes the per-pixel median of every "
+                         "frame covering a pixel and so drops whatever "
+                         "moved between shots")
+    ap.add_argument("--bands", type=int, default=4,
+                    help="multi-band blender levels; fewer bands keep the "
+                         "low frequencies tighter, which is what a pose "
+                         "error of a few pixels needs")
+    ap.add_argument("--seam", choices=["graphcut", "dp"], default="graphcut",
+                    help="seam finder for --compose multiband: graphcut "
+                         "(COST_COLOR_GRAD) is the better one, dp is the "
+                         "fallback")
+    ap.add_argument("--gain", choices=["none", "global", "blocks"],
+                    default="blocks",
+                    help="exposure compensator for --compose multiband: "
+                         "blocks equalises across the frame, global takes "
+                         "one gain per frame")
+    ap.add_argument("--ba", action="store_true",
+                    help="solve all poses together (rotation-only bundle "
+                         "adjustment over the matched edges, seeded by the "
+                         "frames' own poses) instead of chaining pairs one "
+                         "by one")
+    ap.add_argument("--distortion", default="",
+                    help="Brown-Conrady radial coefficients k1,k2[,k3] as "
+                         "CameraCharacteristics.LENS_DISTORTION reports "
+                         "them; the frame is sampled through the model")
     ap.add_argument("--content-only", action="store_true",
                     help="ignore every pose the frames carry and rebuild "
                          "the sphere from matched pixels alone")
@@ -765,10 +958,16 @@ def main():
                       "(no matched overlap to the rest)" % (len(keep), dropped))
             if not edges:
                 ap.error("no pair matched; these frames need more overlap")
-        frames = refine_components(frames, edges, lambda ref, anchor,
-                                   distances: ref, clamp)
+        if args.ba:
+            frames = bundle_adjust(frames, edges, clamp)
+            method = "bundle adjustment"
+        else:
+            frames = refine_components(frames, edges, lambda ref, anchor,
+                                       distances: ref, clamp)
+            method = "pairwise chaining"
         refined = True
-        print("poses refined on %d matched edges" % len(edges))
+        print("poses refined by %s on %d matched edges" % (
+            method, len(edges)))
         if not refined:
             print("keeping the initial poses (refinement failed)",
                   file=sys.stderr)
@@ -776,6 +975,9 @@ def main():
     # Render focal: the calibration pair exactly, never a re-derived
     # vertical from the aspect ratio, when the source carried one.
     fx, fy = focal_for(chosen_fov, vfov)
+    distortion = parse_distortion(args.distortion)
+    if distortion is not None:
+        print("lens model: Brown-Conrady k1=%g k2=%g k3=%g" % tuple(distortion))
     right = [np.float64(f[0]) for f in frames]
     ups = [np.float64(f[1]) for f in frames]
     fwds = [np.float64(f[2]) for f in frames]
@@ -809,6 +1011,19 @@ def main():
         y = adj @ upV / np.maximum(z, 1e-9)
         px = (x * fx + fw / 2.0).astype(np.float32) * 0.5
         py = (fh / 2.0 - y * fy).astype(np.float32) * 0.5
+        if distortion is not None:
+            # Sample the frame where the lens actually put the ray: the
+            # polynomial maps the ideal pinhole coordinate to the
+            # distorted one, in focal-length units.
+            half_fx, half_fy = fx * 0.5, fy * 0.5
+            centre_x, centre_y = half_w / 2.0, half_h / 2.0
+            ideal_x = (px - centre_x) / half_fx
+            ideal_y = (py - centre_y) / half_fy
+            radius2 = ideal_x * ideal_x + ideal_y * ideal_y
+            k1, k2, k3 = distortion
+            scale = 1 + radius2 * (k1 + radius2 * (k2 + radius2 * k3))
+            px = (centre_x + half_fx * scale * ideal_x).astype(np.float32)
+            py = (centre_y + half_fy * scale * ideal_y).astype(np.float32)
         inside = front & (px >= 0) & (px < half_w) & (py >= 0) & (py < half_h)
         if not inside.any():
             continue
@@ -828,14 +1043,59 @@ def main():
         ap.error("no frame projected inside the canvas; check --hfov")
 
     stack = np.stack(weights)
-    winner = stack.argmax(axis=0)
-    masks = np.empty_like(stack)
-    for label in range(stack.shape[0]):
-        one = (winner == label).astype(np.float32)
-        masks[label] = cv2.GaussianBlur(one, (0, 0), WINNER_BLUR_PX)
-    masks /= np.maximum(masks.sum(axis=0, keepdims=True), 1e-9)
-    pano = sum(image * mask[..., None] for image, mask in zip(warped, masks))
-    pano = np.clip(pano, 0, 255).astype(np.uint8)
+    if args.compose == "multiband":
+        # The composer OpenCV's own stitcher uses: every frame keeps its
+        # detail, the low frequencies crossfade across the overlap, so
+        # exposure and colour drift between rows fade instead of banding.
+        canvas_h, canvas_w = stack.shape[1:]
+        # Seams first, as OpenCV's stitcher does: without them every frame
+        # votes in the whole overlap and the average ghosts objects that
+        # moved between shots.
+        images_uint8 = [np.clip(image, 0, 255).astype(np.uint8)
+                        for image in warped]
+        masks = [(weight > 0.01).astype(np.uint8) * 255
+                 for weight in weights]
+        corners = [(0, 0)] * len(images_uint8)
+        # The capture lets AE drift between frames, and the rows see very
+        # different light. Gain compensation equalises them before the
+        # blend, which is what stops the low frequencies banding.
+        if args.gain != "none":
+            images_uint8 = compensate_exposure(
+                images_uint8, corners, masks, args.gain)
+        try:
+            if args.seam == "graphcut":
+                seam_finder = cv2.detail_GraphCutSeamFinder(
+                    "COST_COLOR_GRAD")
+            else:
+                seam_finder = cv2.detail_DpSeamFinder("COLOR")
+            seams = seam_finder.find(images_uint8, corners, masks)
+            masks = [np.asarray(seam.get() if hasattr(seam, "get")
+                                else seam) for seam in seams]
+        except Exception as error:
+            print("seam finding skipped (%s): %s" % (args.seam, error),
+                  file=sys.stderr)
+        blender = cv2.detail_MultiBandBlender(0, max(1, args.bands))
+        blender.prepare((0, 0, canvas_w, canvas_h))
+        for image, mask in zip(images_uint8, masks):
+            mask = np.where(mask > 0, 255, 0).astype(np.uint8)
+            if not mask.any():
+                continue
+            blender.feed(image, mask, (0, 0))
+        blended, _ = blender.blend(None, None)
+        pano = np.clip(blended if blended is not None else stack.sum(0),
+                       0, 255).astype(np.uint8)
+    elif args.compose == "median":
+        pano = compose_median(warped, weights)
+        pano = np.clip(pano, 0, 255).astype(np.uint8)
+    else:
+        winner = stack.argmax(axis=0)
+        masks = np.empty_like(stack)
+        for label in range(stack.shape[0]):
+            one = (winner == label).astype(np.float32)
+            masks[label] = cv2.GaussianBlur(one, (0, 0), WINNER_BLUR_PX)
+        masks /= np.maximum(masks.sum(axis=0, keepdims=True), 1e-9)
+        pano = sum(image * mask[..., None] for image, mask in zip(warped, masks))
+        pano = np.clip(pano, 0, 255).astype(np.uint8)
 
     span = min(WRAP_SEAM_PX, args.w // 4)
     left = pano[:, :span].astype(np.float32)

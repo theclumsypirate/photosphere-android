@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
+import android.graphics.Bitmap
 import androidx.exifinterface.media.ExifInterface
 import com.n30dyn4m1c.photosphere.BuildConfig
 import kotlinx.coroutines.CoroutineDispatcher
@@ -147,6 +148,36 @@ object MediaExporter {
     /** Gallery name for one frame: session + position, sorts chronologically. */
     fun frameDisplayName(source: File, position: Int): String =
         "frame_%s_%02d.jpg".format(source.parentFile?.name ?: "session", position)
+
+    /**
+     * Saves a [Bitmap] into the gallery album as a JPEG.
+     *
+     * Used for derived images (e.g. Little Planet conversions) that are
+     * generated in memory and have no source file on disk. The bitmap is
+     * compressed as JPEG (quality 92) and inserted into the same album as
+     * stitched spheres. Dimensions are stored on the MediaStore row.
+     */
+    suspend fun exportBitmap(
+        context: Context,
+        bitmap: Bitmap,
+        displayName: String,
+        width: Int? = null,
+        height: Int? = null,
+        dispatcher: CoroutineDispatcher = Dispatchers.IO,
+    ): Result<ExportedPanorama> = withContext(dispatcher + NonCancellable) {
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                exportBitmapPending(context, bitmap, displayName, width, height)
+            } else {
+                exportBitmapLegacy(context, bitmap, displayName, width, height)
+            }
+        }.onFailure { error ->
+            Logging.e("Could not export bitmap $displayName to $RELATIVE_PATH", error)
+        }
+        .onSuccess { exported ->
+            Logging.i("Exported bitmap ${exported.displayName} to $RELATIVE_PATH")
+        }
+    }
 
     /**
      * Debug-only: says so in the log when a frame about to be exported does
@@ -294,5 +325,86 @@ object MediaExporter {
             if (!next.exists()) return next
             attempt++
         }
+    }
+
+    /** API 29+: insert pending, stream the compressed bitmap, then publish. */
+    private fun exportBitmapPending(
+        context: Context,
+        bitmap: Bitmap,
+        displayName: String,
+        width: Int?,
+        height: Int?,
+    ): ExportedPanorama {
+        val resolver = context.contentResolver
+        val values = baseValues(displayName, width, height).apply {
+            put(MediaStore.Images.Media.RELATIVE_PATH, RELATIVE_PATH)
+            put(MediaStore.Images.Media.IS_PENDING, 1)
+        }
+
+        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            ?: throw IOException("MediaStore would not accept $displayName")
+
+        try {
+            val sink = resolver.openOutputStream(uri)
+                ?: throw IOException("Could not open $uri for writing")
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 92, sink)
+                .also { if (!it) throw IOException("JPEG compression failed") }
+        } catch (e: Exception) {
+            runCatching { resolver.delete(uri, null, null) }
+            throw e
+        }
+
+        resolver.update(
+            uri,
+            ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) },
+            null,
+            null,
+        ).takeIf { it > 0 } ?: run {
+            runCatching { resolver.delete(uri, null, null) }
+            throw IOException("MediaStore would not publish $displayName")
+        }
+
+        return ExportedPanorama(uri = uri, displayName = displayName)
+    }
+
+    /** API 26–28: write JPEG to public album, then index it. */
+    private fun exportBitmapLegacy(
+        context: Context,
+        bitmap: Bitmap,
+        displayName: String,
+        width: Int?,
+        height: Int?,
+    ): ExportedPanorama {
+        val album = File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
+            ALBUM,
+        )
+        if (!album.isDirectory && !album.mkdirs()) {
+            throw IOException("Could not create $RELATIVE_PATH")
+        }
+
+        val target = uniqueFile(album, displayName)
+        try {
+            target.outputStream().use { out ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)
+                    .also { if (!it) throw IOException("JPEG compression failed") }
+            }
+        } catch (e: Exception) {
+            target.delete()
+            throw e
+        }
+
+        val values = baseValues(target.name, width, height).apply {
+            put(MediaStore.Images.Media.DATA, target.absolutePath)
+        }
+        val uri = try {
+            context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                ?: throw IOException("MediaStore would not index ${target.name}")
+        } catch (e: Exception) {
+            target.delete()
+            throw e
+        }
+
+        return ExportedPanorama(uri = uri, displayName = target.name)
     }
 }

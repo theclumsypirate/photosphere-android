@@ -25,6 +25,12 @@ import sys
 import time
 
 import cv2
+import numpy as np
+
+from PIL import Image
+
+MATRIX_PATTERN = re.compile(
+    r"matrix=(?P<matrix>-?\d+(?:\.\d+)?(?:,-?\d+(?:\.\d+)?){8})")
 
 RUN_CONFIRM = "yeah"
 
@@ -52,6 +58,53 @@ def collect_images(directory):
         files.extend(glob.glob(os.path.join(directory, pattern.upper())))
     unique = sorted(set(files), key=natural_key)
     return unique
+
+
+def forward_from_comment(path):
+    """The capture's forward direction, from the debug EXIF basis.
+
+    Only used to decide the order frames are handed to the stitcher in.
+    The geometry the stitcher uses still comes from the pixels. Returns
+    None for a frame without the debug basis.
+    """
+    try:
+        value = Image.open(path).getexif().get_ifd(0x8769).get(0x9286)
+    except Exception:
+        return None
+    text = value.decode("utf-8", "replace") if isinstance(value, bytes) else str(value or "")
+    match = MATRIX_PATTERN.search(text)
+    if not match:
+        return None
+    # Columns are right, minus up, forward: the third one is where the
+    # camera looked.
+    return np.array([float(v) for v in match.group("matrix").split(",")][6:9],
+                    dtype=np.float64)
+
+
+def order_by_neighbour(files):
+    """Reorder frames so consecutive positions are spatial neighbours.
+
+    OpenStitching's range_width is an index distance, so a capture that
+    walks row by row hides the cross-row pairs from it. This greedy
+    nearest-neighbour tour over the forward directions puts every frame
+    next to the ones it actually overlaps, and leaves frames without the
+    debug basis in their original order.
+    """
+    vectors = [forward_from_comment(path) for path in files]
+    if any(v is None for v in vectors):
+        print("order: leaving the capture order, not every frame carries "
+              "the debug basis")
+        return files, False
+    remaining = list(range(len(files)))
+    order = [remaining.pop(0)]
+    while remaining:
+        current = vectors[order[-1]]
+        scores = [float(current @ vectors[index]) for index in remaining]
+        order.append(remaining.pop(int(np.argmax(scores))))
+    ordered = [files[index] for index in order]
+    print("order: nearest-neighbour tour, %d frames, first %s" % (
+        len(ordered), os.path.basename(ordered[0])))
+    return ordered, True
 
 
 def prepare_working_copies(files, work_dir, width):
@@ -160,6 +213,11 @@ def main():
     parser.add_argument("--match-conf", type=float, default=None,
                         help="pair match confidence; left to the library's "
                              "per-detector default when unset")
+    parser.add_argument("--order-by-pose", action="store_true",
+                        help="reorder the frames by the debug EXIF basis "
+                             "so index-neighbours are spatial neighbours; "
+                             "makes --range-width useful on a multi-row "
+                             "capture")
     parser.add_argument("--range-width", type=int, default=-1,
                         help="only match frames within this many capture "
                              "positions; -1 matches every pair")
@@ -195,6 +253,14 @@ def main():
     files = collect_images(args.directory)
     if args.every and args.every > 1:
         files = files[::args.every]
+    if args.order_by_pose:
+        files, ordered = order_by_neighbour(files)
+        if ordered:
+            # Pairs further apart than this are not neighbours on the
+            # sphere, whatever their index says.
+            if args.range_width < 0:
+                args.range_width = 6
+                print("order: range_width defaulted to 6 for this order")
     if len(files) < 2:
         parser.error("need at least two frames, found %d" % len(files))
     print("frames: %d from %s" % (len(files), args.directory))

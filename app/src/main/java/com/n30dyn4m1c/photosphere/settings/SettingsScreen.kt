@@ -88,6 +88,9 @@ fun SettingsScreen(
         if (BuildConfig.DEBUG && SamsungHighRes.isSamsung()) {
             SamsungRows(modifier = Modifier.padding(top = 20.dp))
         }
+        if (BuildConfig.DEBUG) {
+            AdvancedSettingsRows(onBack = onBack, modifier = Modifier.padding(top = 28.dp))
+        }
         TextButton(onClick = onBack, modifier = Modifier.padding(top = 12.dp)) {
             Text(text = stringResource(R.string.report_back))
         }
@@ -480,5 +483,58 @@ private fun ReportRows(modifier: Modifier = Modifier) {
                 style = MaterialTheme.typography.titleMedium,
             )
         }
+    }
+}
+
+/**
+ * Advanced settings — debug-only experimental features.
+ * Currently: Little Planet converter (import 2:1 panorama → stereographic).
+ */
+@Composable
+private fun AdvancedSettingsRows(
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (!BuildConfig.DEBUG) return
+
+    var showEditor by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text = "Advanced settings",
+            style = MaterialTheme.typography.titleMedium,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text(
+            text = "Experimental features. Results saved to 360Panoramas album.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
+        )
+        Button(
+            onClick = { showEditor = true },
+            shape = PillShape,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(54.dp),
+        ) {
+            Text(
+                text = "Convert Panorama to Little Planet",
+                style = MaterialTheme.typography.titleMedium,
+            )
+        }
+        TextButton(onClick = onBack, modifier = Modifier.padding(top = 12.dp)) {
+            Text(text = stringResource(R.string.report_back))
+        }
+    }
+
+    // Full-screen editor launched from the button above
+    if (showEditor) {
+        LittlePlanetEditorScreen(onClose = { showEditor = false })
     }
 }

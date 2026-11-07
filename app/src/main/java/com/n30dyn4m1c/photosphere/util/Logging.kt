@@ -1,6 +1,7 @@
 package com.n30dyn4m1c.photosphere.util
 
 import android.util.Log
+import com.n30dyn4m1c.photosphere.util.FileLogger
 
 /**
  * Process-wide logging helpers.
