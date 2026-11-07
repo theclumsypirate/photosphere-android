@@ -1,6 +1,7 @@
 package com.n30dyn4m1c.photosphere.settings
 
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -60,6 +61,8 @@ import java.io.File
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
+    onLittlePlanetClick: () -> Unit,
+    onGpanoClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -70,6 +73,7 @@ fun SettingsScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
+        BackHandler { onBack() }
         Text(
             text = stringResource(R.string.settings_title),
             style = MaterialTheme.typography.headlineSmall,
@@ -89,7 +93,11 @@ fun SettingsScreen(
         if (BuildConfig.DEBUG && SamsungHighRes.isSamsung()) {
             SamsungRows(modifier = Modifier.padding(top = 20.dp))
         }
-        AdvancedSettingsRows(onBack = onBack, modifier = Modifier.padding(top = 28.dp))
+        AdvancedSettingsRows(
+            onLittlePlanetClick = { onLittlePlanetClick() },
+            onGpanoClick = { onGpanoClick() },
+            modifier = Modifier.padding(top = 28.dp),
+        )
 
         // Export section
         Divider(modifier = Modifier.padding(top = 24.dp, bottom = 16.dp))
@@ -508,12 +516,10 @@ private fun ExportRows(modifier: Modifier = Modifier) {
  */
 @Composable
 private fun AdvancedSettingsRows(
-    onBack: () -> Unit,
+    onLittlePlanetClick: () -> Unit,
+    onGpanoClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var showEditor by remember { mutableStateOf(false) }
-    var showGpano by remember { mutableStateOf(false) }
-
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -525,10 +531,11 @@ private fun AdvancedSettingsRows(
             modifier = Modifier.fillMaxWidth(),
         )
         Button(
-            onClick = { showEditor = true },
+            onClick = onLittlePlanetClick,
             shape = PillShape,
             modifier = Modifier
                 .fillMaxWidth()
+                .padding(top = 16.dp)
                 .height(44.dp),
         ) {
             Text(
@@ -537,7 +544,7 @@ private fun AdvancedSettingsRows(
             )
         }
         Button(
-            onClick = { showGpano = true },
+            onClick = onGpanoClick,
             shape = PillShape,
             modifier = Modifier
                 .padding(top = 8.dp)
@@ -549,13 +556,5 @@ private fun AdvancedSettingsRows(
                 style = MaterialTheme.typography.labelLarge,
             )
         }
-    }
-
-    // Full-screen editors launched from the buttons above
-    if (showEditor) {
-        LittlePlanetEditorScreen(onClose = { showEditor = false })
-    }
-    if (showGpano) {
-        GpanoMetadataEditorScreen(onClose = { showGpano = false })
     }
 }

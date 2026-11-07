@@ -70,6 +70,8 @@ import com.n30dyn4m1c.photosphere.result.PanoramaResultScreen
 import com.n30dyn4m1c.photosphere.result.PanoramaSphereView
 import com.n30dyn4m1c.photosphere.sensor.OrientationDebugScreen
 import com.n30dyn4m1c.photosphere.settings.SettingsScreen
+import com.n30dyn4m1c.photosphere.settings.LittlePlanetEditorScreen
+import com.n30dyn4m1c.photosphere.settings.GpanoMetadataEditorScreen
 import com.n30dyn4m1c.photosphere.stitching.RestitchOffer
 import com.n30dyn4m1c.photosphere.stitching.SphereWriteFailed
 import com.n30dyn4m1c.photosphere.stitching.StitchStyle
@@ -211,6 +213,8 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
     // Capture, import, orbit or settings: chosen before any permission.
     var entry by rememberSaveable { mutableStateOf<Entry?>(null) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
+    var showLittlePlanet by rememberSaveable { mutableStateOf(false) }
+    var showGpano by rememberSaveable { mutableStateOf(false) }
 
     // Deliberately not `rememberSaveable`: on a configuration change the file is
     // still in the cache, but a File is not something to smuggle through a
@@ -343,6 +347,8 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
         val screen = when {
             showOrientationDebug -> "orientation debug"
             showSettings -> "settings"
+            showLittlePlanet -> "little planet editor"
+            showGpano -> "gpano metadata editor"
             finished != null -> "result"
             currentEntry == null -> "entry"
             else -> currentEntry.name.lowercase()
@@ -369,7 +375,15 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
                 }
             }
 
-            showSettings -> SettingsScreen(onBack = { showSettings = false })
+            showSettings -> SettingsScreen(
+                onBack = { showSettings = false },
+                onLittlePlanetClick = { showLittlePlanet = true },
+                onGpanoClick = { showGpano = true },
+            )
+
+            showLittlePlanet -> LittlePlanetEditorScreen(onBack = { showLittlePlanet = false })
+
+            showGpano -> GpanoMetadataEditorScreen(onBack = { showGpano = false })
 
             finished != null -> PanoramaResultScreen(
                 sphere = finished,

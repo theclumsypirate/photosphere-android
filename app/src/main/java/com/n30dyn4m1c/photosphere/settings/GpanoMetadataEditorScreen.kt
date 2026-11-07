@@ -3,7 +3,9 @@ package com.n30dyn4m1c.photosphere.settings
 import android.content.Context
 import android.graphics.Bitmap as AndroidBitmap
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
@@ -18,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.Button
@@ -31,10 +34,11 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -57,17 +61,15 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * Debug-only: full-screen GPano metadata wizard.
- * Opens from Settings, Advanced: "Add GPano Metadata to Photo".
- * The user imports a photo, GPano XMP is injected, a 360 preview opens and
- * the result can be saved from a button pinned at the bottom.
+ * Full-screen GPano Metadata injector with native photo import.
+ * Opens from Settings → Advanced settings → Add GPano Metadata to 360 photo.
+ * Uses system photo picker (PickVisualMedia) like ImportPhotosScreen.
+ * User imports a photo, GPano XMP is injected, then it opens in 360 viewer with Save button.
  */
 @Composable
 fun GpanoMetadataEditorScreen(
-    onClose: () -> Unit,
+    onBack: () -> Unit,
 ) {
-    if (!BuildConfig.DEBUG) return // debug-only
-
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -75,25 +77,32 @@ fun GpanoMetadataEditorScreen(
     val sourceUri = remember { mutableStateOf<Uri?>(null) }
     val sourceBitmap = remember { mutableStateOf<AndroidBitmap?>(null) }
     val processedBitmap = remember { mutableStateOf<AndroidBitmap?>(null) }
-    val busy = remember { mutableStateOf(false) }
+    val showViewer = remember { mutableStateOf(false) }
 
+    var busy by remember { mutableStateOf(false) }
+    val notEquirect = remember { mutableStateOf(false) }
+
+    // Native photo picker like ImportPhotosScreen
     val pickImage = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument(),
+        ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         if (uri != null) {
             sourceUri.value = uri
             processedBitmap.value = null
-            scope.launch { loadAndDecode(context, sourceBitmap, uri) }
+            showViewer.value = false
+            notEquirect.value = false
+            scope.launch { loadAndDecodeGpano(context, sourceBitmap, uri, notEquirect) }
         }
     }
 
-    // Import then auto inject then auto open the viewer.
+    // Auto inject GPano metadata when source bitmap changes
     LaunchedEffect(sourceBitmap.value) {
         val bmp = sourceBitmap.value
-        if (bmp != null && processedBitmap.value == null && !busy.value) {
-            busy.value = true
+        if (bmp != null && processedBitmap.value == null && !busy && !showViewer.value) {
+            busy = true
             injectGpanoMetadata(context, bmp, processedBitmap, snackbarHostState)
-            busy.value = false
+            busy = false
+            showViewer.value = true
         }
     }
 
@@ -102,10 +111,12 @@ fun GpanoMetadataEditorScreen(
             .fillMaxSize()
             .background(Color.Black),
     ) {
+        BackHandler { onBack() }
         Column(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            // Top bar
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -115,22 +126,39 @@ fun GpanoMetadataEditorScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = {
+                    showViewer.value = false
                     sourceUri.value = null
                     sourceBitmap.value = null
                     processedBitmap.value = null
-                    onClose()
+                    onBack()
                 }) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
                 }
                 Text(
-                    text = "Add GPano Metadata",
+                    text = "Add GPano Metadata to 360 photo",
                     style = MaterialTheme.typography.titleMedium,
                     color = Color.White,
                 )
-                // Spacer so the title stays centered.
+                // Spacer for centering
                 androidx.compose.foundation.layout.Spacer(modifier = Modifier.size(48.dp))
             }
 
+            // Persistent warning when the upload is not a 2:1 360 photo
+            if (notEquirect.value) {
+                Text(
+                    text = "Not a 2:1 photo, this is not a 360 pano",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp)
+                        .background(MaterialTheme.colorScheme.errorContainer)
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                )
+                Spacer(modifier = Modifier.size(8.dp))
+            }
+
+            // Preview/Viewer area
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -141,81 +169,123 @@ fun GpanoMetadataEditorScreen(
                 val processed = processedBitmap.value
                 val source = sourceBitmap.value
                 when {
-                    processed != null -> {
+                    showViewer.value && processed != null -> {
                         Image(
                             bitmap = processed.asImageBitmap(),
-                            contentDescription = "360 photo with GPano metadata",
+                            contentDescription = "360 Photo with GPano Metadata",
                             contentScale = ContentScale.Fit,
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
-                    busy.value -> {
+                    busy && source != null -> {
                         CircularProgressIndicator(color = Color.White, modifier = Modifier.size(48.dp))
                     }
-                    source != null -> {
+                    source != null && !showViewer.value -> {
                         Image(
                             bitmap = source.asImageBitmap(),
-                            contentDescription = "Selected photo",
+                            contentDescription = "Selected 360 Panorama",
                             contentScale = ContentScale.Fit,
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
-                    else -> {
+                    sourceUri.value == null -> {
                         Text(
-                            text = "Import a photo to inject GPano metadata",
+                            text = "Import a 360 photo to add GPano metadata",
                             color = Color.White.copy(alpha = 0.7f),
                             textAlign = TextAlign.Center,
                             style = MaterialTheme.typography.bodyLarge,
                         )
                     }
+                    else -> {
+                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(48.dp))
+                    }
                 }
             }
 
-            if (processedBitmap.value == null && sourceUri.value != null) {
-                Text(
-                    text = if (busy.value) "Injecting GPano metadata..." else "",
-                    color = Color.White.copy(alpha = 0.7f),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+            // Import button (when no image)
+            if (!busy && sourceBitmap.value == null) {
+                Button(
+                    onClick = {
+                        pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    },
+                    shape = PillShape,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, vertical = 16.dp)
+                        .height(56.dp),
+                ) {
+                    Icon(Icons.Filled.PhotoLibrary, contentDescription = null)
+                    Spacer(modifier = Modifier.padding(start = 8.dp))
+                    Text("Import Photo")
+                }
             }
 
-            // Save pinned at the bottom of the viewer.
-            Button(
-                onClick = {
-                    if (!busy.value) {
-                        busy.value = true
-                        scope.launch {
-                            saveWithGpanoMetadata(context, processedBitmap, snackbarHostState)
-                            busy.value = false
+            // Open in 360 Viewer button (when source loaded but not yet viewing)
+            if (!busy && !showViewer.value && sourceBitmap.value != null) {
+                Button(
+                    onClick = { showViewer.value = true },
+                    shape = PillShape,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, vertical = 16.dp)
+                        .height(56.dp),
+                ) {
+                    Text("Open in 360 Viewer", style = MaterialTheme.typography.titleMedium)
+                }
+            }
+
+            // Save button (pinned at bottom when in viewer)
+            if (showViewer.value) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, vertical = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Button(
+                        onClick = {
+                            if (!busy) {
+                                busy = true
+                                scope.launch {
+                                    saveWithGpanoMetadata(context, processedBitmap, snackbarHostState)
+                                    busy = false
+                                }
+                            }
+                        },
+                        enabled = !busy && processedBitmap.value != null,
+                        shape = PillShape,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp, vertical = 32.dp)
+                            .height(56.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                        ),
+                    ) {
+                        if (busy) {
+                            CircularProgressIndicator(
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(24.dp),
+                            )
+                            Spacer(modifier = Modifier.padding(start = 12.dp))
+                            Text("Saving…", style = MaterialTheme.typography.titleMedium)
+                        } else {
+                            Icon(Icons.Default.Download, contentDescription = "Save")
+                            Spacer(modifier = Modifier.padding(start = 8.dp))
+                            Text("Save with GPano Metadata", style = MaterialTheme.typography.titleMedium)
                         }
                     }
-                },
-                enabled = !busy.value && processedBitmap.value != null,
-                shape = PillShape,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 24.dp)
-                    .height(52.dp),
-            ) {
-                if (busy.value) {
-                    CircularProgressIndicator(
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(22.dp),
-                    )
-                    Spacer(modifier = Modifier.size(12.dp))
-                    Text("Saving...")
-                } else {
-                    Icon(Icons.Default.Download, contentDescription = null)
-                    Spacer(modifier = Modifier.size(8.dp))
-                    Text("Save")
                 }
             }
 
-            // Re-import row when there is already a photo loaded.
-            if (!busy.value && sourceBitmap.value != null) {
+            // Change Image button
+            if (sourceBitmap.value != null && !busy && !showViewer.value) {
                 Button(
-                    onClick = { pickImage.launch(arrayOf("image/jpeg", "image/png", "image/webp")) },
-                    enabled = !busy.value,
+                    onClick = {
+                        pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    },
+                    enabled = !busy,
                     shape = PillShape,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.secondary,
@@ -225,7 +295,7 @@ fun GpanoMetadataEditorScreen(
                         .padding(bottom = 24.dp)
                         .height(44.dp),
                 ) {
-                    Text("Import another photo")
+                    Text("Change Image")
                 }
             }
         }
@@ -235,12 +305,13 @@ fun GpanoMetadataEditorScreen(
 }
 
 /**
- * Decodes the picked image on IO and hands it back through [target].
+ * Decodes the picked image on IO and checks aspect ratio.
  */
-private suspend fun loadAndDecode(
+private suspend fun loadAndDecodeGpano(
     context: Context,
-    target: MutableState<AndroidBitmap?>,
+    target: androidx.compose.runtime.MutableState<AndroidBitmap?>,
     uri: Uri,
+    notEquirect: androidx.compose.runtime.MutableState<Boolean>,
 ) {
     val decoded = withContext(Dispatchers.IO) {
         context.contentResolver.openInputStream(uri)?.use { stream ->
@@ -249,7 +320,8 @@ private suspend fun loadAndDecode(
     }
     if (decoded != null) {
         val ratio = decoded.width.toFloat() / decoded.height.toFloat()
-        if (ratio < 1.8f || ratio > 2.2f) {
+        notEquirect.value = ratio < 1.8f || ratio > 2.2f
+        if (notEquirect.value) {
             Logging.w("GPano import: ${decoded.width}x${decoded.height} is not 2:1 equirectangular")
         }
         target.value = decoded
@@ -263,7 +335,7 @@ private suspend fun loadAndDecode(
 private suspend fun injectGpanoMetadata(
     context: Context,
     source: AndroidBitmap,
-    processed: MutableState<AndroidBitmap?>,
+    processed: androidx.compose.runtime.MutableState<AndroidBitmap?>,
     snackbarHostState: SnackbarHostState,
 ) {
     val result = withContext(Dispatchers.IO) {
@@ -305,7 +377,7 @@ private suspend fun injectGpanoMetadata(
  */
 private suspend fun saveWithGpanoMetadata(
     context: Context,
-    processed: MutableState<AndroidBitmap?>,
+    processed: androidx.compose.runtime.MutableState<AndroidBitmap?>,
     snackbarHostState: SnackbarHostState,
 ) {
     val bmp = processed.value ?: return
