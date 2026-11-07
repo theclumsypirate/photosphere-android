@@ -394,83 +394,18 @@ private fun LagRows(modifier: Modifier = Modifier) {
 }
 
 /**
- * Builds the diagnostics report and hands it to save or share.
- *
- * Nothing leaves the device unless the user taps: Save writes through the
- * system picker, Send opens the share sheet. Material3 only.
+ * Report explainer. The actual Save and Send actions live in the Export
+ * section at the bottom, so the button is not shown twice.
  */
 @Composable
 private fun ReportRows(modifier: Modifier = Modifier) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var busy by remember { mutableStateOf(false) }
-    var pendingReport by remember { mutableStateOf<File?>(null) }
-
-    val saveReport = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("text/plain"),
-    ) { uri ->
-        val file = pendingReport
-        pendingReport = null
-        if (uri == null || file == null) return@rememberLauncherForActivityResult
-        scope.launch {
-            runCatching {
-                withContext(Dispatchers.IO) {
-                    context.contentResolver.openOutputStream(uri)?.use { out ->
-                        file.inputStream().use { it.copyTo(out) }
-                    } ?: error("no stream for $uri")
-                }
-                Toast.makeText(context, context.getString(R.string.report_saved), Toast.LENGTH_SHORT).show()
-            }.onFailure {
-                Logging.w("Report not saved", it)
-                Toast.makeText(context, context.getString(R.string.report_failed), Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
-    fun failed(error: Throwable) {
-        Logging.w("Report failed", error)
-        Toast.makeText(context, context.getString(R.string.report_failed), Toast.LENGTH_SHORT).show()
-    }
-
-    fun prepare(then: (File) -> Unit) {
-        if (busy) return
-        busy = true
-        scope.launch {
-            runCatching { Report.build(context, BuildConfig.VERSION_NAME) }
-                .onSuccess(then)
-                .onFailure(::failed)
-            busy = false
-        }
-    }
-
     Column(modifier = modifier.fillMaxWidth()) {
         Text(
             text = stringResource(R.string.send_report_note),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
-            modifier = Modifier.padding(bottom = 16.dp),
         )
-        Button(
-            onClick = {
-                prepare { file ->
-                    pendingReport = file
-                    saveReport.launch(file.name)
-                }
-            },
-            enabled = !busy,
-            shape = PillShape,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(44.dp),
-        ) {
-            Text(
-                text = stringResource(
-                    if (busy) R.string.report_preparing else R.string.save_report
-                ),
-                style = MaterialTheme.typography.labelLarge,
-            )
-        }
     }
 }
 
@@ -592,13 +527,6 @@ private fun AdvancedSettingsRows(
             style = MaterialTheme.typography.titleMedium,
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth(),
-        )
-        Text(
-            text = "Experimental features. Results saved to 360Panoramas album.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
         )
         Button(
             onClick = { showEditor = true },
