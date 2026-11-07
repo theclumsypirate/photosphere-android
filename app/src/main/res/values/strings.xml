@@ -143,6 +143,7 @@
     <string name="result_export_location">%1$s/%2$s</string>
     <string name="result_export_failed">Couldn\'t save to the gallery: %1$s</string>
     <string name="result_share">Share</string>
+    <string name="export_section_title">Export</string>
     <string name="result_share_failed">No app on this device can receive a photo.</string>
     <!-- Debug-only pose report (see PoseExport) -->
     <string name="result_debug_export_poses">Export poses (.txt)</string>

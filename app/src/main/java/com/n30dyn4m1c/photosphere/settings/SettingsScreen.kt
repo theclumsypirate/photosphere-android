@@ -18,6 +18,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Divider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -91,6 +92,11 @@ fun SettingsScreen(
         if (BuildConfig.DEBUG) {
             AdvancedSettingsRows(onBack = onBack, modifier = Modifier.padding(top = 28.dp))
         }
+
+        // Export section
+        Divider(modifier = Modifier.padding(top = 24.dp, bottom = 16.dp))
+        ExportRows(modifier = Modifier.padding(top = 16.dp))
+
         TextButton(onClick = onBack, modifier = Modifier.padding(top = 12.dp)) {
             Text(text = stringResource(R.string.report_back))
         }
@@ -443,7 +449,7 @@ private fun ReportRows(modifier: Modifier = Modifier) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
-            modifier = Modifier.padding(bottom = 20.dp),
+            modifier = Modifier.padding(bottom = 16.dp),
         )
         Button(
             onClick = {
@@ -456,31 +462,108 @@ private fun ReportRows(modifier: Modifier = Modifier) {
             shape = PillShape,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(54.dp),
+                .height(44.dp),
         ) {
             Text(
                 text = stringResource(
                     if (busy) R.string.report_preparing else R.string.save_report
                 ),
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.labelLarge,
             )
         }
+    }
+}
+
+/**
+ * Export section with save and share buttons.
+ */
+@Composable
+private fun ExportRows(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var busy by remember { mutableStateOf(false) }
+    var pendingReport by remember { mutableStateOf<File?>(null) }
+
+    val saveReport = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain"),
+    ) { uri ->
+        val file = pendingReport
+        pendingReport = null
+        if (uri == null || file == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    context.contentResolver.openOutputStream(uri)?.use { out ->
+                        file.inputStream().use { it.copyTo(out) }
+                    } ?: error("no stream for $uri")
+                }
+                Toast.makeText(context, context.getString(R.string.report_saved), Toast.LENGTH_SHORT).show()
+            }.onFailure {
+                Logging.w("Report not saved", it)
+                Toast.makeText(context, context.getString(R.string.report_failed), Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    fun failed(error: Throwable) {
+        Logging.w("Report failed", error)
+        Toast.makeText(context, context.getString(R.string.report_failed), Toast.LENGTH_SHORT).show()
+    }
+
+    fun prepare(then: (File) -> Unit) {
+        if (busy) return
+        busy = true
+        scope.launch {
+            runCatching { Report.build(context, BuildConfig.VERSION_NAME) }
+                .onSuccess(then)
+                .onFailure { Logging.w("Report failed", it) }
+            busy = false
+        }
+    }
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        Text(
+            text = stringResource(R.string.export_section_title),
+            style = MaterialTheme.typography.titleSmall,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+        )
         Button(
             onClick = {
                 prepare { file ->
-                    runCatching { Report.share(context, file) }.onFailure(::failed)
+                    pendingReport = file
+                    saveReport.launch(file.name)
                 }
             },
             enabled = !busy,
             shape = PillShape,
             modifier = Modifier
-                .padding(top = 12.dp)
                 .fillMaxWidth()
-                .height(54.dp),
+                .height(44.dp),
+        ) {
+            Text(
+                text = stringResource(
+                    if (busy) R.string.report_preparing else R.string.save_report
+                ),
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
+        Button(
+            onClick = {
+                prepare { file ->
+                    runCatching { Report.share(context, file) }.onFailure { Logging.w("Report share failed", it) }
+                }
+            },
+            enabled = !busy,
+            shape = PillShape,
+            modifier = Modifier
+                .padding(top = 8.dp)
+                .fillMaxWidth()
+                .height(44.dp),
         ) {
             Text(
                 text = stringResource(R.string.send_report),
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.labelLarge,
             )
         }
     }
