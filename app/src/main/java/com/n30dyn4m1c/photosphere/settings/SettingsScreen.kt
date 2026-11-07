@@ -581,6 +581,7 @@ private fun AdvancedSettingsRows(
     if (!BuildConfig.DEBUG) return
 
     var showEditor by remember { mutableStateOf(false) }
+    var showGpano by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -604,20 +605,33 @@ private fun AdvancedSettingsRows(
             shape = PillShape,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(54.dp),
+                .height(44.dp),
         ) {
             Text(
                 text = "Convert Panorama to Little Planet",
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.labelLarge,
             )
         }
-        TextButton(onClick = onBack, modifier = Modifier.padding(top = 12.dp)) {
-            Text(text = stringResource(R.string.report_back))
+        Button(
+            onClick = { showGpano = true },
+            shape = PillShape,
+            modifier = Modifier
+                .padding(top = 8.dp)
+                .fillMaxWidth()
+                .height(44.dp),
+        ) {
+            Text(
+                text = "Add GPano Metadata to Photo",
+                style = MaterialTheme.typography.labelLarge,
+            )
         }
     }
 
-    // Full-screen editor launched from the button above
+    // Full-screen editors launched from the buttons above
     if (showEditor) {
         LittlePlanetEditorScreen(onClose = { showEditor = false })
+    }
+    if (showGpano) {
+        GpanoMetadataEditorScreen(onClose = { showGpano = false })
     }
 }
