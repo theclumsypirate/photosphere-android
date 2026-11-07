@@ -123,7 +123,8 @@ fun LittlePlanetEditorScreen(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // Top bar
+            // Top bar with safe top padding
+            androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(12.dp))
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -348,6 +349,7 @@ private suspend fun saveLittlePlanet(
 
 /**
  * Decodes the picked image on IO and checks aspect ratio.
+ * Downsamples large images to max 4096px wide to avoid OOM.
  */
 private suspend fun loadAndDecodeLittlePlanet(
     context: Context,
@@ -356,8 +358,24 @@ private suspend fun loadAndDecodeLittlePlanet(
     notEquirect: androidx.compose.runtime.MutableState<Boolean>,
 ) {
     val decoded = withContext(Dispatchers.IO) {
+        // First decode bounds only to check size
+        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
         context.contentResolver.openInputStream(uri)?.use { stream ->
-            android.graphics.BitmapFactory.decodeStream(stream)
+            android.graphics.BitmapFactory.decodeStream(stream, null, bounds)
+        }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext null
+
+        // Calculate sample size to limit max dimension to 4096
+        val MAX_DIM = 4096
+        var sampleSize = 1
+        while (bounds.outWidth / sampleSize > MAX_DIM || bounds.outHeight / sampleSize > MAX_DIM) {
+            sampleSize *= 2
+        }
+
+        // Decode with sample size
+        context.contentResolver.openInputStream(uri)?.use { stream ->
+            val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sampleSize }
+            android.graphics.BitmapFactory.decodeStream(stream, null, opts)
         }
     }
     if (decoded != null) {

@@ -71,7 +71,6 @@ fun SettingsScreen(
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 32.dp, vertical = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
     ) {
         BackHandler { onBack() }
         Text(

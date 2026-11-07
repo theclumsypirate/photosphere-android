@@ -1,8 +1,12 @@
 package com.n30dyn4m1c.photosphere.settings
 
+import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap as AndroidBitmap
 import android.net.Uri
+import android.os.Build
+import android.provider.MediaStore
+import java.io.IOException
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -77,6 +81,7 @@ fun GpanoMetadataEditorScreen(
     val sourceUri = remember { mutableStateOf<Uri?>(null) }
     val sourceBitmap = remember { mutableStateOf<AndroidBitmap?>(null) }
     val processedBitmap = remember { mutableStateOf<AndroidBitmap?>(null) }
+    val xmpInjectedFile = remember { mutableStateOf<File?>(null) }
     val showViewer = remember { mutableStateOf(false) }
 
     var busy by remember { mutableStateOf(false) }
@@ -98,9 +103,9 @@ fun GpanoMetadataEditorScreen(
     // Auto inject GPano metadata when source bitmap changes
     LaunchedEffect(sourceBitmap.value) {
         val bmp = sourceBitmap.value
-        if (bmp != null && processedBitmap.value == null && !busy && !showViewer.value) {
+        if (bmp != null && xmpInjectedFile.value == null && !busy && !showViewer.value) {
             busy = true
-            injectGpanoMetadata(context, bmp, processedBitmap, snackbarHostState)
+            injectGpanoMetadata(context, bmp, xmpInjectedFile, processedBitmap, snackbarHostState)
             busy = false
             showViewer.value = true
         }
@@ -116,7 +121,8 @@ fun GpanoMetadataEditorScreen(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // Top bar
+            // Top bar with safe top padding
+            androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(12.dp))
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -247,7 +253,7 @@ fun GpanoMetadataEditorScreen(
                             if (!busy) {
                                 busy = true
                                 scope.launch {
-                                    saveWithGpanoMetadata(context, processedBitmap, snackbarHostState)
+                                    saveWithGpanoMetadata(context, xmpInjectedFile, snackbarHostState)
                                     busy = false
                                 }
                             }
@@ -306,6 +312,7 @@ fun GpanoMetadataEditorScreen(
 
 /**
  * Decodes the picked image on IO and checks aspect ratio.
+ * Downsamples large images to max 4096px wide to avoid OOM.
  */
 private suspend fun loadAndDecodeGpano(
     context: Context,
@@ -314,8 +321,24 @@ private suspend fun loadAndDecodeGpano(
     notEquirect: androidx.compose.runtime.MutableState<Boolean>,
 ) {
     val decoded = withContext(Dispatchers.IO) {
+        // First decode bounds only to check size
+        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
         context.contentResolver.openInputStream(uri)?.use { stream ->
-            android.graphics.BitmapFactory.decodeStream(stream)
+            android.graphics.BitmapFactory.decodeStream(stream, null, bounds)
+        }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext null
+
+        // Calculate sample size to limit max dimension to 4096
+        val MAX_DIM = 4096
+        var sampleSize = 1
+        while (bounds.outWidth / sampleSize > MAX_DIM || bounds.outHeight / sampleSize > MAX_DIM) {
+            sampleSize *= 2
+        }
+
+        // Decode with sample size
+        context.contentResolver.openInputStream(uri)?.use { stream ->
+            val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sampleSize }
+            android.graphics.BitmapFactory.decodeStream(stream, null, opts)
         }
     }
     if (decoded != null) {
@@ -329,38 +352,39 @@ private suspend fun loadAndDecodeGpano(
 }
 
 /**
- * Writes the bitmap to a temp JPEG, injects GPano XMP, and hands the decoded
- * result back through [processed]. The temp file is always cleaned up.
+ * Writes the bitmap to a temp JPEG, injects GPano XMP, and stores the file.
+ * The temp file is kept (not deleted) so we can save it with XMP intact.
  */
 private suspend fun injectGpanoMetadata(
     context: Context,
     source: AndroidBitmap,
+    xmpInjectedFile: androidx.compose.runtime.MutableState<File?>,
     processed: androidx.compose.runtime.MutableState<AndroidBitmap?>,
     snackbarHostState: SnackbarHostState,
 ) {
     val result = withContext(Dispatchers.IO) {
         runCatching {
             val tempFile = File.createTempFile("gpano_", ".jpg", context.cacheDir)
-            try {
-                tempFile.outputStream().use { out ->
-                    source.compress(AndroidBitmap.CompressFormat.JPEG, 92, out)
-                }
-                val metadata = GPanoMetadata(
-                    fullPanoWidthPixels = source.width,
-                    fullPanoHeightPixels = source.height,
-                    croppedAreaImageWidthPixels = source.width,
-                    croppedAreaImageHeightPixels = source.height,
-                    croppedAreaLeftPixels = 0,
-                    croppedAreaTopPixels = 0,
-                )
-                GPanoXmpInjector.inject(tempFile, metadata).getOrThrow()
-                android.graphics.BitmapFactory.decodeFile(tempFile.path)
-            } finally {
-                tempFile.delete()
+            tempFile.outputStream().use { out ->
+                source.compress(AndroidBitmap.CompressFormat.JPEG, 92, out)
             }
+            val metadata = GPanoMetadata(
+                fullPanoWidthPixels = source.width,
+                fullPanoHeightPixels = source.height,
+                croppedAreaImageWidthPixels = source.width,
+                croppedAreaImageHeightPixels = source.height,
+                croppedAreaLeftPixels = 0,
+                croppedAreaTopPixels = 0,
+            )
+            GPanoXmpInjector.inject(tempFile, metadata).getOrThrow()
+            // Return the file with XMP injected (don't decode to bitmap, don't delete)
+            tempFile
         }
     }
-    result.onSuccess { bmp ->
+    result.onSuccess { file ->
+        xmpInjectedFile.value = file
+        // Also decode for preview
+        val bmp = android.graphics.BitmapFactory.decodeFile(file.path)
         if (bmp != null) {
             processed.value = bmp
         } else {
@@ -373,25 +397,35 @@ private suspend fun injectGpanoMetadata(
 }
 
 /**
- * Saves the processed bitmap to Pictures/360Panoramas via MediaExporter.
+ * Copies the XMP-injected file to Pictures/360Panoramas via MediaStore,
+ * preserving the GPano XMP metadata.
  */
 private suspend fun saveWithGpanoMetadata(
     context: Context,
-    processed: androidx.compose.runtime.MutableState<AndroidBitmap?>,
+    xmpInjectedFile: androidx.compose.runtime.MutableState<File?>,
     snackbarHostState: SnackbarHostState,
 ) {
-    val bmp = processed.value ?: return
+    val file = xmpInjectedFile.value ?: return
     val result = withContext(Dispatchers.IO) {
-        MediaExporter.exportBitmap(
-            context = context,
-            bitmap = bmp,
-            displayName = "gpano_${System.currentTimeMillis()}.jpg",
-            width = bmp.width,
-            height = bmp.height,
-        )
+        runCatching {
+            val resolver = context.contentResolver
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, "gpano_${System.currentTimeMillis()}.jpg")
+                put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/360Panoramas")
+            }
+            val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                ?: throw IOException("Failed to create MediaStore entry")
+            resolver.openOutputStream(uri)?.use { output ->
+                file.inputStream().use { input ->
+                    input.copyTo(output)
+                }
+            } ?: throw IOException("Failed to open output stream for $uri")
+            uri
+        }
     }
-    result.onSuccess { exported: ExportedPanorama ->
-        snackbarHostState.showSnackbar("Saved as ${exported.displayName}")
+    result.onSuccess { uri ->
+        snackbarHostState.showSnackbar("Saved to gallery")
     }.onFailure { error ->
         Logging.w("GPano save failed", error)
         snackbarHostState.showSnackbar("Save failed: ${error.message}")
