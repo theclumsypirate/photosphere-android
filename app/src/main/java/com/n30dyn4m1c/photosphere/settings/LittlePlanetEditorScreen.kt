@@ -342,8 +342,11 @@ private suspend fun saveLittlePlanet(
     val result = withContext(Dispatchers.IO) {
         val fullRes = LittlePlanetConverter.convert(
             bmp,
-            2048,
-            180.0f,
+            outputSize = 2048,
+            fovDegrees = zoom,
+            tiltDegrees = tilt,
+            panDegrees = pan,
+            spinDegrees = spin,
         )
         val name = "little_planet_${System.currentTimeMillis()}.jpg"
         MediaExporter.exportBitmap(context, fullRes, name, fullRes.width, fullRes.height)

@@ -73,6 +73,7 @@ import androidx.compose.material.icons.filled.FlashlightOn
 import androidx.compose.material.icons.filled.FlashlightOff
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Nightlight
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -298,7 +299,8 @@ fun PhotoSphereCameraScreen(
     val run by coordinator.guidance.collectAsStateWithLifecycle()
 
     // Debug-only night mode toggle. Available when the device profile provides a config.
-    var debugNightEnabled by rememberSaveable { mutableStateOf(true) }
+    // Off by default; user opts in via the debug dropdown.
+    var debugNightEnabled by rememberSaveable { mutableStateOf(false) }
     // Debug-only flashlight (torch) toggle.
     var debugTorchEnabled by rememberSaveable { mutableStateOf(false) }
 
@@ -1684,6 +1686,7 @@ private fun CaptureHud(
         }
 
         // Debug dropdown: flashlight and night mode (always shown in debug).
+        // Compact trigger and menu positioned to avoid blocking HUD elements.
         if (showDebugDropdown) {
             var debugMenuExpanded by remember { mutableStateOf(false) }
             Box(
@@ -1692,59 +1695,81 @@ private fun CaptureHud(
                     .padding(end = 72.dp, top = 22.dp),
             ) {
                 Surface(
-                    shape = CircleShape,
+                    shape = PillShape,
                     color = if (isCapturingNightBurst) {
                         MaterialTheme.colorScheme.secondary.copy(alpha = 0.95f)
                     } else {
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
+                        GlassSurface
                     },
                     shadowElevation = 8.dp,
                     onClick = { debugMenuExpanded = true },
                 ) {
-                    Box(
+                    Row(
                         modifier = Modifier
-                            .size(44.dp)
-                            .padding(8.dp),
-                        contentAlignment = Alignment.Center,
+                            .height(40.dp)
+                            .padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         if (isCapturingNightBurst) {
                             CircularProgressIndicator(
-                                progress = nightBurstProgress,
+                                progress = { nightBurstProgress },
                                 color = MaterialTheme.colorScheme.onSecondary,
-                                strokeWidth = 3.dp,
-                                modifier = Modifier.size(28.dp),
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(18.dp),
                             )
                         } else {
                             Icon(
-                                imageVector = if (nightModeEnabled) Icons.Filled.Nightlight else Icons.Filled.Nightlight,
+                                imageVector = Icons.Filled.ExpandMore,
                                 contentDescription = "Debug options",
-                                tint = MaterialTheme.colorScheme.onPrimary.copy(
-                                    alpha = if (nightModeEnabled) 1f else 0.5f
-                                ),
+                                tint = GlassContent,
+                                modifier = Modifier.size(20.dp),
                             )
                         }
-                        if (isCapturingNightBurst && nightModeConfig != null) {
-                            Text(
-                                text = "${(nightBurstProgress * nightModeConfig.framesPerTarget).roundToInt()}/${nightModeConfig.framesPerTarget}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSecondary,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(top = 2.dp),
-                            )
-                        }
+                        Text(
+                            text = "Debug",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (isCapturingNightBurst) {
+                                MaterialTheme.colorScheme.onSecondary
+                            } else {
+                                GlassContent
+                            },
+                        )
                     }
                 }
                 DropdownMenu(
                     expanded = debugMenuExpanded,
                     onDismissRequest = { debugMenuExpanded = false },
+                    modifier = Modifier.background(MaterialTheme.colorScheme.surface),
                 ) {
                     DropdownMenuItem(
-                        text = { Text("Night mode: ${if (nightModeEnabled) "ON" else "OFF"}") },
+                        text = {
+                            Text(
+                                "Night mode",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        },
+                        trailingIcon = {
+                            Text(
+                                if (nightModeEnabled) "ON" else "OFF",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (nightModeEnabled) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        },
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Filled.Nightlight,
                                 contentDescription = null,
-                                tint = if (nightModeEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                tint = if (nightModeEnabled) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
                             )
                         },
                         onClick = {
@@ -1753,12 +1778,37 @@ private fun CaptureHud(
                         enabled = nightModeConfig != null,
                     )
                     DropdownMenuItem(
-                        text = { Text("Flashlight: ${if (torchEnabled) "ON" else "OFF"}") },
+                        text = {
+                            Text(
+                                "Flashlight",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        },
+                        trailingIcon = {
+                            Text(
+                                if (torchEnabled) "ON" else "OFF",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (torchEnabled) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        },
                         leadingIcon = {
                             Icon(
-                                imageVector = if (torchEnabled) Icons.Filled.FlashlightOn else Icons.Filled.FlashlightOff,
+                                imageVector = if (torchEnabled) {
+                                    Icons.Filled.FlashlightOn
+                                } else {
+                                    Icons.Filled.FlashlightOff
+                                },
                                 contentDescription = null,
-                                tint = if (torchEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                tint = if (torchEnabled) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
                             )
                         },
                         onClick = { onToggleTorch() },
@@ -1826,9 +1876,6 @@ private fun CaptureHud(
                 completedRings = completedRings,
                 ringCount = ringCount,
             )
-            if (lockBadge != null) {
-                FocusLockChip(text = lockBadge)
-            }
         }
 
         Column(
@@ -1847,7 +1894,9 @@ private fun CaptureHud(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            HintCard(text = hint)
+            if (hint.isNotBlank()) {
+                HintCard(text = hint)
+            }
             // Debug-only A/B switches, on one scrolling line.
             //
             // This used to appear only once three frames had landed, which
@@ -1958,16 +2007,25 @@ private fun CaptureHud(
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
+            // Frame count at the very bottom, small and unobtrusive.
+            if (frameCount > 0) {
+                Text(
+                    text = "$frameCount FRAMES",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = GlassContentDim,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
         }
     }
 }
 
 /**
- * Live brightness: exposure-compensation slider plus the AE lock toggle.
+ * Live brightness: exposure-compensation slider.
  *
- * Dragging the slider unlocks AE (a locked AE ignores compensation changes on
- * most HALs) and requests the new index; the button re-pins the converged
- * values so the rest of the run keeps one exposure.
+ * Dragging the slider adjusts exposure compensation. Lock indicators are
+ * omitted for a clean UI; the capture pipeline manages exposure state.
  */
 @Composable
 private fun ExposureRow(
@@ -1985,7 +2043,7 @@ private fun ExposureRow(
         shadowElevation = 6.dp,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 2.dp),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -2006,15 +2064,6 @@ private fun ExposureRow(
                 style = MaterialTheme.typography.labelMedium,
                 color = GlassContent,
             )
-            TextButton(onClick = onToggleAeLock) {
-                Text(
-                    text = stringResource(
-                        if (aeLocked) R.string.exposure_unlock else R.string.exposure_lock
-                    ),
-                    color = MaterialTheme.colorScheme.primary,
-                    style = MaterialTheme.typography.labelMedium,
-                )
-            }
         }
     }
 }
@@ -2602,7 +2651,8 @@ private fun captureHint(    isSensorAvailable: Boolean,
     // A closed ring is a complete band of sphere and a perfectly good result.
     // Saying so is what turns "keep going or lose it" into a real choice.
     completedRings > 0 -> stringResource(R.string.capture_hint_ring_done, completedRings, ringCount)
-    else -> stringResource(R.string.capture_hint_search)
+    // "Move the reticle onto the marker" is shown only in debug builds.
+    else -> if (BuildConfig.DEBUG) stringResource(R.string.capture_hint_search) else ""
 }
 
 /** Writes one frame to the session's cache directory and buffers it.

@@ -3,6 +3,7 @@ package com.n30dyn4m1c.photosphere.metadata
 import android.graphics.Bitmap
 import com.n30dyn4m1c.photosphere.util.Logging
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.acos
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -16,6 +17,8 @@ import kotlin.math.tan
  * Converts an equirectangular (2:1) panorama to Little Planet (stereographic) projection.
  *
  * Pure Kotlin/CPU implementation, no RenderScript. Runs off the main thread.
+ * Stereographic projection from the nadir with configurable view center (tilt/pan),
+ * output spin, and zoom (field of view).
  */
 object LittlePlanetConverter {
 
@@ -24,11 +27,11 @@ object LittlePlanetConverter {
      *
      * @param equirect 2:1 equirectangular source bitmap (width = 2 * height).
      * @param outputSize output image dimension (square, circle inscribed).
-     * @param fovDegrees field of view to include (180 = full sphere, 120 = typical).
-     * @param tiltDegrees tilt angle (-90 to 90, 0 = level).
-     * @param panDegrees pan angle (-180 to 180).
-     * @param spinDegrees spin/roll angle (-180 to 180).
-     * @return square bitmap with transparent corners outside the circle.
+     * @param fovDegrees zoom as field of view (larger = wider view, smaller = more zoomed in).
+     * @param tiltDegrees view tilt/pitch in degrees (-90 to 90).
+     * @param panDegrees view pan/yaw in degrees (-180 to 180).
+     * @param spinDegrees output image spin/roll in degrees (-180 to 180).
+     * @return square bitmap with transparent corners outside the inscribed circle.
      */
     fun convert(
         equirect: Bitmap,
@@ -41,99 +44,120 @@ object LittlePlanetConverter {
         require(equirect.width == equirect.height * 2) {
             "Equirectangular must be 2:1, got ${equirect.width}x${equirect.height}"
         }
+        require(outputSize > 0) { "outputSize must be positive" }
 
-        val eqW = equirect.width.toFloat()
-        val eqH = equirect.height.toFloat()
         val out = Bitmap.createBitmap(outputSize, outputSize, Bitmap.Config.ARGB_8888)
         val outPixels = IntArray(outputSize * outputSize)
 
         // Pre-fetch equirect pixels for fast bilinear sampling
-        val eqPixels = IntArray(equirect.width * equirect.height)
-        equirect.getPixels(eqPixels, 0, equirect.width, 0, 0, equirect.width, equirect.height)
+        val eqW = equirect.width
+        val eqH = equirect.height
+        val eqPixels = IntArray(eqW * eqH)
+        equirect.getPixels(eqPixels, 0, eqW, 0, 0, eqW, eqH)
 
-        val radius = outputSize / 2f
+        val radius = outputSize / 2.0
         val center = radius
-        val maxTheta = (fovDegrees / 2f) * PI / 180f // radians
+        // Clamp FOV to a safe range to avoid degenerate projection at extremes.
+        val fovClamped = fovDegrees.toDouble().coerceIn(20.0, 350.0)
+        val halfFovRad = (fovClamped / 2.0) * PI / 180.0
+        // Stereographic scale: maps screen edge (dist=radius) to halfFovRad from center.
+        // r = 2*tan(theta/2) in unit stereographic; scaled so edge -> halfFov.
+        val scale = 2.0 * tan(halfFovRad / 2.0)
 
-        // Pre-compute rotation matrices for tilt, pan, spin
-        val tiltRad = tiltDegrees * PI / 180f
-        val panRad = panDegrees * PI / 180f
-        val spinRad = spinDegrees * PI / 180f
+        // Rotation angles in radians
+        val tiltRad = tiltDegrees.toDouble() * PI / 180.0
+        val panRad = panDegrees.toDouble() * PI / 180.0
+        val spinRad = spinDegrees.toDouble() * PI / 180.0
 
-        // Rotation around X (tilt)
-        val cosTilt = cos(tiltRad)
-        val sinTilt = sin(tiltRad)
-        // Rotation around Y (pan)
-        val cosPan = cos(panRad)
-        val sinPan = sin(panRad)
-        // Rotation around Z (spin)
-        val cosSpin = cos(spinRad)
-        val sinSpin = sin(spinRad)
+        val cosTilt = cos(tiltRad); val sinTilt = sin(tiltRad)
+        val cosPan = cos(panRad); val sinPan = sin(panRad)
+        val cosSpin = cos(spinRad); val sinSpin = sin(spinRad)
 
         for (y in 0 until outputSize) {
             val dy = y - center
+            val rowOff = y * outputSize
             for (x in 0 until outputSize) {
                 val dx = x - center
-                val dist = sqrt(dx * dx + dy * dy).toFloat()
+                val dist = sqrt(dx * dx + dy * dy)
                 if (dist > radius) {
-                    outPixels[x + y * outputSize] = 0 // transparent corner
+                    outPixels[rowOff + x] = 0 // transparent corner
                     continue
                 }
-                // Normalized radius 0..1 maps to theta 0..maxTheta
-                val theta = (dist / radius) * maxTheta
-                // Stereographic projection from nadir
-                val azimuth = atan2(dx.toDouble(), -dy.toDouble()).toFloat()
-                val wx = (sin(theta) * sin(azimuth)).toFloat()
-                val wy = (-cos(theta)).toFloat() // nadir is -Y
-                val wz = (sin(theta) * cos(azimuth)).toFloat()
 
-                // Apply spin (rotate around Z/vertical axis)
-                val wx1 = wx * cosSpin - wz * sinSpin
-                val wz1 = wx * sinSpin + wz * cosSpin
-                val wy1 = wy
+                // Apply output spin to screen coordinates before projection
+                val sx = dx * cosSpin - dy * sinSpin
+                val sy = dx * sinSpin + dy * cosSpin
 
-                // Apply tilt (rotate around X/horizontal axis)
-                val wy2 = wy1 * cosTilt - wz1 * sinTilt
-                val wz2 = wy1 * sinTilt + wz1 * cosTilt
-                val wx2 = wx1
+                // Stereographic projection from nadir (looking down, -Y).
+                // theta is the angle from nadir.
+                val r = (dist / radius) * scale
+                val theta = 2.0 * kotlin.math.atan(r / 2.0)
+                val azimuth = atan2(sx, -sy)
 
-                // Apply pan (rotate around Y/vertical axis)
-                val wx3 = wx2 * cosPan + wz2 * sinPan
-                val wz3 = -wx2 * sinPan + wz2 * cosPan
-                val wy3 = wy2
+                val sinTheta = sin(theta)
+                val cosTheta = cos(theta)
+                var wx = sinTheta * sin(azimuth)
+                var wy = -cosTheta // nadir is -Y
+                var wz = sinTheta * cos(azimuth)
+
+                // Apply view tilt (rotate around X axis): pitch the view center
+                val wy1 = wy * cosTilt - wz * sinTilt
+                val wz1 = wy * sinTilt + wz * cosTilt
+                wy = wy1; wz = wz1
+
+                // Apply view pan (rotate around Y axis): yaw the view center
+                val wx2 = wx * cosPan + wz * sinPan
+                val wz2 = -wx * sinPan + wz * cosPan
+                wx = wx2; wz = wz2
+
+                // Normalize direction to guard against drift
+                val len = sqrt(wx * wx + wy * wy + wz * wz)
+                if (len < 1e-12) {
+                    outPixels[rowOff + x] = 0
+                    continue
+                }
+                wx /= len; wy /= len; wz /= len
 
                 // Convert world direction to equirectangular UV
-                val u = (atan2(wx3.toDouble(), wz3.toDouble()) / (2 * PI) + 0.5).toFloat()
-                val v = (0.5 - acos(max(-1f, min(1f, wy3.toFloat()))) / PI).toFloat()
-                val px = u * (equirect.width - 1)
-                val py = v * (equirect.height - 1)
-                val ix = px.toInt()
-                val iy = py.toInt()
-                val fx = (px - ix).toFloat()
-                val fy = (py - iy).toFloat()
+                // longitude from -PI..PI mapped to 0..1
+                var u = (atan2(wx, wz) / (2.0 * PI) + 0.5)
+                // wrap u into [0,1)
+                u -= kotlin.math.floor(u)
+                val lat = acos(wy.coerceIn(-1.0, 1.0)) // 0 at north pole, PI at south
+                val v = (lat / PI).coerceIn(0.0, 1.0)
+
+                val px = u * (eqW - 1)
+                val py = v * (eqH - 1)
+                val ix = px.toInt().coerceIn(0, eqW - 2)
+                val iy = py.toInt().coerceIn(0, eqH - 2)
+                val fx = (px - ix).toFloat().coerceIn(0f, 1f)
+                val fy = (py - iy).toFloat().coerceIn(0f, 1f)
+
                 // Bilinear interpolation
-                val c00 = eqPixels[max(0, min(equirect.width - 1, ix)) + max(0, min(equirect.height - 1, iy)) * equirect.width]
-                val c10 = eqPixels[max(0, min(equirect.width - 1, ix + 1)) + max(0, min(equirect.height - 1, iy)) * equirect.width]
-                val c01 = eqPixels[max(0, min(equirect.width - 1, ix)) + max(0, min(equirect.height - 1, iy + 1)) * equirect.width]
-                val c11 = eqPixels[max(0, min(equirect.width - 1, ix + 1)) + max(0, min(equirect.height - 1, iy + 1)) * equirect.width]
-                val r = lerpF(lerpF((c00 shr 16 and 0xFF).toFloat(), (c10 shr 16 and 0xFF).toFloat(), fx),
-                             lerpF((c01 shr 16 and 0xFF).toFloat(), (c11 shr 16 and 0xFF).toFloat(), fx), fy)
-                val g = lerpF(lerpF((c00 shr 8 and 0xFF).toFloat(), (c10 shr 8 and 0xFF).toFloat(), fx),
-                             lerpF((c01 shr 8 and 0xFF).toFloat(), (c11 shr 8 and 0xFF).toFloat(), fx), fy)
-                val b = lerpF(lerpF((c00 and 0xFF).toFloat(), (c10 and 0xFF).toFloat(), fx),
-                             lerpF((c01 and 0xFF).toFloat(), (c11 and 0xFF).toFloat(), fx), fy)
-                val ri = r.toInt()
-                val gi = g.toInt()
-                val bi = b.toInt()
-                val pixel = (0xFF shl 24) or (ri shl 16) or (gi shl 8) or bi
-                outPixels[x + y * outputSize] = pixel
+                val i00 = iy * eqW + ix
+                val i10 = i00 + 1
+                val i01 = i00 + eqW
+                val i11 = i01 + 1
+                val c00 = eqPixels[i00]
+                val c10 = eqPixels[i10]
+                val c01 = eqPixels[i01]
+                val c11 = eqPixels[i11]
+                val rch = lerpF(lerpF((c00 ushr 16 and 0xFF).toFloat(), (c10 ushr 16 and 0xFF).toFloat(), fx),
+                                lerpF((c01 ushr 16 and 0xFF).toFloat(), (c11 ushr 16 and 0xFF).toFloat(), fx), fy)
+                val gch = lerpF(lerpF((c00 ushr 8 and 0xFF).toFloat(), (c10 ushr 8 and 0xFF).toFloat(), fx),
+                                lerpF((c01 ushr 8 and 0xFF).toFloat(), (c11 ushr 8 and 0xFF).toFloat(), fx), fy)
+                val bch = lerpF(lerpF((c00 and 0xFF).toFloat(), (c10 and 0xFF).toFloat(), fx),
+                                lerpF((c01 and 0xFF).toFloat(), (c11 and 0xFF).toFloat(), fx), fy)
+                val ri = rch.toInt().coerceIn(0, 255)
+                val gi = gch.toInt().coerceIn(0, 255)
+                val bi = bch.toInt().coerceIn(0, 255)
+                outPixels[rowOff + x] = (0xFF shl 24) or (ri shl 16) or (gi shl 8) or bi
             }
         }
         out.setPixels(outPixels, 0, outputSize, 0, 0, outputSize, outputSize)
+        Logging.i("LittlePlanet: ${equirect.width}x${equirect.height} -> ${outputSize}x${outputSize} fov=$fovClamped tilt=$tiltDegrees pan=$panDegrees spin=$spinDegrees")
         return out
     }
 
-    private fun lerp(a: Float, b: Float, t: Float): Float = a + (b - a) * t
-    private fun lerp(a: Int, b: Int, t: Float): Int = (a + (b - a) * t).toInt()
     private fun lerpF(a: Float, b: Float, t: Float): Float = a + (b - a) * t
 }

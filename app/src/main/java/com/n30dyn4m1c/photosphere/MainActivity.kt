@@ -387,13 +387,33 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
 
             showSettings -> SettingsScreen(
                 onBack = { showSettings = false },
-                onLittlePlanetClick = { if (BuildConfig.DEBUG) showLittlePlanet = true },
-                onGpanoClick = { if (BuildConfig.DEBUG) showGpano = true },
+                onLittlePlanetClick = {
+                    if (BuildConfig.DEBUG) {
+                        showSettings = false
+                        showLittlePlanet = true
+                    }
+                },
+                onGpanoClick = {
+                    if (BuildConfig.DEBUG) {
+                        showSettings = false
+                        showGpano = true
+                    }
+                },
             )
 
-            BuildConfig.DEBUG && showLittlePlanet -> LittlePlanetEditorScreen(onBack = { showLittlePlanet = false })
+            BuildConfig.DEBUG && showLittlePlanet -> LittlePlanetEditorScreen(
+                onBack = {
+                    showLittlePlanet = false
+                    showSettings = true
+                },
+            )
 
-            BuildConfig.DEBUG && showGpano -> GpanoMetadataEditorScreen(onBack = { showGpano = false })
+            BuildConfig.DEBUG && showGpano -> GpanoMetadataEditorScreen(
+                onBack = {
+                    showGpano = false
+                    showSettings = true
+                },
+            )
 
             finished != null -> PanoramaResultScreen(
                 sphere = finished,
