@@ -61,6 +61,7 @@ local.properties
 # user's own working notes. Kept on disk so a later check can rerun them, never
 # committed.
 /tools/scratch/
+/tools/hud-mock/
 /markdown orbit/
 
 # Secrets, credentials and PII: never committed, no exceptions.

@@ -25,12 +25,18 @@ object LittlePlanetConverter {
      * @param equirect 2:1 equirectangular source bitmap (width = 2 * height).
      * @param outputSize output image dimension (square, circle inscribed).
      * @param fovDegrees field of view to include (180 = full sphere, 120 = typical).
+     * @param tiltDegrees tilt angle (-90 to 90, 0 = level).
+     * @param panDegrees pan angle (-180 to 180).
+     * @param spinDegrees spin/roll angle (-180 to 180).
      * @return square bitmap with transparent corners outside the circle.
      */
     fun convert(
         equirect: Bitmap,
         outputSize: Int = 2048,
         fovDegrees: Float = 180f,
+        tiltDegrees: Float = 0f,
+        panDegrees: Float = 0f,
+        spinDegrees: Float = 0f,
     ): Bitmap {
         require(equirect.width == equirect.height * 2) {
             "Equirectangular must be 2:1, got ${equirect.width}x${equirect.height}"
@@ -49,6 +55,21 @@ object LittlePlanetConverter {
         val center = radius
         val maxTheta = (fovDegrees / 2f) * PI / 180f // radians
 
+        // Pre-compute rotation matrices for tilt, pan, spin
+        val tiltRad = tiltDegrees * PI / 180f
+        val panRad = panDegrees * PI / 180f
+        val spinRad = spinDegrees * PI / 180f
+
+        // Rotation around X (tilt)
+        val cosTilt = cos(tiltRad)
+        val sinTilt = sin(tiltRad)
+        // Rotation around Y (pan)
+        val cosPan = cos(panRad)
+        val sinPan = sin(panRad)
+        // Rotation around Z (spin)
+        val cosSpin = cos(spinRad)
+        val sinSpin = sin(spinRad)
+
         for (y in 0 until outputSize) {
             val dy = y - center
             for (x in 0 until outputSize) {
@@ -65,9 +86,25 @@ object LittlePlanetConverter {
                 val wx = (sin(theta) * sin(azimuth)).toFloat()
                 val wy = (-cos(theta)).toFloat() // nadir is -Y
                 val wz = (sin(theta) * cos(azimuth)).toFloat()
+
+                // Apply spin (rotate around Z/vertical axis)
+                val wx1 = wx * cosSpin - wz * sinSpin
+                val wz1 = wx * sinSpin + wz * cosSpin
+                val wy1 = wy
+
+                // Apply tilt (rotate around X/horizontal axis)
+                val wy2 = wy1 * cosTilt - wz1 * sinTilt
+                val wz2 = wy1 * sinTilt + wz1 * cosTilt
+                val wx2 = wx1
+
+                // Apply pan (rotate around Y/vertical axis)
+                val wx3 = wx2 * cosPan + wz2 * sinPan
+                val wz3 = -wx2 * sinPan + wz2 * cosPan
+                val wy3 = wy2
+
                 // Convert world direction to equirectangular UV
-                val u = (atan2(wx.toDouble(), wz.toDouble()) / (2 * PI) + 0.5).toFloat()
-                val v = (0.5 - acos(max(-1f, min(1f, wy))) / PI).toFloat()
+                val u = (atan2(wx3.toDouble(), wz3.toDouble()) / (2 * PI) + 0.5).toFloat()
+                val v = (0.5 - acos(max(-1f, min(1f, wy3.toFloat()))) / PI).toFloat()
                 val px = u * (equirect.width - 1)
                 val py = v * (equirect.height - 1)
                 val ix = px.toInt()

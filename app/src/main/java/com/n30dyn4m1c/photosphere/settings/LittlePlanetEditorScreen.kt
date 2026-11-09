@@ -56,6 +56,7 @@ import com.n30dyn4m1c.photosphere.ui.theme.PillShape
 import com.n30dyn4m1c.photosphere.util.Logging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -101,15 +102,16 @@ fun LittlePlanetEditorScreen(
     LaunchedEffect(sourceBitmap.value) {
         val bmp = sourceBitmap.value
         if (bmp != null && previewBitmap.value == null && !busy) {
-            generatePreview(scope, bmp, previewBitmap)
+            generatePreview(scope, bmp, previewBitmap, tilt, zoom, pan, spin)
         }
     }
 
-    // Update preview when sliders change (debounced)
+    // Update preview when sliders change (debounced 150ms)
     LaunchedEffect(key1 = listOf(tilt, zoom, pan, spin), block = {
+        delay(150) // debounce
         val bmp = sourceBitmap.value
         if (bmp != null && !busy) {
-            generatePreview(scope, bmp, previewBitmap)
+            generatePreview(scope, bmp, previewBitmap, tilt, zoom, pan, spin)
         }
     })
 
@@ -123,8 +125,8 @@ fun LittlePlanetEditorScreen(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // Top bar with safe top padding
-            androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(12.dp))
+            // Top bar with safe top padding (system bars)
+            androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(24.dp))
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -304,13 +306,20 @@ private fun generatePreview(
     scope: CoroutineScope,
     source: AndroidBitmap,
     previewBitmap: androidx.compose.runtime.MutableState<AndroidBitmap?>,
+    tilt: Float,
+    zoom: Float,
+    pan: Float,
+    spin: Float,
 ) {
     scope.launch {
         val preview = withContext(Dispatchers.IO) {
             LittlePlanetConverter.convert(
                 source,
                 512,
-                180.0f,
+                zoom,
+                tilt,
+                pan,
+                spin,
             )
         }
         previewBitmap.value = preview

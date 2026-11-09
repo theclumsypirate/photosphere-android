@@ -1,4 +1,7 @@
-@file:OptIn(androidx.camera.camera2.interop.ExperimentalCamera2Interop::class)
+@file:OptIn(
+    androidx.camera.camera2.interop.ExperimentalCamera2Interop::class,
+    kotlin.ExperimentalStdlibApi::class,
+)
 @file:SuppressLint("UnsafeOptInUsageError")
 
 package com.n30dyn4m1c.photosphere.camera
@@ -67,6 +70,7 @@ import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Nightlight
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -128,6 +132,7 @@ import com.n30dyn4m1c.photosphere.sensor.OrientationData
 import com.n30dyn4m1c.photosphere.sensor.currentDisplayRotation
 import com.n30dyn4m1c.photosphere.sensor.rememberOrientationTracker
 import com.n30dyn4m1c.photosphere.stitching.CameraPose
+import com.n30dyn4m1c.photosphere.stitching.NightFrameMerger
 import com.n30dyn4m1c.photosphere.stitching.PhotoSphereStitcher
 import com.n30dyn4m1c.photosphere.stitching.RestitchOffer
 import com.n30dyn4m1c.photosphere.stitching.RestitchParams
@@ -978,14 +983,27 @@ fun PhotoSphereCameraScreen(
                     // A trigger only ever comes out of an aligned reading.
                     isHolding = true
 
-                    val result = capture.saveFrame(
-                        context = context,
-                        buffer = buffer,
-                        index = decision.index,
-                        dwellOrientation = decision.pose,
-                        currentOrientation = { tracker.orientation.value },
-                        burstPerTarget = deviceProfile.burstPerTarget,
-                    )
+                    val result = if (deviceProfile.nightMode != null) {
+                        // Night mode: capture burst and merge on-device
+                        capture.saveNightBurst(
+                            context = context,
+                            buffer = buffer,
+                            index = decision.index,
+                            dwellOrientation = decision.pose,
+                            currentOrientation = { tracker.orientation.value },
+                            nightConfig = deviceProfile.nightMode!!,
+                        )
+                    } else {
+                        // Standard single-frame (or regular burst) capture
+                        capture.saveFrame(
+                            context = context,
+                            buffer = buffer,
+                            index = decision.index,
+                            dwellOrientation = decision.pose,
+                            currentOrientation = { tracker.orientation.value },
+                            burstPerTarget = deviceProfile.burstPerTarget,
+                        )
+                    }
                     alignment = alignment.copy(isCapturing = false)
 
                     result
@@ -1001,7 +1019,8 @@ fun PhotoSphereCameraScreen(
                                     "yaw=${decision.pose.yawDegrees.roundToInt()}° " +
                                     "pitch=${decision.pose.pitchDegrees.roundToInt()}° " +
                                     "roll=${decision.pose.rollDegrees.roundToInt()}° " +
-                                    "basis=${decision.pose.cameraBasis?.joinToString(prefix = "[", postfix = "]") { "%.3f".format(it) } ?: "none"}"
+                                    "basis=${decision.pose.cameraBasis?.joinToString(prefix = "[", postfix = "]") { "%.3f".format(it) } ?: "none"}" +
+                                    (deviceProfile.nightMode?.let { " [night]" } ?: "")
                             )
                             val advanced = coordinator.onCaptured(
                                 token = decision.token,
@@ -1433,6 +1452,14 @@ fun PhotoSphereCameraScreen(
                 frameCount = bufferedFrames.size,
                 canSaveFrames = bufferedFrames.isNotEmpty() && stitchJob == null,
                 onSaveFrames = { showSaveFramesDialog = true },
+                // Night mode indicator
+                nightModeConfig = if (BuildConfig.DEBUG) deviceProfile.nightMode else null,
+                isCapturingNightBurst = alignment.isCapturing && deviceProfile.nightMode != null && BuildConfig.DEBUG,
+                nightBurstProgress = if (alignment.isCapturing && deviceProfile.nightMode != null && BuildConfig.DEBUG) {
+                    // We don't have per-frame progress here, so show indeterminate
+                    // In a more advanced version, this would come from the capture extension
+                    0.5f
+                } else 0f,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(insets),
@@ -1576,6 +1603,10 @@ private fun CaptureHud(
     canSaveFrames: Boolean,
     onSaveFrames: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Night mode indicator: shows when night mode is active and optionally during burst capture. */
+    nightModeConfig: NightFrameMerger.Config? = null,
+    isCapturingNightBurst: Boolean = false,
+    nightBurstProgress: Float = 0f,
 ) {
     BoxWithConstraints(modifier = modifier) {
         // A sideways screen (Android 16 force-rotating a tablet past the
@@ -1627,6 +1658,55 @@ private fun CaptureHud(
                 .padding(start = 20.dp, top = 22.dp),
         ) {
             UndoButton(onUndo = onUndo, enabled = undoEnabled)
+        }
+
+        // Night mode indicator: shows when night mode is active.
+        // Sits top-right, next to guidance toggle.
+        if (nightModeConfig != null) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(end = 72.dp, top = 22.dp), // Shift left to make room for guidance toggle
+                shape = CircleShape,
+                color = if (isCapturingNightBurst) {
+                    MaterialTheme.colorScheme.secondary.copy(alpha = 0.95f)
+                } else {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
+                },
+                shadowElevation = 8.dp,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .padding(8.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (isCapturingNightBurst) {
+                        CircularProgressIndicator(
+                            progress = nightBurstProgress,
+                            color = MaterialTheme.colorScheme.onSecondary,
+                            strokeWidth = 3.dp,
+                            modifier = Modifier.size(28.dp),
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Filled.Nightlight,
+                            contentDescription = "Night mode active",
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                        )
+                    }
+                    // Frame counter during burst
+                    if (isCapturingNightBurst) {
+                        Text(
+                            text = "${(nightBurstProgress * nightModeConfig.framesPerTarget).roundToInt()}/${nightModeConfig.framesPerTarget}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSecondary,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                    }
+                }
+            }
         }
 
         // The sound-guidance toggle: beeps, dwell haptics and spoken target

@@ -2,6 +2,7 @@ package com.n30dyn4m1c.photosphere.camera
 
 import android.os.Build
 import com.n30dyn4m1c.photosphere.BuildConfig
+import com.n30dyn4m1c.photosphere.stitching.NightFrameMerger
 import com.n30dyn4m1c.photosphere.stitching.PivotModel
 import com.n30dyn4m1c.photosphere.util.Logging
 
@@ -43,8 +44,22 @@ data class SphereDeviceProfile(
      * rather than around the camera.
      */
     val pivot: PivotModel,
+    /** Night mode 360 configuration. Null = night mode not supported on this device. */
+    val nightMode: NightFrameMerger.Config? = null,
 ) {
     companion object {
+        /** Default night config for devices without specific tuning. Debug only. */
+        private val NIGHT_DEFAULT: NightFrameMerger.Config? = if (BuildConfig.DEBUG) NightFrameMerger.Config(
+            framesPerTarget = 8,
+            maxExposureTimeMs = 250,
+            maxIso = 1600,
+            mergeMethod = NightFrameMerger.MergeMethod.WeightedAverage,
+            alignMethod = NightFrameMerger.AlignMethod.ECC,
+            minFramesForMerge = 4,
+            alignDownscale = 0.5f,
+            medianTileSize = 512,
+        ) else null
+
         /**
          * The default: a mid-range phone with one usable back camera. The wider
          * lens is preferred because every extra frame is capture time and
@@ -59,6 +74,7 @@ data class SphereDeviceProfile(
             stitchMaxOutputWidth = 4096,
             unsharpAmount = 0f,
             pivot = PivotModel.HandheldBodySwivel,
+            nightMode = NIGHT_DEFAULT,
         )
 
         /**
@@ -91,6 +107,16 @@ data class SphereDeviceProfile(
             stitchMaxOutputWidth = 6144,
             unsharpAmount = 0.3f,
             pivot = PivotModel.HandheldBodySwivel,
+            nightMode = if (BuildConfig.DEBUG) NightFrameMerger.Config(
+                framesPerTarget = 16,
+                maxExposureTimeMs = 500,
+                maxIso = 6400,
+                mergeMethod = NightFrameMerger.MergeMethod.Median,
+                alignMethod = NightFrameMerger.AlignMethod.ECC,
+                minFramesForMerge = 6,
+                alignDownscale = 0.5f,
+                medianTileSize = 512,
+            ) else null,
         )
 
         /**
@@ -110,6 +136,16 @@ data class SphereDeviceProfile(
             stitchMaxOutputWidth = 6144,
             unsharpAmount = 0.3f,
             pivot = PivotModel.HandheldBodySwivel,
+            nightMode = if (BuildConfig.DEBUG) NightFrameMerger.Config(
+                framesPerTarget = 12,
+                maxExposureTimeMs = 333,
+                maxIso = 3200,
+                mergeMethod = NightFrameMerger.MergeMethod.Median,
+                alignMethod = NightFrameMerger.AlignMethod.ECC,
+                minFramesForMerge = 5,
+                alignDownscale = 0.5f,
+                medianTileSize = 512,
+            ) else null,
         )
 
         /** The profile for the device this process is running on. */

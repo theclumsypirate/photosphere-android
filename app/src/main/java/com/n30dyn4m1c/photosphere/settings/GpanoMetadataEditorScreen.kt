@@ -121,8 +121,8 @@ fun GpanoMetadataEditorScreen(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // Top bar with safe top padding
-            androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(12.dp))
+            // Top bar with safe top padding (system bars)
+            androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(24.dp))
             Row(
                 modifier = Modifier
                     .fillMaxWidth()

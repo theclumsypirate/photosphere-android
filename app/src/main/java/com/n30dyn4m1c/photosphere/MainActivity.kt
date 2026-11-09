@@ -7,7 +7,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.Color
+import android.graphics.Color as AndroidColor
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -33,8 +33,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FlashlightOn
+import androidx.compose.material.icons.filled.Nightlight
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material3.Button
@@ -78,6 +83,11 @@ import com.n30dyn4m1c.photosphere.stitching.StitchStyle
 import com.n30dyn4m1c.photosphere.stitching.restitchSphere
 import com.n30dyn4m1c.photosphere.storage.SphereImageStore
 import com.n30dyn4m1c.photosphere.storage.SphereImageStore.StitchedSphere
+import com.n30dyn4m1c.photosphere.ui.theme.GlassContent
+import com.n30dyn4m1c.photosphere.ui.theme.GlassContentDim
+import com.n30dyn4m1c.photosphere.ui.theme.GlassSurface
+import com.n30dyn4m1c.photosphere.ui.theme.GlassSurfaceDim
+import com.n30dyn4m1c.photosphere.ui.theme.ChromeScrim
 import com.n30dyn4m1c.photosphere.ui.theme.PhotoSphereTheme
 import com.n30dyn4m1c.photosphere.ui.theme.PillShape
 import com.n30dyn4m1c.photosphere.util.Logging
@@ -105,8 +115,8 @@ class MainActivity : ComponentActivity() {
         // PhotoSphereTheme), so the bars are pinned to match it rather than the
         // system.
         enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
-            navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+            statusBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT),
         )
         setContent {
             PhotoSphereTheme {
