@@ -2562,7 +2562,7 @@ fun StitchProgress.label(): String = when (stage) {
 }
 
 /** Turns a failed stitch into something worth showing a user. */
-private fun Context.stitchFailureMessage(error: Throwable): String {
+fun Context.stitchFailureMessage(error: Throwable): String {
     val status = (error as? StitchException)?.status ?: StitchStatus.Unknown
     val reason = when (status) {
         StitchStatus.NeedMoreImages,
@@ -2625,7 +2625,7 @@ fun captureHint(    isSensorAvailable: Boolean,
  * reserved candidates behind; they are deleted here so the session directory
  * stays clean.
  */
-private suspend fun ImageCapture.saveFrame(
+suspend fun ImageCapture.saveFrame(
     context: Context,
     buffer: ImageBufferManager,
     index: Int,
@@ -2695,7 +2695,7 @@ private suspend fun ImageCapture.saveFrame(
 }
 
 /** Deletes the reserved files of a burst that never committed. */
-private suspend fun deleteReserved(requests: List<SphereImageStore.TempFrameRequest>) {
+suspend fun deleteReserved(requests: List<SphereImageStore.TempFrameRequest>) {
     requests.forEach { request ->
         if (request.file.exists() && !request.file.delete()) {
             Logging.w("Could not delete failed burst file ${request.file.name}")
@@ -2715,7 +2715,7 @@ private suspend fun deleteReserved(requests: List<SphereImageStore.TempFrameRequ
  *
  * @return false when the preview is not laid out yet and no sweep could run.
  */
-private suspend fun Camera.focusAt(
+suspend fun Camera.focusAt(
     nx: Float,
     ny: Float,
     previewView: PreviewView,
@@ -2751,10 +2751,10 @@ private suspend fun Camera.focusAt(
  * phone has genuinely moved, and the shutter's own sample is the only honest
  * answer.
  */
-private const val SHOT_POSE_TOLERANCE_DEGREES = 0.4
+const val SHOT_POSE_TOLERANCE_DEGREES = 0.4
 
 /** The pose to stamp on a shot: see [SHOT_POSE_TOLERANCE_DEGREES]. */
-private fun shotPose(dwell: OrientationData, atShutter: OrientationData): OrientationData {
+fun shotPose(dwell: OrientationData, atShutter: OrientationData): OrientationData {
     if (!atShutter.hasFix) return dwell
     val a = dwell.cameraBasis ?: return atShutter
     val b = atShutter.cameraBasis ?: return atShutter
@@ -2773,7 +2773,7 @@ private fun shotPose(dwell: OrientationData, atShutter: OrientationData): Orient
  * [onCaptureStarted] runs on the main thread at the moment the sensor begins
  * the exposure — the instant whose attitude the frame records.
  */
-private suspend fun ImageCapture.takePictureTo(
+suspend fun ImageCapture.takePictureTo(
     context: Context,
     outputOptions: ImageCapture.OutputFileOptions,
     onCaptureStarted: () -> Unit = {},
@@ -2807,7 +2807,7 @@ private suspend fun ImageCapture.takePictureTo(
  * makes [ProcessCameraProvider.bindToLifecycle] throw, which the caller turns
  * into a fall back to the default back camera.
  */
-private fun widestCameraSelector(context: Context): CameraSelector? {
+fun widestCameraSelector(context: Context): CameraSelector? {
     val id = widestBackCameraId(context) ?: return null
     return CameraSelector.Builder()
         .addCameraFilter { cameras ->
@@ -2824,7 +2824,7 @@ private fun widestCameraSelector(context: Context): CameraSelector? {
  * The provider arrives as a `ListenableFuture`; bridging it here keeps the call
  * site free of callbacks without a coroutines-guava dependency.
  */
-private suspend fun Context.awaitCameraProvider(): ProcessCameraProvider =
+suspend fun Context.awaitCameraProvider(): ProcessCameraProvider =
     suspendCancellableCoroutine { continuation ->
         val future = ProcessCameraProvider.getInstance(this)
         future.addListener(
@@ -2840,12 +2840,12 @@ private suspend fun Context.awaitCameraProvider(): ProcessCameraProvider =
     }
 
 /** True when a screen reader (TalkBack and friends) is active. */
-private fun Context.isScreenReaderActive(): Boolean = runCatching {
+fun Context.isScreenReaderActive(): Boolean = runCatching {
     Settings.Secure.getInt(contentResolver, Settings.Secure.ACCESSIBILITY_ENABLED, 0) == 1
 }.getOrDefault(false)
 
 /** "behind you, above you, to your left" — the spoken direction of a target. */
-private fun Context.targetPhrase(relation: TargetRelation): String {
+fun Context.targetPhrase(relation: TargetRelation): String {
     val parts = buildList {
         if (relation.isBehind) add(getString(R.string.guidance_behind))
         when (relation.vertical) {
