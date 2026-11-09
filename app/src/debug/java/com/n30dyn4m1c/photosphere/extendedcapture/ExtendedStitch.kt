@@ -299,7 +299,7 @@ object ExtendedStitch {
             maxInputDimension = MAX_INPUT_DIMENSION,
             maxOutputWidth = profile.stitchMaxOutputWidth,
             unsharpAmount = profile.unsharpAmount,
-            pivot = pivotFor(Mode.Adaptive),
+            pivot = pivotFor(context, Mode.Adaptive),
             portraitRotationDegrees = optics.portraitRotationDegrees,
             useRefinement = true,
             seamMode = SeamMode.WinnerTakeAll,

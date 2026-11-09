@@ -545,7 +545,7 @@ fun ExtendedCaptureScreen(
                                 widthFovDegrees = opticsNow.fieldOfView.horizontalDegrees,
                                 heightFovDegrees = opticsNow.fieldOfView.verticalDegrees,
                                 frameCount = total,
-                                pivot = ExtendedStitch.pivotFor(mode),
+                                pivot = ExtendedStitch.pivotFor(context, mode),
                                 decodeMaxDimension = if (mode == ExtendedStitch.Mode.Reference) {
                                     maxOf(frameWidth, frameHeight) / 2
                                 } else {

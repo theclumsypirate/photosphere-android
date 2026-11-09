@@ -1817,32 +1817,32 @@ private fun CaptureHud(
                                 )
                             }
                         }
-                        onClick = { if (nightModeAvailable) onToggleNightMode() },
                         DropdownMenuItem(
-                        onClick = { onToggleTorch() },
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically,
+                            onClick = { onToggleTorch() },
+                            enabled = true,
                         ) {
-                            Icon(
-                                imageVector = if (torchEnabled) Icons.Filled.FlashlightOn else Icons.Filled.FlashlightOff,
-                                contentDescription = null,
-                                tint = if (torchEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Spacer(Modifier.width(12.dp))
-                            Text("Flashlight", style = MaterialTheme.typography.bodyMedium)
-                            Spacer(Modifier.width(12.dp))
-                            Text(
-                                if (torchEnabled) "ON" else "OFF",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = if (torchEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontWeight = FontWeight.SemiBold,
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    imageVector = if (torchEnabled) Icons.Filled.FlashlightOn else Icons.Filled.FlashlightOff,
+                                    contentDescription = null,
+                                    tint = if (torchEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Spacer(Modifier.width(12.dp))
+                                Text("Flashlight", style = MaterialTheme.typography.bodyMedium)
+                                Spacer(Modifier.width(12.dp))
+                                Text(
+                                    if (torchEnabled) "ON" else "OFF",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (torchEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
                         }
                     }
-                    )
                 }
             }
         }
