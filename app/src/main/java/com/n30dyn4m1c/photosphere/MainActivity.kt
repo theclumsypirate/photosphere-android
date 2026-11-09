@@ -73,7 +73,6 @@ import com.n30dyn4m1c.photosphere.importer.ImportPhotosScreen
 import com.n30dyn4m1c.photosphere.storage.rememberImageBufferManager
 import com.n30dyn4m1c.photosphere.result.PanoramaResultScreen
 import com.n30dyn4m1c.photosphere.result.PanoramaSphereView
-import com.n30dyn4m1c.photosphere.sensor.OrientationDebugScreen
 import com.n30dyn4m1c.photosphere.settings.SettingsScreen
 import com.n30dyn4m1c.photosphere.settings.LittlePlanetEditorScreen
 import com.n30dyn4m1c.photosphere.settings.GpanoMetadataEditorScreen
@@ -216,10 +215,6 @@ private enum class Entry {
 private fun PhotoSphereApp(modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
 
-    // The orientation readout needs no permissions, so it sits beside the
-    // permission gate rather than behind it.
-    var showOrientationDebug by rememberSaveable { mutableStateOf(false) }
-
     // Capture, import, orbit or settings: chosen before any permission.
     var entry by rememberSaveable { mutableStateOf<Entry?>(null) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
@@ -355,7 +350,6 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
         // should say so rather than leave it to be guessed.
         val currentEntry = entry
         val screen = when {
-            showOrientationDebug -> "orientation debug"
             showSettings -> "settings"
             showLittlePlanet -> "little planet editor"
             showGpano -> "gpano metadata editor"
@@ -365,8 +359,6 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
         }
         LaunchedEffect(screen) { LagTracker.where(screen) }
         when {
-            showOrientationDebug -> OrientationDebugScreen()
-
             externalUri != null -> {
                 BackHandler {
                     externalUri = null
@@ -477,28 +469,6 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
                         restitchOffer = offer
                         restitchStyle = offer?.madeWith ?: StitchStyle.Balanced
                     }
-                )
-            }
-        }
-
-        // Debug-only entry point. BuildConfig.DEBUG is a compile time constant,
-        // so R8 drops this from release builds.
-        if (BuildConfig.DEBUG) {
-            FilledTonalButton(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .systemBarsPadding()
-                    .padding(12.dp),
-                onClick = { showOrientationDebug = !showOrientationDebug },
-            ) {
-                Text(
-                    stringResource(
-                        if (showOrientationDebug) {
-                            R.string.orientation_debug_close
-                        } else {
-                            R.string.orientation_debug_open
-                        }
-                    )
                 )
             }
         }

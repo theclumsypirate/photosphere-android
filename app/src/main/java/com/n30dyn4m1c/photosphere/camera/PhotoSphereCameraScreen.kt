@@ -268,7 +268,6 @@ fun PhotoSphereCameraScreen(
     // recompose the whole screen at the sensor's rate. Only the overlay's draw
     // lambda reads it.
     val orientationState = tracker.orientation.collectAsStateWithLifecycle()
-    val feedback = rememberCaptureFeedback()
     val guidance = rememberGuidanceFeedback()
     val deviceProfile = remember {
         val base = SphereDeviceProfile.forDevice()
@@ -1040,7 +1039,6 @@ fun PhotoSphereCameraScreen(
                                 captured = buffer.frames.value.mapTo(HashSet()) { it.index },
                                 orientation = tracker.orientation.value,
                             )
-                            if (advanced) feedback.onFrameCaptured()
                         }
                         .onFailure { error ->
                             // Stays on the same target, so a failed capture is
@@ -1685,138 +1683,6 @@ private fun CaptureHud(
             UndoButton(onUndo = onUndo, enabled = undoEnabled)
         }
 
-        // Debug dropdown: flashlight and night mode (always shown in debug).
-        // Compact trigger and menu positioned to avoid blocking HUD elements.
-        if (showDebugDropdown) {
-            var debugMenuExpanded by remember { mutableStateOf(false) }
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(end = 72.dp, top = 22.dp),
-            ) {
-                Surface(
-                    shape = PillShape,
-                    color = if (isCapturingNightBurst) {
-                        MaterialTheme.colorScheme.secondary.copy(alpha = 0.95f)
-                    } else {
-                        GlassSurface
-                    },
-                    shadowElevation = 8.dp,
-                    onClick = { debugMenuExpanded = true },
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .height(40.dp)
-                            .padding(horizontal = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        if (isCapturingNightBurst) {
-                            CircularProgressIndicator(
-                                progress = { nightBurstProgress },
-                                color = MaterialTheme.colorScheme.onSecondary,
-                                strokeWidth = 2.dp,
-                                modifier = Modifier.size(18.dp),
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Filled.ExpandMore,
-                                contentDescription = "Debug options",
-                                tint = GlassContent,
-                                modifier = Modifier.size(20.dp),
-                            )
-                        }
-                        Text(
-                            text = "Debug",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = if (isCapturingNightBurst) {
-                                MaterialTheme.colorScheme.onSecondary
-                            } else {
-                                GlassContent
-                            },
-                        )
-                    }
-                }
-                DropdownMenu(
-                    expanded = debugMenuExpanded,
-                    onDismissRequest = { debugMenuExpanded = false },
-                    modifier = Modifier.background(MaterialTheme.colorScheme.surface),
-                ) {
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                "Night mode",
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                        },
-                        trailingIcon = {
-                            Text(
-                                if (nightModeEnabled) "ON" else "OFF",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = if (nightModeEnabled) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Filled.Nightlight,
-                                contentDescription = null,
-                                tint = if (nightModeEnabled) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                            )
-                        },
-                        onClick = {
-                            if (nightModeConfig != null) onToggleNightMode()
-                        },
-                        enabled = nightModeConfig != null,
-                    )
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                "Flashlight",
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                        },
-                        trailingIcon = {
-                            Text(
-                                if (torchEnabled) "ON" else "OFF",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = if (torchEnabled) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = if (torchEnabled) {
-                                    Icons.Filled.FlashlightOn
-                                } else {
-                                    Icons.Filled.FlashlightOff
-                                },
-                                contentDescription = null,
-                                tint = if (torchEnabled) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                            )
-                        },
-                        onClick = { onToggleTorch() },
-                    )
-                }
-            }
-        }
-
         // The sound-guidance toggle: beeps, dwell haptics and spoken target
         // cues for driving capture without sight. Sits top-right, clear of the
         // undo button on the other side of the pill.
@@ -1859,9 +1725,9 @@ private fun CaptureHud(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 18.dp),
+                .padding(horizontal = 24.dp, vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             if (captureScope != null) {
                 CaptureScopeSelector(
@@ -1876,6 +1742,87 @@ private fun CaptureHud(
                 completedRings = completedRings,
                 ringCount = ringCount,
             )
+            if (showDebugDropdown) {
+                var debugMenuExpanded by remember { mutableStateOf(false) }
+                Box {
+                    Surface(
+                        shape = CircleShape,
+                        color = if (isCapturingNightBurst) {
+                            MaterialTheme.colorScheme.secondary.copy(alpha = 0.95f)
+                        } else {
+                            GlassSurfaceDim
+                        },
+                        shadowElevation = 2.dp,
+                        onClick = { debugMenuExpanded = true },
+                    ) {
+                        Box(
+                            modifier = Modifier.size(28.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (isCapturingNightBurst) {
+                                CircularProgressIndicator(
+                                    progress = { nightBurstProgress },
+                                    color = MaterialTheme.colorScheme.onSecondary,
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Filled.ExpandMore,
+                                    contentDescription = "Options",
+                                    tint = GlassContentDim,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
+                    }
+                    DropdownMenu(
+                        expanded = debugMenuExpanded,
+                        onDismissRequest = { debugMenuExpanded = false },
+                        modifier = Modifier.background(MaterialTheme.colorScheme.surface),
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Night mode", style = MaterialTheme.typography.bodyMedium) },
+                            trailingIcon = {
+                                Text(
+                                    if (nightModeEnabled) "ON" else "OFF",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (nightModeEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Filled.Nightlight,
+                                    contentDescription = null,
+                                    tint = if (nightModeEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            },
+                            onClick = { if (nightModeConfig != null) onToggleNightMode() },
+                            enabled = nightModeConfig != null,
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Flashlight", style = MaterialTheme.typography.bodyMedium) },
+                            trailingIcon = {
+                                Text(
+                                    if (torchEnabled) "ON" else "OFF",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (torchEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = if (torchEnabled) Icons.Filled.FlashlightOn else Icons.Filled.FlashlightOff,
+                                    contentDescription = null,
+                                    tint = if (torchEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            },
+                            onClick = { onToggleTorch() },
+                        )
+                    }
+                }
+            }
         }
 
         Column(
@@ -2273,29 +2220,25 @@ private fun CaptureProgressPill(
         modifier = modifier.clearAndSetSemantics { contentDescription = spokenWithBands },
         shape = PillShape,
         color = GlassSurface,
-        shadowElevation = 8.dp,
+        shadowElevation = 6.dp,
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 24.dp, vertical = 11.dp),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // The count is the hero of the HUD — it is what the user glances
-            // down at between targets — so it is set at display weight with the
-            // total trailing it as quiet metadata rather than as its equal.
             Row(
                 verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 Text(
                     text = "$capturedCount",
-                    style = MaterialTheme.typography.displaySmall,
+                    style = MaterialTheme.typography.labelSmall,
                     color = GlassContent,
                 )
                 Text(
                     text = "/ $totalTargets",
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MaterialTheme.typography.labelSmall,
                     color = GlassContentDim,
-                    modifier = Modifier.padding(bottom = 4.dp),
                 )
                 Text(
                     text = pluralStringResource(
@@ -2304,16 +2247,15 @@ private fun CaptureProgressPill(
                     ),
                     style = MaterialTheme.typography.labelSmall,
                     color = GlassContentDim,
-                    modifier = Modifier.padding(bottom = 5.dp),
                 )
             }
             if (totalTargets > 0) {
                 LinearProgressIndicator(
                     progress = { fraction },
                     modifier = Modifier
-                        .padding(top = 8.dp)
-                        .fillMaxWidth(0.8f)
-                        .height(3.dp)
+                        .padding(top = 3.dp)
+                        .fillMaxWidth(0.65f)
+                        .height(1.5.dp)
                         .clip(PillShape),
                     color = MaterialTheme.colorScheme.primary,
                     trackColor = GlassContent.copy(alpha = 0.22f),
@@ -2331,7 +2273,7 @@ private fun CaptureProgressPill(
                     ),
                     style = MaterialTheme.typography.labelSmall,
                     color = GlassContentDim,
-                    modifier = Modifier.padding(top = 7.dp),
+                    modifier = Modifier.padding(top = 3.dp),
                 )
             }
         }

@@ -158,8 +158,7 @@ app/src/main/java/com/n30dyn4m1c/photosphere/
 │   └── CaptureFeedback.kt       # shutter sound + haptic tick
 ├── sensor/
 │   ├── OrientationTracker.kt    # game rotation vector -> yaw/pitch/roll StateFlow
-│   ├── OrientationState.kt      # lifecycle-aware Compose bindings
-│   └── OrientationDebugScreen.kt# live readout for on-device verification
+│   └── OrientationState.kt      # lifecycle-aware Compose bindings
 ├── stitching/
 │   ├── PhotoSphereStitcher.kt   # the stitch: read, render, statuses, progress
 │   ├── SphericalGeometry.kt     # camera basis, canvas mapping, frame footprints

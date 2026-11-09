@@ -158,22 +158,4 @@
     <string name="result_discard_message">It hasn\'t been saved to your gallery yet, so starting a new one deletes it for good.</string>
     <string name="result_discard_confirm">Discard</string>
     <string name="result_discard_cancel">Keep it</string>
-
-    <!-- Orientation debug screen. Developer-facing, reachable only in debuggable builds. -->
-    <string name="orientation_debug_title">Orientation tracker</string>
-    <string name="orientation_sensor_unavailable">This device has no rotation vector sensor, so device orientation cannot be tracked.</string>
-    <string name="orientation_yaw">Yaw</string>
-    <string name="orientation_yaw_caption">Compass bearing of the camera, −180° to 180° (0° = north)</string>
-    <string name="orientation_pitch">Pitch</string>
-    <string name="orientation_pitch_caption">Vertical tilt, −90° to 90° (negative = aimed above the horizon)</string>
-    <string name="orientation_roll">Roll</string>
-    <string name="orientation_roll_caption">Side tilt, −180° to 180° (0° = display upright)</string>
-    <string name="orientation_degrees">%1$.1f°</string>
-    <string name="orientation_accuracy">Sensor accuracy</string>
-    <string name="orientation_samples">Samples received</string>
-    <string name="orientation_timestamp">Last event</string>
-    <string name="orientation_timestamp_value">%1$.1f ms uptime</string>
-    <string name="orientation_waiting">waiting…</string>
-    <string name="orientation_debug_open">Orientation debug</string>
-    <string name="orientation_debug_close">Back to capture</string>
 </resources>

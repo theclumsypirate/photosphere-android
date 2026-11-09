@@ -14,9 +14,9 @@ import org.junit.Test
  * Covers the parts of the tracker that are pure arithmetic.
  *
  * The sensor path itself needs a device (`SensorManager`'s matrix helpers are
- * stubbed out in local unit tests), and is verified by hand through
- * `OrientationDebugScreen`. The `Surface.ROTATION_*` and `SensorManager.AXIS_*`
- * values used here are compile-time constants, so they survive the stub jar.
+ * stubbed out in local unit tests). The `Surface.ROTATION_*` and
+ * `SensorManager.AXIS_*` values used here are compile-time constants, so they
+ * survive the stub jar.
  */
 class OrientationTrackerTest {
 

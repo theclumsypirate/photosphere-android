@@ -161,44 +161,27 @@ fun PanoramaResultScreen(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    var preview by remember(sphere.file) { mutableStateOf<ImageBitmap?>(null) }
-    var isPreviewFailed by remember(sphere.file) { mutableStateOf(false) }
     var exportState by remember(sphere.file) { mutableStateOf<ExportState>(ExportState.Idle) }
-    var previewMode by remember(sphere.file) { mutableStateOf(PreviewMode.Flat) }
-    // Decoded lazily the first time the user switches to the pano view: the GL
-    // texture is a few megabytes and the flat preview is the default.
+    // Default to panorama view; flat preview is not shown.
+    var previewMode by remember(sphere.file) { mutableStateOf(PreviewMode.Panorama) }
+    var isPreviewFailed by remember(sphere.file) { mutableStateOf(false) }
     var panoBitmap by remember(sphere.file) { mutableStateOf<Bitmap?>(null) }
 
     LaunchedEffect(sphere.file) {
-        val decoded = withContext(Dispatchers.IO) { decodePreview(sphere.file) }
+        val decoded = withContext(Dispatchers.IO) {
+            decodePreview(sphere.file, PANO_TEXTURE_MAX_DIMENSION)
+        }
+        panoBitmap?.recycle()
+        panoBitmap = decoded
+        isPreviewFailed = decoded == null
         if (decoded == null) {
-            isPreviewFailed = true
             Logging.w("Could not decode a preview of ${sphere.file.name}")
-        } else {
-            // The previous preview is dead the moment this one lands; recycle it
-            // rather than letting ~4 MB of bitmap wait for GC on a low-memory
-            // device with several result screens behind it.
-            preview?.asAndroidBitmap()?.recycle()
-            preview = decoded.asImageBitmap()
         }
     }
 
-    LaunchedEffect(sphere.file, previewMode) {
-        if (previewMode == PreviewMode.Panorama && panoBitmap == null) {
-            val decoded = withContext(Dispatchers.IO) {
-                decodePreview(sphere.file, PANO_TEXTURE_MAX_DIMENSION)
-            }
-            if (decoded != null) {
-                panoBitmap?.recycle()
-                panoBitmap = decoded
-            }
-        }
-    }
-
-    // The bitmaps are the screen's own scratch; hand them back when it goes.
+    // The bitmap is the screen's own scratch; hand it back when it goes.
     DisposableEffect(sphere.file) {
         onDispose {
-            preview?.asAndroidBitmap()?.recycle()
             panoBitmap?.recycle()
         }
     }
@@ -466,8 +449,7 @@ fun PanoramaResultScreen(
                 modifier = Modifier.align(Alignment.CenterHorizontally),
             )
 
-            // Fullscreen is offered from the pannable mode, which is the only
-            // one that decodes the GL texture this dialog shows.
+            // Fullscreen is offered from the pannable panorama view.
             if (previewMode == PreviewMode.Panorama && panoBitmap != null) {
                 TextButton(onClick = {
                     Logging.i("PanoramaResultScreen: fullscreen opened")
@@ -478,7 +460,6 @@ fun PanoramaResultScreen(
             }
 
             SpherePreview(
-                preview = preview,
                 panoBitmap = panoBitmap,
                 mode = previewMode,
                 isFailed = isPreviewFailed,
@@ -626,16 +607,16 @@ private fun DiscardConfirmation(
     )
 }
 
-/** Flat frame or pannable sphere: the two ways of looking at the result. */
+/** Pannable sphere preview selector (panorama only). */
 @Composable
 private fun PreviewModeSelector(
     mode: PreviewMode,
     onModeChange: (PreviewMode) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // The same exclusive segmented pill the capture screen uses for its scope
-    // choice: Flat is the default — the honest overview — and Panorama is the
-    // inspection tool.
+    // Panorama-only: flat preview removed, but the selector and enum are kept
+    // so fullscreen/panorama controls remain available.
+    val options = listOf(PreviewMode.Panorama)
     Row(
         modifier = modifier
             .clip(PillShape)
@@ -645,7 +626,7 @@ private fun PreviewModeSelector(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        PreviewMode.entries.forEach { option ->
+        options.forEach { option ->
             val selected = option == mode
             Surface(
                 shape = PillShape,
@@ -653,12 +634,7 @@ private fun PreviewModeSelector(
                 onClick = { onModeChange(option) },
             ) {
                 Text(
-                    text = stringResource(
-                        when (option) {
-                            PreviewMode.Flat -> R.string.result_view_flat
-                            PreviewMode.Panorama -> R.string.result_view_panorama
-                        }
-                    ),
+                    text = stringResource(R.string.result_view_panorama),
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                     color = if (selected) {
@@ -674,12 +650,10 @@ private fun PreviewModeSelector(
 }
 
 /**
- * The preview well: either the equirectangular frame letterboxed into the
- * space, or the pannable sphere view of the same pixels.
+ * The preview well: pannable sphere panorama view.
  */
 @Composable
 private fun SpherePreview(
-    preview: ImageBitmap?,
     panoBitmap: Bitmap?,
     mode: PreviewMode,
     isFailed: Boolean,
@@ -690,11 +664,6 @@ private fun SpherePreview(
             // Clipped as well as filled, so the image inside takes the rounded
             // corners rather than painting over them.
             .clip(MaterialTheme.shapes.medium)
-            // A well darker than the surface around it, with a hairline to
-            // define the edge: an equirectangular frame has black wedges at the
-            // poles wherever the run did not reach, and without a border those
-            // wedges bleed into the background and the photo appears to have no
-            // edges at all.
             .background(PhotoWell)
             .border(
                 width = 1.dp,
@@ -704,19 +673,10 @@ private fun SpherePreview(
         contentAlignment = Alignment.Center,
     ) {
         when {
-            mode == PreviewMode.Panorama && panoBitmap != null -> PanoramaSphereView(
+            panoBitmap != null -> PanoramaSphereView(
                 bitmap = panoBitmap,
                 contentDescription = stringResource(R.string.result_view_panorama_description),
                 modifier = Modifier.fillMaxSize(),
-            )
-
-            preview != null -> Image(
-                bitmap = preview,
-                contentDescription = stringResource(R.string.result_preview_description),
-                modifier = Modifier.fillMaxSize(),
-                // Fit, not Crop: the whole 2:1 frame is the point, including the
-                // uncovered poles.
-                contentScale = ContentScale.Fit,
             )
 
             isFailed -> Text(

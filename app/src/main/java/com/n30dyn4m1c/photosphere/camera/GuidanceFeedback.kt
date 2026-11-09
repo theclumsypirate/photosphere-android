@@ -67,7 +67,7 @@ object GuidanceProfile {
      *
      * The dwell arc fills over [AlignmentGate.DEFAULT_DWELL_MILLIS]; the
      * halfway crossing is the "it is about to fire" cue, felt rather than
-     * seen. The shutter's own tick (in [CaptureFeedback]) marks the crossing
+     * seen. The crossing is also marked by dwell haptics.
      * of the end, so this only needs the halfway point.
      */
     fun crossedDwellMilestone(previousProgress: Float, currentProgress: Float): Boolean =
