@@ -1796,57 +1796,57 @@ private fun CaptureHud(
                         // Night mode item - check both config and device support
                         val nightModeAvailable = nightModeConfig != null && nightModeSupported
                         DropdownMenuItem(
+                            text = {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Nightlight,
+                                        contentDescription = null,
+                                        tint = if (nightModeEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Spacer(Modifier.width(12.dp))
+                                    Text(
+                                        if (nightModeSupported) "Night mode" else "Night mode (unsupported)",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = if (nightModeSupported) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                                    )
+                                }
+                            },
                             onClick = { if (nightModeAvailable) onToggleNightMode() },
                             enabled = nightModeAvailable,
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.Nightlight,
-                                    contentDescription = null,
-                                    tint = if (nightModeEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                Spacer(Modifier.width(12.dp))
-                                Text(
-                                    if (nightModeSupported) "Night mode" else "Night mode (unsupported)",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = if (nightModeSupported) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                                )
-                            }
-                        }
+                        )
                         DropdownMenuItem(
+                            text = {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(
+                                        imageVector = if (torchEnabled) Icons.Filled.FlashlightOn else Icons.Filled.FlashlightOff,
+                                        contentDescription = null,
+                                        tint = if (torchEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Spacer(Modifier.width(12.dp))
+                                    Text("Flashlight", style = MaterialTheme.typography.bodyMedium)
+                                    Spacer(Modifier.width(12.dp))
+                                    Text(
+                                        if (torchEnabled) "ON" else "OFF",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = if (torchEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                }
+                            },
                             onClick = { onToggleTorch() },
                             enabled = true,
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(
-                                    imageVector = if (torchEnabled) Icons.Filled.FlashlightOn else Icons.Filled.FlashlightOff,
-                                    contentDescription = null,
-                                    tint = if (torchEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                Spacer(Modifier.width(12.dp))
-                                Text("Flashlight", style = MaterialTheme.typography.bodyMedium)
-                                Spacer(Modifier.width(12.dp))
-                                Text(
-                                    if (torchEnabled) "ON" else "OFF",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = if (torchEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontWeight = FontWeight.SemiBold,
-                                )
-                            }
-                        }
+                        )
                     }
                 }
             }
-        }
-        }
 
         Column(
             modifier = Modifier
