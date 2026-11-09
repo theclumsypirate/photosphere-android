@@ -69,12 +69,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.FlashlightOn
+import androidx.compose.material.icons.filled.FlashlightOff
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Nightlight
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -84,6 +88,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -291,6 +296,11 @@ fun PhotoSphereCameraScreen(
     // raced against each other from here.
     val coordinator = remember { SphereCaptureCoordinator() }
     val run by coordinator.guidance.collectAsStateWithLifecycle()
+
+    // Debug-only night mode toggle. Available when the device profile provides a config.
+    var debugNightEnabled by rememberSaveable { mutableStateOf(true) }
+    // Debug-only flashlight (torch) toggle.
+    var debugTorchEnabled by rememberSaveable { mutableStateOf(false) }
 
     // Which lens CameraX actually bound, and the shape of the buffer it is
     // producing. Both are only knowable once the bind has resolved, and both
@@ -983,7 +993,7 @@ fun PhotoSphereCameraScreen(
                     // A trigger only ever comes out of an aligned reading.
                     isHolding = true
 
-                    val nightModeActive = BuildConfig.DEBUG && deviceProfile.nightMode != null
+                    val nightModeActive = BuildConfig.DEBUG && debugNightEnabled && deviceProfile.nightMode != null
                     val result = if (nightModeActive) {
                         // Night mode (debug only): capture burst and merge on-device
                         capture.saveNightBurst(
@@ -1021,7 +1031,7 @@ fun PhotoSphereCameraScreen(
                                     "pitch=${decision.pose.pitchDegrees.roundToInt()}° " +
                                     "roll=${decision.pose.rollDegrees.roundToInt()}° " +
                                     "basis=${decision.pose.cameraBasis?.joinToString(prefix = "[", postfix = "]") { "%.3f".format(it) } ?: "none"}" +
-                                    (if (BuildConfig.DEBUG && deviceProfile.nightMode != null) " [night]" else "")
+                                    (if (nightModeActive) " [night]" else "")
                             )
                             val advanced = coordinator.onCaptured(
                                 token = decision.token,
@@ -1453,12 +1463,19 @@ fun PhotoSphereCameraScreen(
                 frameCount = bufferedFrames.size,
                 canSaveFrames = bufferedFrames.isNotEmpty() && stitchJob == null,
                 onSaveFrames = { showSaveFramesDialog = true },
-                // Night mode indicator
-                nightModeConfig = if (BuildConfig.DEBUG) deviceProfile.nightMode else null,
-                isCapturingNightBurst = alignment.isCapturing && deviceProfile.nightMode != null && BuildConfig.DEBUG,
-                nightBurstProgress = if (alignment.isCapturing && deviceProfile.nightMode != null && BuildConfig.DEBUG) {
-                    // We don't have per-frame progress here, so show indeterminate
-                    // In a more advanced version, this would come from the capture extension
+                // Debug HUD dropdown (night mode + flashlight), always shown in debug
+                showDebugDropdown = BuildConfig.DEBUG,
+                nightModeConfig = deviceProfile.nightMode,
+                nightModeEnabled = debugNightEnabled,
+                onToggleNightMode = { debugNightEnabled = !debugNightEnabled },
+                torchEnabled = debugTorchEnabled,
+                onToggleTorch = {
+                    val next = !debugTorchEnabled
+                    debugTorchEnabled = next
+                    boundCamera?.cameraControl?.enableTorch(next)
+                },
+                isCapturingNightBurst = alignment.isCapturing && BuildConfig.DEBUG && debugNightEnabled && deviceProfile.nightMode != null,
+                nightBurstProgress = if (alignment.isCapturing && BuildConfig.DEBUG && debugNightEnabled && deviceProfile.nightMode != null) {
                     0.5f
                 } else 0f,
                 modifier = Modifier
@@ -1604,8 +1621,13 @@ private fun CaptureHud(
     canSaveFrames: Boolean,
     onSaveFrames: () -> Unit,
     modifier: Modifier = Modifier,
-    /** Night mode indicator: shows when night mode is active and optionally during burst capture. */
+    /** Debug HUD dropdown: flashlight and night mode (debug only). */
+    showDebugDropdown: Boolean = false,
     nightModeConfig: NightFrameMerger.Config? = null,
+    nightModeEnabled: Boolean = true,
+    onToggleNightMode: () -> Unit = {},
+    torchEnabled: Boolean = false,
+    onToggleTorch: () -> Unit = {},
     isCapturingNightBurst: Boolean = false,
     nightBurstProgress: Float = 0f,
 ) {
@@ -1661,51 +1683,86 @@ private fun CaptureHud(
             UndoButton(onUndo = onUndo, enabled = undoEnabled)
         }
 
-        // Night mode indicator: shows when night mode is active.
-        // Sits top-right, next to guidance toggle.
-        if (nightModeConfig != null) {
-            Surface(
+        // Debug dropdown: flashlight and night mode (always shown in debug).
+        if (showDebugDropdown) {
+            var debugMenuExpanded by remember { mutableStateOf(false) }
+            Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(end = 72.dp, top = 22.dp), // Shift left to make room for guidance toggle
-                shape = CircleShape,
-                color = if (isCapturingNightBurst) {
-                    MaterialTheme.colorScheme.secondary.copy(alpha = 0.95f)
-                } else {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
-                },
-                shadowElevation = 8.dp,
+                    .padding(end = 72.dp, top = 22.dp),
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .padding(8.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (isCapturingNightBurst) {
-                        CircularProgressIndicator(
-                            progress = nightBurstProgress,
-                            color = MaterialTheme.colorScheme.onSecondary,
-                            strokeWidth = 3.dp,
-                            modifier = Modifier.size(28.dp),
-                        )
+                Surface(
+                    shape = CircleShape,
+                    color = if (isCapturingNightBurst) {
+                        MaterialTheme.colorScheme.secondary.copy(alpha = 0.95f)
                     } else {
-                        Icon(
-                            imageVector = Icons.Filled.Nightlight,
-                            contentDescription = "Night mode active",
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                        )
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
+                    },
+                    shadowElevation = 8.dp,
+                    onClick = { debugMenuExpanded = true },
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .padding(8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (isCapturingNightBurst) {
+                            CircularProgressIndicator(
+                                progress = nightBurstProgress,
+                                color = MaterialTheme.colorScheme.onSecondary,
+                                strokeWidth = 3.dp,
+                                modifier = Modifier.size(28.dp),
+                            )
+                        } else {
+                            Icon(
+                                imageVector = if (nightModeEnabled) Icons.Filled.Nightlight else Icons.Filled.Nightlight,
+                                contentDescription = "Debug options",
+                                tint = MaterialTheme.colorScheme.onPrimary.copy(
+                                    alpha = if (nightModeEnabled) 1f else 0.5f
+                                ),
+                            )
+                        }
+                        if (isCapturingNightBurst && nightModeConfig != null) {
+                            Text(
+                                text = "${(nightBurstProgress * nightModeConfig.framesPerTarget).roundToInt()}/${nightModeConfig.framesPerTarget}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSecondary,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(top = 2.dp),
+                            )
+                        }
                     }
-                    // Frame counter during burst
-                    if (isCapturingNightBurst) {
-                        Text(
-                            text = "${(nightBurstProgress * nightModeConfig.framesPerTarget).roundToInt()}/${nightModeConfig.framesPerTarget}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSecondary,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(top = 2.dp),
-                        )
-                    }
+                }
+                DropdownMenu(
+                    expanded = debugMenuExpanded,
+                    onDismissRequest = { debugMenuExpanded = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Night mode: ${if (nightModeEnabled) "ON" else "OFF"}") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Filled.Nightlight,
+                                contentDescription = null,
+                                tint = if (nightModeEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        },
+                        onClick = {
+                            if (nightModeConfig != null) onToggleNightMode()
+                        },
+                        enabled = nightModeConfig != null,
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Flashlight: ${if (torchEnabled) "ON" else "OFF"}") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = if (torchEnabled) Icons.Filled.FlashlightOn else Icons.Filled.FlashlightOff,
+                                contentDescription = null,
+                                tint = if (torchEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        },
+                        onClick = { onToggleTorch() },
+                    )
                 }
             }
         }
