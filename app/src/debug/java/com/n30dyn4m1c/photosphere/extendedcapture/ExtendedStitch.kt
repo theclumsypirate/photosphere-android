@@ -97,8 +97,8 @@ object ExtendedStitch {
 
         val bitmap = try {
             when (mode) {
-                Mode.Reference -> renderReference(frames, directory, optics, outputWidth, onProgress)
-                Mode.Adaptive -> renderAdaptive(frames, optics, onProgress)
+                Mode.Reference -> renderReference(context, frames, directory, optics, outputWidth, onProgress)
+                Mode.Adaptive -> renderAdaptive(context, frames, optics, onProgress)
             }
         } catch (e: CancellationException) {
             throw e
@@ -136,6 +136,7 @@ object ExtendedStitch {
      * byte-compared against `stairs_perfect.jpg` once the frames are pulled.
      */
     private suspend fun renderReference(
+        context: Context,
         frames: List<SphereFrame>,
         directory: File,
         optics: SphereOptics,
@@ -145,7 +146,7 @@ object ExtendedStitch {
         val size = ExtendedStore.uprightFrameSize(frames.first().file.absolutePath)
             ?: error("could not read the first frame's size")
         val (width, height) = size
-        val pivot = pivotFor(Mode.Reference)
+        val pivot = pivotFor(context, Mode.Reference)
         val raw = File(directory, REFERENCE_RAW_NAME)
         Logging.i("Extended reference: native=${width}x${height} raw=${raw.name}")
         return withContext(Dispatchers.Default) {
@@ -284,11 +285,12 @@ object ExtendedStitch {
      * pose refinement on, the profile's settings.
      */
     private suspend fun renderAdaptive(
+        context: Context,
         frames: List<SphereFrame>,
         optics: SphereOptics,
         onProgress: (StitchProgress) -> Unit,
     ): Bitmap {
-        val profile = SphereDeviceProfile.forDevice()
+        val profile = SphereDeviceProfile.forDevice(context)
         return PhotoSphereStitcher.stitchPhotos(
             frames = frames,
             horizontalFovDegrees = optics.fieldOfView.horizontalDegrees,
@@ -351,11 +353,11 @@ object ExtendedStitch {
      * ([SphereDeviceProfile.pivot]), which assumes the scene sits at 10 m and is
      * free to under correct a close one because the pose refiner absorbs it.
      */
-    fun pivotFor(mode: Mode): PivotModel =
+    fun pivotFor(context: Context, mode: Mode): PivotModel =
         if (mode == Mode.Reference) {
             REFERENCE_PIVOT
         } else {
-            SphereDeviceProfile.forDevice().pivot
+            SphereDeviceProfile.forDevice(context).pivot
         }
 
     /**

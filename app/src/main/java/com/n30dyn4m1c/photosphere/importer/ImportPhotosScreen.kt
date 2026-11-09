@@ -96,7 +96,7 @@ fun ImportPhotosScreen(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val optics = rememberSphereOptics()
-    val deviceProfile = remember { SphereDeviceProfile.forDevice() }
+    val deviceProfile = remember { SphereDeviceProfile.forDevice(context) }
 
     var picked by remember { mutableStateOf<List<File>>(emptyList()) }
     var posesStamped by remember { mutableStateOf(false) }

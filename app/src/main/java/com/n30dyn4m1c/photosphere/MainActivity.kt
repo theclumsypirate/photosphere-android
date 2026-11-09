@@ -393,14 +393,14 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
                 },
             )
 
-            BuildConfig.DEBUG && showLittlePlanet -> LittlePlanetEditorScreen(
+            showLittlePlanet -> LittlePlanetEditorScreen(
                 onBack = {
                     showLittlePlanet = false
                     showSettings = true
                 },
             )
 
-            BuildConfig.DEBUG && showGpano -> GpanoMetadataEditorScreen(
+            showGpano -> GpanoMetadataEditorScreen(
                 onBack = {
                     showGpano = false
                     showSettings = true

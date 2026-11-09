@@ -53,8 +53,8 @@ data class SphereDeviceProfile(
     val nightModeSupported: Boolean = false,
 ) {
     companion object {
-        /** Default night config for devices without specific tuning. Debug only. */
-        private val NIGHT_DEFAULT: NightFrameMerger.Config? = if (BuildConfig.DEBUG) NightFrameMerger.Config(
+        /** Default night config for devices without specific tuning. */
+        private val NIGHT_DEFAULT = NightFrameMerger.Config(
             framesPerTarget = 8,
             maxExposureTimeMs = 250,
             maxIso = 1600,
@@ -63,7 +63,7 @@ data class SphereDeviceProfile(
             minFramesForMerge = 4,
             alignDownscale = 0.5f,
             medianTileSize = 512,
-        ) else null
+        )
 
         /**
          * The default: a mid-range phone with one usable back camera. The wider
@@ -112,7 +112,7 @@ data class SphereDeviceProfile(
             stitchMaxOutputWidth = 6144,
             unsharpAmount = 0.3f,
             pivot = PivotModel.HandheldBodySwivel,
-            nightMode = if (BuildConfig.DEBUG) NightFrameMerger.Config(
+            nightMode = NightFrameMerger.Config(
                 framesPerTarget = 16,
                 maxExposureTimeMs = 500,
                 maxIso = 6400,
@@ -121,7 +121,7 @@ data class SphereDeviceProfile(
                 minFramesForMerge = 6,
                 alignDownscale = 0.5f,
                 medianTileSize = 512,
-            ) else null,
+            ),
         )
 
         /**
@@ -141,7 +141,7 @@ data class SphereDeviceProfile(
             stitchMaxOutputWidth = 6144,
             unsharpAmount = 0.3f,
             pivot = PivotModel.HandheldBodySwivel,
-            nightMode = if (BuildConfig.DEBUG) NightFrameMerger.Config(
+            nightMode = NightFrameMerger.Config(
                 framesPerTarget = 12,
                 maxExposureTimeMs = 333,
                 maxIso = 3200,
@@ -150,7 +150,7 @@ data class SphereDeviceProfile(
                 minFramesForMerge = 5,
                 alignDownscale = 0.5f,
                 medianTileSize = 512,
-            ) else null,
+            ),
         )
 
         /** The profile for the device this process is running on. */
@@ -159,7 +159,7 @@ data class SphereDeviceProfile(
             val profile =
                 if (isSamsungGalaxyS23()) {
                     SAMSUNG_S23
-                } else if (BuildConfig.DEBUG && isSamsungGalaxyS21()) {
+                } else if (isSamsungGalaxyS21()) {
                     SAMSUNG_S21
                 } else {
                     DEFAULT

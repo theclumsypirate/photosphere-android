@@ -96,7 +96,7 @@ fun rememberSphereOptics(
         estimateSphereOptics(
             context = context,
             displayRotation = context.currentDisplayRotation(),
-            profile = SphereDeviceProfile.forDevice(),
+            profile = SphereDeviceProfile.forDevice(context),
             cameraId = cameraId,
             streamAspectRatio = streamAspectRatio,
         )
