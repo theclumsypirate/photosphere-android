@@ -270,7 +270,7 @@ fun PhotoSphereCameraScreen(
     val orientationState = tracker.orientation.collectAsStateWithLifecycle()
     val guidance = rememberGuidanceFeedback()
     val deviceProfile = remember {
-        val base = SphereDeviceProfile.forDevice()
+        val base = SphereDeviceProfile.forDevice(context)
         // Samsung-only Settings toggle: shoot the sphere on the ultrawide
         // lens instead of the profile's pick. Read once per screen so a
         // mid-session flip cannot renumber the targets.
@@ -994,7 +994,7 @@ fun PhotoSphereCameraScreen(
                     // A trigger only ever comes out of an aligned reading.
                     isHolding = true
 
-                    val nightModeActive = BuildConfig.DEBUG && debugNightEnabled && deviceProfile.nightMode != null
+                    val nightModeActive = BuildConfig.DEBUG && debugNightEnabled && deviceProfile.nightMode != null && deviceProfile.nightModeSupported
                     val result = if (nightModeActive) {
                         // Night mode (debug only): capture burst and merge on-device
                         capture.saveNightBurst(
@@ -1474,8 +1474,8 @@ fun PhotoSphereCameraScreen(
                     debugTorchEnabled = next
                     boundCamera?.cameraControl?.enableTorch(next)
                 },
-                isCapturingNightBurst = alignment.isCapturing && BuildConfig.DEBUG && debugNightEnabled && deviceProfile.nightMode != null,
-                nightBurstProgress = if (alignment.isCapturing && BuildConfig.DEBUG && debugNightEnabled && deviceProfile.nightMode != null) {
+                isCapturingNightBurst = alignment.isCapturing && BuildConfig.DEBUG && debugNightEnabled && deviceProfile.nightMode != null && deviceProfile.nightModeSupported,
+                nightBurstProgress = if (alignment.isCapturing && BuildConfig.DEBUG && debugNightEnabled && deviceProfile.nightMode != null && deviceProfile.nightModeSupported) {
                     0.5f
                 } else 0f,
                 modifier = Modifier
@@ -1743,86 +1743,117 @@ private fun CaptureHud(
                 ringCount = ringCount,
             )
             if (showDebugDropdown) {
-                var debugMenuExpanded by remember { mutableStateOf(false) }
-                Box {
-                    Surface(
-                        shape = CircleShape,
-                        color = if (isCapturingNightBurst) {
-                            MaterialTheme.colorScheme.secondary.copy(alpha = 0.95f)
-                        } else {
-                            GlassSurfaceDim
-                        },
-                        shadowElevation = 2.dp,
-                        onClick = { debugMenuExpanded = true },
+            var debugMenuExpanded by remember { mutableStateOf(false) }
+            // Wider trigger, centered in the top row. The dropdown itself opens
+            // under the trigger and is constrained so it never exceeds half the
+            // screen width.
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 10.dp)
+                    .width(48.dp)
+                    .height(48.dp),
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (isCapturingNightBurst) {
+                        MaterialTheme.colorScheme.secondary.copy(alpha = 0.95f)
+                    } else {
+                        GlassSurfaceDim
+                    },
+                    shadowElevation = 2.dp,
+                    onClick = { debugMenuExpanded = true },
+                ) {
+                    Box(
+                        modifier = Modifier.size(32.dp),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        Box(
-                            modifier = Modifier.size(28.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            if (isCapturingNightBurst) {
-                                CircularProgressIndicator(
-                                    progress = { nightBurstProgress },
-                                    color = MaterialTheme.colorScheme.onSecondary,
-                                    strokeWidth = 2.dp,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = Icons.Filled.ExpandMore,
-                                    contentDescription = "Options",
-                                    tint = GlassContentDim,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
+                        if (isCapturingNightBurst) {
+                            CircularProgressIndicator(
+                                progress = { nightBurstProgress },
+                                color = MaterialTheme.colorScheme.onSecondary,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Filled.ExpandMore,
+                                contentDescription = "Options",
+                                tint = GlassContentDim,
+                                modifier = Modifier.size(22.dp),
+                            )
                         }
                     }
-                    DropdownMenu(
-                        expanded = debugMenuExpanded,
-                        onDismissRequest = { debugMenuExpanded = false },
-                        modifier = Modifier.background(MaterialTheme.colorScheme.surface),
+                }
+                DropdownMenu(
+                    expanded = debugMenuExpanded,
+                    onDismissRequest = { debugMenuExpanded = false },
+                    // Cap the dropdown width so it never overwhelms smaller screens.
+                    modifier = Modifier.background(MaterialTheme.colorScheme.surface).width(280.dp),
+                ) {
+                    // Night mode item - check both config and device support
+                    val nightModeAvailable = nightModeConfig != null && deviceProfile.nightModeSupported
+                    DropdownMenuItem(
+                        onClick = { if (nightModeAvailable) onToggleNightMode() },
+                        enabled = nightModeAvailable,
+                        contentPadding = WindowInsets.none,
                     ) {
-                        DropdownMenuItem(
-                            text = { Text("Night mode", style = MaterialTheme.typography.bodyMedium) },
-                            trailingIcon = {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Nightlight,
+                                contentDescription = null,
+                                tint = if (nightModeEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                if (deviceProfile.nightModeSupported) "Night mode" else "Night mode (unsupported)",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (deviceProfile.nightModeSupported) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            if (deviceProfile.nightModeSupported) {
                                 Text(
                                     if (nightModeEnabled) "ON" else "OFF",
                                     style = MaterialTheme.typography.labelMedium,
                                     color = if (nightModeEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontWeight = FontWeight.SemiBold,
                                 )
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Filled.Nightlight,
-                                    contentDescription = null,
-                                    tint = if (nightModeEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            },
-                            onClick = { if (nightModeConfig != null) onToggleNightMode() },
-                            enabled = nightModeConfig != null,
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Flashlight", style = MaterialTheme.typography.bodyMedium) },
-                            trailingIcon = {
-                                Text(
-                                    if (torchEnabled) "ON" else "OFF",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = if (torchEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontWeight = FontWeight.SemiBold,
-                                )
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = if (torchEnabled) Icons.Filled.FlashlightOn else Icons.Filled.FlashlightOff,
-                                    contentDescription = null,
-                                    tint = if (torchEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            },
-                            onClick = { onToggleTorch() },
-                        )
+                            }
+                        }
                     }
+                    DropdownMenuItem(
+                        onClick = { onToggleTorch() },
+                        contentPadding = WindowInsets.none,
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                imageVector = if (torchEnabled) Icons.Filled.FlashlightOn else Icons.Filled.FlashlightOff,
+                                contentDescription = null,
+                                tint = if (torchEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Text("Flashlight", style = MaterialTheme.typography.bodyMedium)
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                if (torchEnabled) "ON" else "OFF",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (torchEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                    }
+                    )
                 }
             }
+        }
         }
 
         Column(
@@ -1954,16 +1985,7 @@ private fun CaptureHud(
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
-            // Frame count at the very bottom, small and unobtrusive.
-            if (frameCount > 0) {
-                Text(
-                    text = "$frameCount FRAMES",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = GlassContentDim,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
-            }
+            
         }
     }
 }

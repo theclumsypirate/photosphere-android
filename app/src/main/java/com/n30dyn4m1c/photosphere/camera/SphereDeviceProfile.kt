@@ -1,5 +1,8 @@
 package com.n30dyn4m1c.photosphere.camera
 
+import android.content.Context
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
 import android.os.Build
 import com.n30dyn4m1c.photosphere.BuildConfig
 import com.n30dyn4m1c.photosphere.stitching.NightFrameMerger
@@ -46,6 +49,8 @@ data class SphereDeviceProfile(
     val pivot: PivotModel,
     /** Night mode 360 configuration. Null = night mode not supported on this device. */
     val nightMode: NightFrameMerger.Config? = null,
+    /** Whether the device's camera hardware supports night mode (queried via Camera2). */
+    val nightModeSupported: Boolean = false,
 ) {
     companion object {
         /** Default night config for devices without specific tuning. Debug only. */
@@ -149,7 +154,8 @@ data class SphereDeviceProfile(
         )
 
         /** The profile for the device this process is running on. */
-        fun forDevice(): SphereDeviceProfile {
+        fun forDevice(context: Context): SphereDeviceProfile {
+            val nightSupported = checkNightModeSupport(context)
             val profile =
                 if (isSamsungGalaxyS23()) {
                     SAMSUNG_S23
@@ -158,7 +164,41 @@ data class SphereDeviceProfile(
                 } else {
                     DEFAULT
                 }
-            return if (BuildConfig.DEBUG) debugTuned(profile) else profile
+            return if (BuildConfig.DEBUG) debugTuned(profile.copy(nightModeSupported = nightSupported)) else profile.copy(nightModeSupported = nightSupported)
+        }
+
+        /**
+         * Checks if the device camera supports night mode via Camera2 API.
+         * Queries the camera characteristics for night mode capability.
+         */
+        private fun checkNightModeSupport(context: Context): Boolean {
+            return try {
+                val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+                val cameraIds = cameraManager.cameraIdList
+                for (id in cameraIds) {
+                    val characteristics = cameraManager.getCameraCharacteristics(id)
+                    val facing = characteristics.get(CameraCharacteristics.LENS_FACING)
+                    // Only check back-facing cameras
+                    if (facing == CameraCharacteristics.LENS_FACING_BACK) {
+                        // Check if the device supports night mode via hardware level
+                        // Level 3 (DEVICE_LEVEL_3) supports multi-frame processing, RAW, etc.
+                        val hardwareLevel = characteristics.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL)
+                        if (hardwareLevel == CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_3 ||
+                            hardwareLevel == CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_EXTERNAL) {
+                            return true
+                        }
+                        // Check for burst capture capability which is needed for night mode
+                        val capabilities = characteristics.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES) ?: intArrayOf()
+                        if (capabilities.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_BURST_CAPTURE)) {
+                            return true
+                        }
+                    }
+                }
+                false
+            } catch (e: Exception) {
+                Logging.w("Night mode support check failed: ${e.message}")
+                false
+            }
         }
 
         /**
