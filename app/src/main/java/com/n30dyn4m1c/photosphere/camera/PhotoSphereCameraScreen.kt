@@ -983,8 +983,9 @@ fun PhotoSphereCameraScreen(
                     // A trigger only ever comes out of an aligned reading.
                     isHolding = true
 
-                    val result = if (deviceProfile.nightMode != null) {
-                        // Night mode: capture burst and merge on-device
+                    val nightModeActive = BuildConfig.DEBUG && deviceProfile.nightMode != null
+                    val result = if (nightModeActive) {
+                        // Night mode (debug only): capture burst and merge on-device
                         capture.saveNightBurst(
                             context = context,
                             buffer = buffer,
@@ -1020,7 +1021,7 @@ fun PhotoSphereCameraScreen(
                                     "pitch=${decision.pose.pitchDegrees.roundToInt()}° " +
                                     "roll=${decision.pose.rollDegrees.roundToInt()}° " +
                                     "basis=${decision.pose.cameraBasis?.joinToString(prefix = "[", postfix = "]") { "%.3f".format(it) } ?: "none"}" +
-                                    (deviceProfile.nightMode?.let { " [night]" } ?: "")
+                                    (if (BuildConfig.DEBUG && deviceProfile.nightMode != null) " [night]" else "")
                             )
                             val advanced = coordinator.onCaptured(
                                 token = decision.token,

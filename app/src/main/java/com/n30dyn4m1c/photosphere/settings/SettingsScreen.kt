@@ -92,11 +92,13 @@ fun SettingsScreen(
         if (BuildConfig.DEBUG && SamsungHighRes.isSamsung()) {
             SamsungRows(modifier = Modifier.padding(top = 20.dp))
         }
-        AdvancedSettingsRows(
-            onLittlePlanetClick = { onLittlePlanetClick() },
-            onGpanoClick = { onGpanoClick() },
-            modifier = Modifier.padding(top = 28.dp),
-        )
+        if (BuildConfig.DEBUG) {
+            AdvancedSettingsRows(
+                onLittlePlanetClick = { onLittlePlanetClick() },
+                onGpanoClick = { onGpanoClick() },
+                modifier = Modifier.padding(top = 28.dp),
+            )
+        }
 
         // Export section
         Divider(modifier = Modifier.padding(top = 24.dp, bottom = 16.dp))
