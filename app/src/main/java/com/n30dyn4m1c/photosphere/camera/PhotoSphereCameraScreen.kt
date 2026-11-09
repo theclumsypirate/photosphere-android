@@ -1512,7 +1512,7 @@ fun PhotoSphereCameraScreen(
  * the only way out is to kill the app.
  */
 @Composable
-private fun CameraErrorCard(
+fun CameraErrorCard(
     message: String,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
@@ -1577,7 +1577,7 @@ private fun CameraErrorCard(
  * workflow needs: aim, hold, shoot, and stop once the area is covered.
  */
 @Composable
-private fun CaptureHud(
+fun CaptureHud(
     capturedCount: Int,
     totalTargets: Int,
     completedRings: Int,
@@ -1989,7 +1989,7 @@ private fun CaptureHud(
  * omitted for a clean UI; the capture pipeline manages exposure state.
  */
 @Composable
-private fun ExposureRow(
+fun ExposureRow(
     evIndex: Int,
     evRange: IntRange,
     aeLocked: Boolean,
@@ -2038,7 +2038,7 @@ private fun ExposureRow(
  * of a phone.
  */
 @Composable
-private fun DebugSwitches(
+fun DebugSwitches(
     distortionEnabled: Boolean,
     onToggleDistortion: () -> Unit,
     refinementEnabled: Boolean,
@@ -2112,7 +2112,7 @@ private fun DebugSwitches(
 
 /** One compact, tappable debug switch. */
 @Composable
-private fun DebugSwitch(label: String, onClick: () -> Unit) {
+fun DebugSwitch(label: String, onClick: () -> Unit) {
     Text(
         text = label,
         color = GlassContentDim,
@@ -2130,7 +2130,7 @@ private fun DebugSwitch(label: String, onClick: () -> Unit) {
  * frames would renumber the targets they were shot against.
  */
 @Composable
-private fun CaptureScopeSelector(
+fun CaptureScopeSelector(
     scope: SphereCaptureScope,
     enabled: Boolean,
     onScopeChange: (SphereCaptureScope) -> Unit,
@@ -2192,7 +2192,7 @@ private fun CaptureScopeSelector(
  * single-band run reads as a plain frame count rather than "band 0 of 1".
  */
 @Composable
-private fun CaptureProgressPill(
+fun CaptureProgressPill(
     capturedCount: Int,
     totalTargets: Int,
     completedRings: Int,
@@ -2304,7 +2304,7 @@ private fun CaptureProgressPill(
  * one the user means.
  */
 @Composable
-private fun UndoButton(
+fun UndoButton(
     onUndo: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
@@ -2327,7 +2327,7 @@ private fun UndoButton(
 
 /** The small status chip that says what the lens is doing. */
 @Composable
-private fun FocusLockChip(
+fun FocusLockChip(
     text: String,
     modifier: Modifier = Modifier,
 ) {
@@ -2366,7 +2366,7 @@ private fun FocusLockChip(
  * register without the user having to be reading it at that instant.
  */
 @Composable
-private fun HintCard(
+fun HintCard(
     text: String,
     modifier: Modifier = Modifier,
 ) {
@@ -2400,7 +2400,7 @@ private fun HintCard(
  * The attitude EXIF stamped at capture travels with each frame.
  */
 @Composable
-private fun SaveFramesConfirmation(
+fun SaveFramesConfirmation(
     frameCount: Int,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
@@ -2441,7 +2441,7 @@ private fun SaveFramesConfirmation(
  * partway.
  */
 @Composable
-private fun StitchingDialog(
+fun StitchingDialog(
     progress: StitchProgress,
     onCancel: () -> Unit,
 ) {
@@ -2552,7 +2552,7 @@ private fun StitchingDialog(
 
 /** The one line describing what the stitcher is currently doing. */
 @Composable
-private fun StitchProgress.label(): String = when (stage) {
+fun StitchProgress.label(): String = when (stage) {
     StitchStage.Preparing -> stringResource(R.string.stitch_stage_preparing)
     StitchStage.Reading -> stringResource(R.string.stitch_stage_reading, completed, total)
     StitchStage.Refining -> stringResource(R.string.stitch_stage_refining, completed, total)
@@ -2584,7 +2584,7 @@ private fun Context.stitchFailureMessage(error: Throwable): String {
 
 /** Picks the single most useful thing to tell the user right now. */
 @Composable
-private fun captureHint(    isSensorAvailable: Boolean,
+fun captureHint(    isSensorAvailable: Boolean,
     isCameraReady: Boolean,
     hasPlan: Boolean,
     isComplete: Boolean,
