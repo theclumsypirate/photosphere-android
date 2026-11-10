@@ -309,7 +309,9 @@ object SphereImageStore {
                 append("      \"file\": \"${shot.file.absolutePath}\",\n")
                 append("      \"index\": ${shot.index},\n")
                 append("      \"yaw_deg\": ${shot.yawDegrees},\n")
-                append("      \"pitch_deg\": ${shot.pitchDegrees},\n")
+                // Kotlin stores pitch as negative above horizon; C++ expects positive = UP
+                // Negate pitch to convert from Kotlin convention (negative above) to C++ (positive up)
+                append("      \"pitch_deg\": ${-shot.pitchDegrees},\n")
                 append("      \"roll_deg\": ${shot.rollDegrees}\n")
                 append("    }")
             }
@@ -326,7 +328,11 @@ object SphereImageStore {
         }
     }
 
-    /** Data class for a shot record to write to poses.json */
+    /** Data class for a shot record to write to poses.json.
+     * 
+     * Note: pitchDegrees follows Kotlin convention (negative above horizon).
+     * When written to poses.json for C++ stitcher, pitch is negated
+     * to match C++ convention (positive = UP). */
     data class ShotRecord(
         val file: File,
         val index: Int,
