@@ -12,14 +12,17 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # OpenCV configuration
-# The OpenCV Android SDK provides CMake config files
-# We expect OpenCV to be found via the Maven artifact (org.opencv:opencv:4.12.0)
-# which unpacks the native libraries and CMake config to the build directory
+# The OpenCV Android SDK provides CMake config files via the Maven artifact
+# org.opencv:opencv:4.12.0 which unpacks native libs and CMake config to:
+# ${CMAKE_SOURCE_DIR}/../../../build/intermediates/cmake/debug/obj/${ANDROID_ABI}/opencv
 
-# Find OpenCV - try multiple locations
-set(OpenCV_DIR "${CMAKE_SOURCE_DIR}/../../../build/intermediates/cmake/debug/obj/${ANDROID_ABI}/opencv" CACHE PATH "OpenCV config directory")
+# Try to find OpenCV from the Gradle-unpacked AAR
+set(OpenCV_DIR 
+    "${CMAKE_SOURCE_DIR}/../../../build/intermediates/cmake/debug/obj/${ANDROID_ABI}/opencv"
+    CACHE PATH "OpenCV config directory from Maven AAR"
+)
 
-# Alternative: OpenCV from NDK/sdk
+# Find OpenCV - required components for 360° stitching pipeline
 find_package(OpenCV 4.12 REQUIRED COMPONENTS
     core
     imgcodecs
@@ -31,7 +34,7 @@ find_package(OpenCV 4.12 REQUIRED COMPONENTS
 )
 
 if(NOT OpenCV_FOUND)
-    message(FATAL_ERROR "OpenCV not found. Please ensure org.opencv:opencv:4.12.0 is in dependencies.")
+    message(FATAL_ERROR "OpenCV not found. Please ensure org.opencv:opencv:4.12.0 is in dependencies and the project has been synced.")
 endif()
 
 # Android log library
