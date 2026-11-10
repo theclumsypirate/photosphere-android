@@ -95,6 +95,14 @@ android {
             useLegacyPackaging = false
         }
     }
+
+    // CMake for native OpenCV 360° stitcher (debug only)
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
 }
 
 /**

@@ -268,6 +268,73 @@ object SphereImageStore {
         }
     }
 
+    /**
+     * Writes the poses.json sidecar for the C++ OpenCV 360° stitcher.
+     * 
+     * Format matches exactly what the C++ native stitcher expects:
+     * ```json
+     * {
+     *   "hfov_deg": 65.0,
+     *   "shots": [
+     *     {"file": "/abs/path/img0.jpg", "index": 0, "yaw_deg": 0.0, "pitch_deg": 0.0, "roll_deg": 0.0},
+     *     ...
+     *   ]
+     * }
+     * ```
+     * 
+     * Coordinate convention (from sphere-100-percent-cpp-kotlin.md §1):
+     * - World: X right, Y down, Z forward
+     * - yaw: rotation around Y, positive = right
+     * - pitch: rotation around X, positive = UP (camera tilted up)
+     * - roll: rotation around Z, positive = clockwise from behind
+     * - R = Ry(yaw) * Rx(pitch) * Rz(roll)  -- camera -> world
+     */
+    fun writePosesJsonForCppStitcher(
+        context: Context,
+        sessionId: String,
+        shots: List<ShotRecord>,
+        horizontalFovDegrees: Float,
+    ) {
+        if (!BuildConfig.DEBUG) return
+        val directory = sessionDirectory(context, sessionId)
+        val file = File(directory, "poses.json")
+        
+        val json = buildString {
+            append("{\n")
+            append("  \"hfov_deg\": $horizontalFovDegrees,\n")
+            append("  \"shots\": [\n")
+            for ((i, shot) in shots.withIndex()) {
+                if (i > 0) append(",\n")
+                append("    {\n")
+                append("      \"file\": \"${shot.file.absolutePath}\",\n")
+                append("      \"index\": ${shot.index},\n")
+                append("      \"yaw_deg\": ${shot.yawDegrees},\n")
+                append("      \"pitch_deg\": ${shot.pitchDegrees},\n")
+                append("      \"roll_deg\": ${shot.rollDegrees}\n")
+                append("    }")
+            }
+            append("\n  ]\n")
+            append("}\n")
+        }
+        
+        try {
+            directory.mkdirs()
+            file.writeText(json)
+            Logging.i("Wrote C++ stitcher poses.json: ${shots.size} shots -> ${file.absolutePath}")
+        } catch (e: Exception) {
+            Logging.w("Could not write poses.json for C++ stitcher", e)
+        }
+    }
+
+    /** Data class for a shot record to write to poses.json */
+    data class ShotRecord(
+        val file: File,
+        val index: Int,
+        val yawDegrees: Float,
+        val pitchDegrees: Float,
+        val rollDegrees: Float,
+    )
+
     /** Sidecar file name the debug capture summary is written under. */
     const val CAPTURE_SUMMARY_FILE = "capture_debug.json"
 

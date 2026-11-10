@@ -1,30 +1,49 @@
 /**
- * OpenCV 360° Equirectangular Panorama Stitcher
+ * OpenCV 360° Equirectangular Panorama Stitcher — 100% C++ Native Pipeline
  * 
- * Debug-only native module for high-quality 360° panorama stitching.
- * Adapted from OpenCV's stitching.cpp sample for 360° equirectangular output.
+ * Debug-only native module implementing the EXACT pipeline from sphere-100-percent-cpp-kotlin.md:
+ * - Uses KNOWN poses from gyroscope (sidecar poses.json) — NO feature matching for pose estimation
+ * - Direct equirectangular 2:1 rendering via cv::remap with known poses
+ * - Gain compensation (exposure equalization) on equirect grid
+ * - Feather blending via distance transform on valid masks
+ * - Optional SIFT pose refinement on overlapping edges
+ * - Coverage validation per 10° latitude band
  * 
- * This module provides a C++ implementation that can be called from Kotlin via JNI.
- * It implements the full OpenCV stitching pipeline optimized for 360° spherical panoramas.
+ * Coordinate convention (from sphere-100-percent-cpp-kotlin.md §1):
+ *   World: X right, Y down, Z forward
+ *   yaw   : rotation around Y, positive = right
+ *   pitch : rotation around X, positive = camera tilted UP
+ *   roll  : rotation around Z, positive = clockwise from behind
+ *   R = Ry(yaw) * Rx(pitch) * Rz(roll)  — transforms camera -> world
+ *   Optical axis = (0,0,1) in camera coords
+ * 
+ * Equirectangular projection (2:1, H = W/2):
+ *   lon = atan2(x, z)          ∈ [-π, π]
+ *   el  = asin(-y)             ∈ [-π/2, π/2]  (Y down, so -y = up)
+ *   u   = (lon/(2π) + 0.5) * W
+ *   v   = (0.5 - el/π) * H
+ * 
+ * Inverse (for rendering):
+ *   lon = (u/W - 0.5) * 2π
+ *   el  = (0.5 - v/H) * π
+ *   d   = (cos(el)*sin(lon), -sin(el), cos(el)*cos(lon))
+ * 
+ * DEBUG ONLY — only loaded when C++ OpenCV toggle is enabled in Settings
  */
 
 #include <jni.h>
 #include <vector>
 #include <string>
+#include <fstream>
+#include <sstream>
+#include <cmath>
+#include <algorithm>
 #include <android/log.h>
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
-#include <opencv2/stitching.hpp>
-#include <opencv2/stitching/detail/autocalib.hpp>
-#include <opencv2/stitching/detail/blenders.hpp>
-#include <opencv2/stitching/detail/camera.hpp>
-#include <opencv2/stitching/detail/exposure_compensate.hpp>
-#include <opencv2/stitching/detail/matchers.hpp>
-#include <opencv2/stitching/detail/motion_estimators.hpp>
-#include <opencv2/stitching/detail/seam_finders.hpp>
-#include <opencv2/stitching/detail/warpers.hpp>
-#include <opencv2/stitching/warpers.hpp>
+#include <opencv2/features2d.hpp>
+#include <opencv2/calib3d.hpp>
 
 #define LOG_TAG "OpenCv360Stitcher"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -32,661 +51,585 @@
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
 
 using namespace cv;
-using namespace cv::detail;
 using namespace std;
 
-/**
- * Configuration for 360° equirectangular stitching
- */
-struct StitchConfig360 {
-    // Feature detection
-    string features_type = "orb";          // "surf", "orb", "sift"
-    float match_conf = 0.3f;               // Match confidence threshold
-    string matcher_type = "homography";    // "homography", "affine"
-    
-    // Camera estimation
-    string estimator_type = "homography";  // "homography", "affine"
-    float conf_thresh = 1.0f;              // Panorama confidence threshold
-    
-    // Bundle adjustment
-    string ba_cost_func = "ray";           // "reproj", "ray", "affine", "no"
-    string ba_refine_mask = "xxxxx";       // Refinement mask for BA
-    
-    // Wave correction
-    bool do_wave_correct = true;
-    WaveCorrectKind wave_correct = WAVE_CORRECT_HORIZ;
-    
-    // Warping
-    string warp_type = "spherical";        // For 360°: "spherical"
-    
-    // Exposure compensation
-    int expos_comp_type = ExposureCompensator::GAIN_BLOCKS;
-    
-    // Seam finding
-    string seam_find_type = "gc_color";    // "no", "voronoi", "gc_color", "gc_colorgrad", "dp_color", "dp_colorgrad"
-    
-    // Blending
-    int blend_type = Blender::MULTI_BAND;
-    float blend_strength = 5.0f;
-    
-    // Resolution scaling
-    double work_megapix = 0.6;             // Feature detection resolution
-    double seam_megapix = 0.1;             // Seam estimation resolution
-    double compose_megapix = -1;           // Final composition resolution (-1 = original)
-    
-    // Range width for matching (for sequential images)
-    int range_width = -1;
-    
-    // Output
-    string result_name = "pano_360.jpg";
-    
-    // CUDA
-    bool try_cuda = false;
-};
+// ============================================================================
+// Coordinate math — EXACT from sphere-100-percent-cpp-kotlin.md §1
+// ============================================================================
 
-/**
- * Result structure for JNI
- */
-struct StitchResult360 {
-    bool success = false;
-    string error_message;
-    string output_path;
-    int width = 0;
-    int height = 0;
-    vector<CameraParams> cameras;
-    vector<Mat> warped_images;
-};
+// World: X right, Y down, Z forward
+// yaw: around Y, positive = right
+// pitch: around X, positive = UP (camera tilted up)
+// roll: around Z, positive = clockwise from behind
+// R = Ry(yaw) * Rx(pitch) * Rz(roll)  -- camera -> world
 
-/**
- * Main 360° equirectangular stitcher class
- */
-class EquirectangularStitcher360 {
-public:
-    EquirectangularStitcher360(const StitchConfig360& config) : config_(config) {}
+inline Matx33d Ry(double yawDeg) {
+    double y = yawDeg * CV_PI / 180.0;
+    double c = cos(y), s = sin(y);
+    return Matx33d(c, 0, s,  0, 1, 0,  -s, 0, c);
+}
+
+inline Matx33d Rx(double pitchDeg) {
+    double p = pitchDeg * CV_PI / 180.0;
+    double c = cos(p), s = sin(p);
+    return Matx33d(1, 0, 0,  0, c, -s,  0, s, c);
+}
+
+inline Matx33d Rz(double rollDeg) {
+    double r = rollDeg * CV_PI / 180.0;
+    double c = cos(r), s = sin(r);
+    return Matx33d(c, -s, 0,  s, c, 0,  0, 0, 1);
+}
+
+inline Matx33d R_from_ypr(double yawDeg, double pitchDeg, double rollDeg) {
+    // R = Ry(yaw) * Rx(pitch) * Rz(roll)  -- camera -> world
+    return Ry(yawDeg) * Rx(pitchDeg) * Rz(rollDeg);
+}
+
+inline Matx33d K_from_hfov(int w, int h, double hfovDeg) {
+    double f = (w / 2.0) / tan(hfovDeg * CV_PI / 360.0);
+    return Matx33d(f, 0, w/2.0 - 0.5,  0, f, h/2.0 - 0.5,  0, 0, 1);
+}
+
+// ============================================================================
+// Equirectangular direction grids (precomputed once per output resolution)
+// ============================================================================
+
+static void buildEquirectGrids(int W, int H, Mat& dx, Mat& dy, Mat& dz) {
+    dx.create(H, W, CV_32F);
+    dy.create(H, W, CV_32F);
+    dz.create(H, W, CV_32F);
     
-    StitchResult360 stitch(const vector<string>& image_paths, const string& output_path) {
-        StitchResult360 result;
-        result.output_path = output_path;
-        
-        LOGI("Starting 360° equirectangular stitching with %zu images", image_paths.size());
-        
-        if (image_paths.size() < 2) {
-            result.error_message = "Need at least 2 images for stitching";
-            return result;
-        }
-        
-        try {
-            // Step 1: Load and prepare images
-            vector<Mat> images;
-            vector<Size> full_img_sizes;
-            vector<ImageFeatures> features;
-            
-            if (!loadImagesAndExtractFeatures(image_paths, images, full_img_sizes, features, result)) {
-                return result;
-            }
-            
-            // Step 2: Pairwise matching
-            vector<MatchesInfo> pairwise_matches;
-            if (!matchFeatures(features, pairwise_matches, result)) {
-                return result;
-            }
-            
-            // Step 3: Leave only images from the same panorama
-            vector<int> indices = leaveBiggestComponent(features, pairwise_matches, config_.conf_thresh);
-            if (indices.size() < 2) {
-                result.error_message = "Not enough matching images for panorama";
-                return result;
-            }
-            
-            // Filter to matching subset
-            vector<Mat> img_subset;
-            vector<Size> full_img_sizes_subset;
-            vector<ImageFeatures> features_subset;
-            vector<string> img_names_subset;
-            
-            for (size_t i = 0; i < indices.size(); ++i) {
-                img_subset.push_back(images[indices[i]]);
-                full_img_sizes_subset.push_back(full_img_sizes[indices[i]]);
-                features_subset.push_back(features[indices[i]]);
-                img_names_subset.push_back(image_paths[indices[i]]);
-            }
-            
-            images = img_subset;
-            full_img_sizes = full_img_sizes_subset;
-            features = features_subset;
-            
-            // Re-match on subset
-            vector<MatchesInfo> pairwise_matches_subset;
-            if (!matchFeatures(features, pairwise_matches_subset, result)) {
-                return result;
-            }
-            
-            // Step 4: Estimate camera parameters
-            vector<CameraParams> cameras;
-            if (!estimateCameras(features, pairwise_matches_subset, cameras, result)) {
-                return result;
-            }
-            
-            // Step 5: Bundle adjustment
-            if (!adjustCameras(features, pairwise_matches_subset, cameras, result)) {
-                return result;
-            }
-            
-            // Step 6: Wave correction
-            if (config_.do_wave_correct) {
-                vector<Mat> rmats;
-                for (size_t i = 0; i < cameras.size(); ++i) {
-                    rmats.push_back(cameras[i].R.clone());
-                }
-                waveCorrect(rmats, config_.wave_correct);
-                for (size_t i = 0; i < cameras.size(); ++i) {
-                    cameras[i].R = rmats[i];
-                }
-            }
-            
-            // Step 6: Warp images for seam finding
-            vector<Point> corners;
-            vector<UMat> masks_warped;
-            vector<UMat> images_warped;
-            vector<Size> sizes;
-            
-            if (!warpImagesForSeams(images, full_img_sizes, cameras, corners, masks_warped, images_warped, sizes, result)) {
-                return result;
-            }
-            
-            // Step 7: Exposure compensation
-            Ptr<ExposureCompensator> compensator = ExposureCompensator::createDefault(config_.expos_comp_type);
-            compensator->feed(corners, images_warped, masks_warped);
-            
-            // Step 8: Seam finding
-            vector<UMat> images_warped_f;
-            for (size_t i = 0; i < images_warped.size(); ++i) {
-                UMat img_f;
-                images_warped[i].convertTo(img_f, CV_32F);
-                images_warped_f.push_back(img_f);
-            }
-            
-            Ptr<SeamFinder> seam_finder = createSeamFinder(config_.seam_find_type, config_.try_cuda);
-            if (!seam_finder) {
-                result.error_message = "Failed to create seam finder";
-                return result;
-            }
-            
-            seam_finder->find(images_warped_f, corners, masks_warped);
-            
-            // Step 9: Final warping and blending
-            Mat pano;
-            if (!warpAndBlendFinal(images, full_img_sizes, cameras, corners, sizes, compensator, masks_warped, pano, result)) {
-                return result;
-            }
-            
-            // Step 10: Save result
-            if (!imwrite(output_path, pano)) {
-                result.error_message = "Failed to write output image";
-                return result;
-            }
-            
-            result.success = true;
-            result.width = pano.cols;
-            result.height = pano.rows;
-            result.cameras = cameras;
-            
-            LOGI("360° stitching completed successfully: %dx%d", result.width, result.height);
-            return result;
-            
-        } catch (const cv::Exception& e) {
-            LOGE("OpenCV exception: %s", e.what());
-            result.error_message = string("OpenCV error: ") + e.what();
-            return result;
-        } catch (const std::exception& e) {
-            LOGE("Standard exception: %s", e.what());
-            result.error_message = string("Error: ") + e.what();
-            return result;
-        } catch (...) {
-            LOGE("Unknown exception");
-            result.error_message = "Unknown error during stitching";
-            return result;
+    for (int v = 0; v < H; ++v) {
+        double el = (0.5 - (v + 0.5) / H) * CV_PI;  // elevation
+        double ce = cos(el), se = sin(el);
+        float* dxRow = dx.ptr<float>(v);
+        float* dyRow = dy.ptr<float>(v);
+        float* dzRow = dz.ptr<float>(v);
+        for (int u = 0; u < W; ++u) {
+            double lon = ((u + 0.5) / W - 0.5) * 2.0 * CV_PI;
+            dxRow[u] = float(ce * sin(lon));
+            dyRow[u] = float(-se);  // Y down convention
+            dzRow[u] = float(ce * cos(lon));
         }
     }
+}
+
+// Project world direction to a specific camera's pixel coordinates
+// Returns valid mask (1 = visible in this camera)
+static void projectToCamera(const Matx33d& R_cam, const Matx33d& K,
+                           const Mat& dx, const Mat& dy, const Mat& dz,
+                           Mat& mapx, Mat& mapy, Mat& valid) {
+    int H = dx.rows, W = dx.cols;
+    mapx.create(H, W, CV_32F);
+    mapy.create(H, W, CV_32F);
+    valid.create(H, W, CV_8U);
     
-private:
-    StitchConfig360 config_;
+    Matx33d Rt = R_cam.t();  // world -> camera
     
-    bool loadImagesAndExtractFeatures(const vector<string>& image_paths,
-                                      vector<Mat>& images,
-                                      vector<Size>& full_img_sizes,
-                                      vector<ImageFeatures>& features,
-                                      StitchResult360& result) {
-        Ptr<FeaturesFinder> finder = createFeaturesFinder(config_.features_type, config_.try_cuda);
-        if (!finder) {
-            result.error_message = "Failed to create feature finder";
-            return false;
-        }
+    for (int v = 0; v < H; ++v) {
+        float* mx = mapx.ptr<float>(v);
+        float* my = mapy.ptr<float>(v);
+        uchar* vl = valid.ptr<uchar>(v);
+        const float* dxRow = dx.ptr<float>(v);
+        const float* dyRow = dy.ptr<float>(v);
+        const float* dzRow = dz.ptr<float>(v);
         
-        Mat full_img, img;
-        double work_scale = 1, seam_scale = 1;
-        bool is_work_scale_set = false, is_seam_scale_set = false;
-        double seam_work_aspect = 1;
-        
-        features.resize(image_paths.size());
-        images.resize(image_paths.size());
-        full_img_sizes.resize(image_paths.size());
-        
-        for (size_t i = 0; i < image_paths.size(); ++i) {
-            full_img = imread(image_paths[i]);
-            if (full_img.empty()) {
-                result.error_message = "Failed to load image: " + image_paths[i];
-                return false;
-            }
+        for (int u = 0; u < W; ++u) {
+            Vec3d d(dxRow[u], dyRow[u], dzRow[u]);
+            Vec3d c = Rt * d;  // direction in camera coords
             
-            full_img_sizes[i] = full_img.size();
-            
-            if (config_.work_megapix < 0) {
-                img = full_img;
-                work_scale = 1;
-                is_work_scale_set = true;
+            if (c[2] <= 1e-6) {  // behind camera
+                vl[u] = 0;
+                mx[u] = my[u] = 0;
             } else {
-                if (!is_work_scale_set) {
-                    work_scale = min(1.0, sqrt(config_.work_megapix * 1e6 / full_img.size().area()));
-                    is_work_scale_set = true;
-                }
-                resize(full_img, img, Size(), work_scale, work_scale, INTER_LINEAR_EXACT);
+                double px = K(0,0) * c[0] / c[2] + K(0,2);
+                double py = K(1,1) * c[1] / c[2] + K(1,2);
+                mx[u] = float(px);
+                my[u] = float(py);
+                vl[u] = 1;
             }
-            
-            if (!is_seam_scale_set) {
-                seam_scale = min(1.0, sqrt(config_.seam_megapix * 1e6 / full_img.size().area()));
-                seam_work_aspect = seam_scale / work_scale;
-                is_seam_scale_set = true;
-            }
-            
-            (*finder)(img, features[i]);
-            features[i].img_idx = static_cast<int>(i);
-            
-            LOGI("Image %zu: %zu features", i, features[i].keypoints.size());
-            
-            resize(full_img, img, Size(), seam_scale, seam_scale, INTER_LINEAR_EXACT);
-            images[i] = img.clone();
         }
-        
-        finder->collectGarbage();
-        return true;
     }
-    
-    Ptr<FeaturesFinder> createFeaturesFinder(const string& type, bool try_cuda) {
-        if (type == "surf") {
-#ifdef HAVE_OPENCV_XFEATURES2D
-            if (try_cuda && cuda::getCudaEnabledDeviceCount() > 0) {
-                return makePtr<SurfFeaturesFinderGpu>();
-            }
-#endif
-            return makePtr<SurfFeaturesFinder>();
-        } else if (type == "orb") {
-            return makePtr<OrbFeaturesFinder>();
-        } else if (type == "sift") {
-            return makePtr<SiftFeaturesFinder>();
-        }
-        return Ptr<FeaturesFinder>();
-    }
-    
-    bool matchFeatures(const vector<ImageFeatures>& features,
-                       vector<MatchesInfo>& pairwise_matches,
-                       StitchResult360& result) {
-        Ptr<FeaturesMatcher> matcher;
-        if (config_.matcher_type == "affine") {
-            matcher = makePtr<AffineBestOf2NearestMatcher>(false, config_.try_cuda, config_.match_conf);
-        } else if (config_.range_width == -1) {
-            matcher = makePtr<BestOf2NearestMatcher>(config_.try_cuda, config_.match_conf);
-        } else {
-            matcher = makePtr<BestOf2NearestRangeMatcher>(config_.range_width, config_.try_cuda, config_.match_conf);
-        }
-        
-        (*matcher)(features, pairwise_matches);
-        matcher->collectGarbage();
-        
-        LOGI("Pairwise matching completed");
-        return true;
-    }
-    
-    bool estimateCameras(const vector<ImageFeatures>& features,
-                         const vector<MatchesInfo>& pairwise_matches,
-                         vector<CameraParams>& cameras,
-                         StitchResult360& result) {
-        Ptr<Estimator> estimator;
-        if (config_.estimator_type == "affine") {
-            estimator = makePtr<AffineBasedEstimator>();
-        } else {
-            estimator = makePtr<HomographyBasedEstimator>();
-        }
-        
-        if (!(*estimator)(features, pairwise_matches, cameras)) {
-            result.error_message = "Camera estimation failed";
-            return false;
-        }
-        
-        // Convert rotation matrices to float
-        for (auto& cam : cameras) {
-            Mat R;
-            cam.R.convertTo(R, CV_32F);
-            cam.R = R;
-        }
-        
-        LOGI("Camera estimation completed: %zu cameras", cameras.size());
-        return true;
-    }
-    
-    bool adjustCameras(const vector<ImageFeatures>& features,
-                       const vector<MatchesInfo>& pairwise_matches,
-                       vector<CameraParams>& cameras,
-                       StitchResult360& result) {
-        Ptr<detail::BundleAdjusterBase> adjuster;
-        if (config_.ba_cost_func == "reproj") {
-            adjuster = makePtr<detail::BundleAdjusterReproj>();
-        } else if (config_.ba_cost_func == "ray") {
-            adjuster = makePtr<detail::BundleAdjusterRay>();
-        } else if (config_.ba_cost_func == "affine") {
-            adjuster = makePtr<detail::BundleAdjusterAffinePartial>();
-        } else if (config_.ba_cost_func == "no") {
-            adjuster = makePtr<NoBundleAdjuster>();
-        } else {
-            result.error_message = "Unknown bundle adjustment cost function";
-            return false;
-        }
-        
-        adjuster->setConfThresh(config_.conf_thresh);
-        
-        Mat_<uchar> refine_mask = Mat::zeros(3, 3, CV_8U);
-        if (config_.ba_refine_mask[0] == 'x') refine_mask(0,0) = 1;
-        if (config_.ba_refine_mask[1] == 'x') refine_mask(0,1) = 1;
-        if (config_.ba_refine_mask[2] == 'x') refine_mask(0,2) = 1;
-        if (config_.ba_refine_mask[3] == 'x') refine_mask(1,1) = 1;
-        if (config_.ba_refine_mask[4] == 'x') refine_mask(1,2) = 1;
-        adjuster->setRefinementMask(refine_mask);
-        
-        if (!(*adjuster)(features, pairwise_matches, cameras)) {
-            result.error_message = "Bundle adjustment failed";
-            return false;
-        }
-        
-        LOGI("Bundle adjustment completed");
-        return true;
-    }
-    
-    bool warpImagesForSeams(const vector<Mat>& images,
-                            const vector<Size>& full_img_sizes,
-                            const vector<CameraParams>& cameras,
-                            vector<Point>& corners,
-                            vector<UMat>& masks_warped,
-                            vector<UMat>& images_warped,
-                            vector<Size>& sizes,
-                            StitchResult360& result) {
-        // Calculate median focal length for warping scale
-        vector<double> focals;
-        for (const auto& cam : cameras) {
-            focals.push_back(cam.focal);
-        }
-        sort(focals.begin(), focals.end());
-        float warped_image_scale;
-        if (focals.size() % 2 == 1) {
-            warped_image_scale = static_cast<float>(focals[focals.size() / 2]);
-        } else {
-            warped_image_scale = static_cast<float>(focals[focals.size() / 2 - 1] + focals[focals.size() / 2]) * 0.5f;
-        }
-        
-        // Create warper for spherical projection (360° equirectangular)
-        Ptr<RotationWarper> warper = createWarper(config_.warp_type, warped_image_scale);
-        if (!warper) {
-            result.error_message = "Failed to create warper for type: " + config_.warp_type;
-            return false;
-        }
-        
-        corners.resize(cameras.size());
-        masks_warped.resize(cameras.size());
-        images_warped.resize(cameras.size());
-        sizes.resize(cameras.size());
-        
-        // Prepare masks
-        vector<UMat> masks(cameras.size());
-        for (size_t i = 0; i < cameras.size(); ++i) {
-            masks[i].create(images[i].size(), CV_8U);
-            masks[i].setTo(Scalar::all(255));
-        }
-        
-        // Warp images and masks
-        for (size_t i = 0; i < cameras.size(); ++i) {
-            Mat_<float> K;
-            cameras[i].K().convertTo(K, CV_32F);
-            float swa = 1.0f; // seam_work_aspect
-            K(0,0) *= swa; K(0,2) *= swa;
-            K(1,1) *= swa; K(1,2) *= swa;
-            
-            corners[i] = warper->warp(images[i], K, cameras[i].R, INTER_LINEAR, BORDER_REFLECT, images_warped[i]);
-            sizes[i] = images_warped[i].size();
-            warper->warp(masks[i], K, cameras[i].R, INTER_NEAREST, BORDER_CONSTANT, masks_warped[i]);
-        }
-        
-        LOGI("Warping for seams completed");
-        return true;
-    }
-    
-    Ptr<RotationWarper> createWarper(const string& warp_type, float scale) {
-        if (warp_type == "plane") return makePtr<PlaneWarper>(scale);
-        if (warp_type == "affine") return makePtr<AffineWarper>(scale);
-        if (warp_type == "cylindrical") return makePtr<CylindricalWarper>(scale);
-        if (warp_type == "spherical") return makePtr<SphericalWarper>(scale);  // 360° equirectangular
-        if (warp_type == "fisheye") return makePtr<FisheyeWarper>(scale);
-        if (warp_type == "stereographic") return makePtr<StereographicWarper>(scale);
-        if (warp_type == "compressedPlaneA2B1") return makePtr<CompressedRectilinearWarper>(2.0f, 1.0f, scale);
-        if (warp_type == "compressedPlaneA1.5B1") return makePtr<CompressedRectilinearWarper>(1.5f, 1.0f, scale);
-        if (warp_type == "paniniA2B1") return makePtr<PaniniWarper>(2.0f, 1.0f, scale);
-        if (warp_type == "paniniA1.5B1") return makePtr<PaniniWarper>(1.5f, 1.0f, scale);
-        if (warp_type == "mercator") return makePtr<MercatorWarper>(scale);
-        if (warp_type == "transverseMercator") return makePtr<TransverseMercatorWarper>(scale);
-        return Ptr<RotationWarper>();
-    }
-    
-    Ptr<SeamFinder> createSeamFinder(const string& type, bool try_cuda) {
-        if (type == "no") return makePtr<NoSeamFinder>();
-        if (type == "voronoi") return makePtr<VoronoiSeamFinder>();
-        if (type == "gc_color") {
-#ifdef HAVE_OPENCV_CUDALEGACY
-            if (try_cuda && cuda::getCudaEnabledDeviceCount() > 0) {
-                return makePtr<GraphCutSeamFinderGpu>(GraphCutSeamFinderBase::COST_COLOR);
-            }
-#endif
-            return makePtr<GraphCutSeamFinder>(GraphCutSeamFinderBase::COST_COLOR);
-        }
-        if (type == "gc_colorgrad") {
-#ifdef HAVE_OPENCV_CUDALEGACY
-            if (try_cuda && cuda::getCudaEnabledDeviceCount() > 0) {
-                return makePtr<GraphCutSeamFinderGpu>(GraphCutSeamFinderBase::COST_COLOR_GRAD);
-            }
-#endif
-            return makePtr<GraphCutSeamFinder>(GraphCutSeamFinderBase::COST_COLOR_GRAD);
-        }
-        if (type == "dp_color") return makePtr<DpSeamFinder>(DpSeamFinder::COLOR);
-        if (type == "dp_colorgrad") return makePtr<DpSeamFinder>(DpSeamFinder::COLOR_GRAD);
-        return Ptr<SeamFinder>();
-    }
-    
-    bool warpAndBlendFinal(const vector<Mat>& images,
-                           const vector<Size>& full_img_sizes,
-                           const vector<CameraParams>& cameras,
-                           const vector<Point>& corners,
-                           const vector<Size>& sizes,
-                           Ptr<ExposureCompensator> compensator,
-                           const vector<UMat>& masks_warped,
-                           Mat& pano,
-                           StitchResult360& result) {
-        // Recalculate warping scale for final composition
-        vector<double> focals;
-        for (const auto& cam : cameras) {
-            focals.push_back(cam.focal);
-        }
-        sort(focals.begin(), focals.end());
-        float warped_image_scale;
-        if (focals.size() % 2 == 1) {
-            warped_image_scale = static_cast<float>(focals[focals.size() / 2]);
-        } else {
-            warped_image_scale = static_cast<float>(focals[focals.size() / 2 - 1] + focals[focals.size() / 2]) * 0.5f;
-        }
-        
-        // Apply compose scale if needed
-        double compose_scale = 1.0;
-        if (config_.compose_megapix > 0) {
-            compose_scale = min(1.0, sqrt(config_.compose_megapix * 1e6 / full_img_sizes[0].area()));
-            warped_image_scale *= static_cast<float>(compose_scale);
-        }
-        
-        // Create final warper for spherical projection
-        Ptr<RotationWarper> warper = createWarper(config_.warp_type, warped_image_scale);
-        if (!warper) {
-            result.error_message = "Failed to create final warper";
-            return false;
-        }
-        
-        // Update corners and sizes for final resolution
-        vector<Point> final_corners(cameras.size());
-        vector<Size> final_sizes(cameras.size());
-        vector<CameraParams> final_cameras = cameras;
-        
-        for (size_t i = 0; i < cameras.size(); ++i) {
-            if (config_.compose_megapix > 0) {
-                final_cameras[i].focal *= compose_scale;
-                final_cameras[i].ppx *= compose_scale;
-                final_cameras[i].ppy *= compose_scale;
-            }
-            
-            Size sz = full_img_sizes[i];
-            if (config_.compose_megapix > 0) {
-                sz.width = cvRound(full_img_sizes[i].width * compose_scale);
-                sz.height = cvRound(full_img_sizes[i].height * compose_scale);
-            }
-            
-            Mat K;
-            final_cameras[i].K().convertTo(K, CV_32F);
-            Rect roi = warper->warpRoi(sz, K, final_cameras[i].R);
-            final_corners[i] = roi.tl();
-            final_sizes[i] = roi.size();
-        }
-        
-        // Create blender
-        Ptr<Blender> blender = Blender::createDefault(Blender::MULTI_BAND, false);
-        Size dst_sz = resultRoi(final_corners, final_sizes).size();
-        float blend_width = sqrt(static_cast<float>(dst_sz.area())) * 5.0f / 100.0f;
-        
-        if (blend_width < 1.0f) {
-            blender = Blender::createDefault(Blender::NO, false);
-        } else {
-            MultiBandBlender* mb = dynamic_cast<MultiBandBlender*>(blender.get());
-            if (mb) {
-                mb->setNumBands(static_cast<int>(ceil(log(blend_width)/log(2.0)) - 1.0));
-                LOGI("Multi-band blender, bands: %d", mb->numBands());
-            }
-        }
-        
-        blender->prepare(final_corners, final_sizes);
-        
-        // Process each image for final blending
-        for (size_t img_idx = 0; img_idx < images.size(); ++img_idx) {
-            LOGI("Compositing image %zu", img_idx);
-            
-            Mat full_img = imread(""); // Will be loaded per image
-            // Note: In real implementation, we'd reload images here at full resolution
-            // For now, use the already loaded images at seam resolution
-            
-            Mat img = images[img_idx]; // Use seam-resolution image
-            if (config_.compose_megapix > 0) {
-                // Would need to reload at full resolution here
-            }
-            
-            Mat K;
-            cameras[img_idx].K().convertTo(K, CV_32F);
-            if (config_.compose_megapix > 0) {
-                // K already scaled in final_cameras
-            }
-            
-            Mat img_warped, mask_warped;
-            warper->warp(img, K, cameras[img_idx].R, INTER_LINEAR, BORDER_REFLECT, img_warped);
-            
-            Mat mask(img.size(), CV_8U, Scalar::all(255));
-            warper->warp(mask, K, cameras[img_idx].R, INTER_NEAREST, BORDER_CONSTANT, mask_warped);
-            
-            // Apply exposure compensation
-            compensator->apply(static_cast<int>(img_idx), final_corners[img_idx], img_warped, mask_warped);
-            
-            img_warped.convertTo(img_warped, CV_16S);
-            blender->feed(img_warped, mask_warped, final_corners[img_idx]);
-        }
-        
-        // Final blend
-        Mat result_mask;
-        blender->blend(pano, result_mask);
-        
-        LOGI("Final blending completed: %dx%d", pano.cols, pano.rows);
-        return true;
-    }
-    
-    StitchConfig360 config_;
+}
+
+// ============================================================================
+// Shot data structure (from sidecar poses.json)
+// ============================================================================
+
+struct Shot {
+    string file;              // absolute path
+    double yawDeg = 0, pitchDeg = 0, rollDeg = 0;
+    double gain = 1.0;        // exposure gain (set by equalizeGains)
+    Matx33d R;                // camera -> world rotation
+    float hfovDeg = 65.0f;    // horizontal FOV
 };
 
-/**
- * JNI Interface
- */
+// Load poses from sidecar JSON written by Kotlin
+static bool loadPoses(const string& jsonPath, vector<Shot>& shots, int& outW, int& outH, double& hfovDeg) {
+    ifstream f(jsonPath);
+    if (!f.is_open()) return false;
+    
+    string json((istreambuf_iterator<char>(f)), istreambuf_iterator<char>());
+    
+    // Simple JSON parsing (could use nlohmann/json if available)
+    // Expected format from Kotlin:
+    // {"hfov_deg":65.0,"plan":"A24","shots":[{"file":"...","index":0,"yaw_deg":0,"pitch_deg":0,"roll_deg":0,"target_yaw_deg":0,"target_pitch_deg":0,"q_wxyz":[1,0,0,0]},...]}
+    
+    // Quick parse using OpenCV FileStorage (write as YAML first from Kotlin, or use simple parsing)
+    // For robustness, we'll do simple string parsing here
+    
+    // Find hfov_deg
+    size_t pos = json.find("\"hfov_deg\":");
+    if (pos != string::npos) {
+        pos += 11;
+        hfovDeg = stod(json.substr(pos));
+    } else {
+        hfovDeg = 65.0;
+    }
+    
+    // Parse shots array
+    size_t shotsStart = json.find("\"shots\":");
+    if (shotsStart == string::npos) return false;
+    
+    string shotsJson = json.substr(shotsStart);
+    size_t bracket = shotsJson.find('[');
+    if (bracket == string::npos) return false;
+    shotsJson = shotsJson.substr(bracket + 1);
+    
+    // Simple shot parsing
+    size_t objStart = 0;
+    while ((objStart = shotsJson.find('{', objStart)) != string::npos) {
+        size_t objEnd = shotsJson.find('}', objStart);
+        if (objEnd == string::npos) break;
+        string obj = shotsJson.substr(objStart, objEnd - objStart + 1);
+        
+        Shot s;
+        
+        auto extract = [&](const string& key, double& val) {
+            size_t k = obj.find("\"" + key + "\":");
+            if (k != string::npos) {
+                k += key.length() + 3;
+                val = stod(obj.substr(k));
+            }
+        };
+        
+        auto extractStr = [&](const string& key, string& val) {
+            size_t k = obj.find("\"" + key + "\":");
+            if (k != string::npos) {
+                k += key.length() + 3;
+                size_t end = obj.find('"', k);
+                if (end != string::npos) {
+                    val = obj.substr(k, end - k);
+                }
+            }
+        };
+        
+        extractStr("file", s.file);
+        extract("yaw_deg", s.yawDeg);
+        extract("pitch_deg", s.pitchDeg);
+        extract("roll_deg", s.rollDeg);
+        extract("target_yaw_deg", s.yawDeg);  // fallback
+        extract("target_pitch_deg", s.pitchDeg);
+        
+        s.R = R_from_ypr(s.yawDeg, s.pitchDeg, s.rollDeg);
+        shots.push_back(s);
+        
+        objStart = objEnd + 1;
+    }
+    
+    return !shots.empty();
+}
+
+// ============================================================================
+// Gain compensation (exposure equalization) on equirect grid
+// ============================================================================
+
+static void equalizeGains(vector<Shot>& shots, const Matx33d& K, int W = 512, int H = 256, int iters = 30) {
+    LOGI("Computing gain compensation on %dx%d grid", W, H);
+    
+    Mat dx, dy, dz;
+    buildEquirectGrids(W, H, dx, dy, dz);
+    
+    int n = shots.size();
+    vector<Mat> masks(n), means(n);
+    
+    // 1. Warp each frame to equirect grid at low res, compute masks and means
+    for (int i = 0; i < n; ++i) {
+        Mat mapx, mapy, valid;
+        projectToCamera(shots[i].R, K, dx, dy, dz, mapx, mapy, valid);
+        
+        Mat img = imread(shots[i].file, IMREAD_GRAYSCALE);
+        if (img.empty()) {
+            LOGW("Failed to read %s", shots[i].file.c_str());
+            masks[i] = Mat::zeros(H, W, CV_8U);
+            means[i] = Mat::zeros(H, W, CV_32F);
+            continue;
+        }
+        resize(img, img, Size(W, H));
+        Mat warped;
+        remap(img, warped, mapx, mapy, INTER_LINEAR, BORDER_CONSTANT, 0);
+        
+        masks[i] = valid.clone();
+        warped.convertTo(means[i], CV_32F);
+    }
+    
+    // 2. Solve linear system in log space: log g_i - log g_j = log mean_j - log mean_i
+    Mat A = Mat::zeros(n + 1, n, CV_64F);
+    Mat b = Mat::zeros(n + 1, 1, CV_64F);
+    
+    for (int i = 0; i < n; ++i) {
+        for (int j = i + 1; j < n; ++j) {
+            Mat both = (masks[i] > 0) & (masks[j] > 0);
+            double area = countNonZero(both) / double(W * H);
+            if (area < 0.02) continue;  // too little overlap
+            
+            double mi = mean(means[i], both)[0];
+            double mj = mean(means[j], both)[0];
+            if (mi < 1 || mj < 1) continue;
+            
+            A.at<double>(i, i) += 1; A.at<double>(j, j) += 1;
+            A.at<double>(i, j) -= 1; A.at<double>(j, i) -= 1;
+            b.at<double>(i) += log(mj) - log(mi);
+            b.at<double>(j) -= log(mj) - log(mi);
+        }
+    }
+    
+    // Fix scale: sum of log-gains = 0
+    for (int i = 0; i < n; ++i) A.at<double>(n, i) = 1.0;
+    
+    Mat x;
+    solve(A, b, x, DECOMP_SVD);
+    
+    for (int i = 0; i < n; ++i) shots[i].gain = exp(x.at<double>(i));
+    
+    // Normalize gains to mean 1
+    double meanLog = 0;
+    for (int i = 0; i < n; ++i) meanLog += log(shots[i].gain);
+    meanLog /= n;
+    for (auto& s : shots) s.gain /= exp(meanLog);
+    
+    LOGI("Gains computed: min=%.3f max=%.3f", 
+         *min_element(shots.begin(), shots.end(), [](auto& a, auto& b){ return a.gain < b.gain; }),
+         *max_element(shots.begin(), shots.end(), [](auto& a, auto& b){ return a.gain < b.gain; }));
+}
+
+// ============================================================================
+// Main rendering: remap each frame to equirectangular, feather blend
+// ============================================================================
+
+struct PanoResult {
+    Mat img;      // CV_32FC3 equirectangular
+    Mat wsum;     // CV_32F weight sum
+    double coverage = 0;
+    vector<double> bandCoverage;  // per 10° latitude band
+};
+
+static PanoResult renderEquirect(const vector<Shot>& shots, const Matx33d& K,
+                                 int outW = 1024, int ssaa = 2) {
+    int W = outW * ssaa;
+    int H = outW / 2 * ssaa;
+    
+    LOGI("Rendering equirectangular %dx%d (SSAA %dx)", outW, outW/2, ssaa);
+    
+    Mat dx, dy, dz;
+    buildEquirectGrids(W, H, dx, dy, dz);
+    
+    PanoResult out;
+    out.img = Mat::zeros(H, W, CV_32FC3);
+    out.wsum = Mat::zeros(H, W, CV_32F);
+    
+    for (size_t i = 0; i < shots.size(); ++i) {
+        const Shot& s = shots[i];
+        LOGI("  Warping frame %zu/%zu: %s", i+1, shots.size(), s.file.c_str());
+        
+        Mat img = imread(s.file, IMREAD_COLOR);
+        if (img.empty()) {
+            LOGW("Failed to read %s", s.file.c_str());
+            continue;
+        }
+        img.convertTo(img, CV_32FC3, s.gain / 255.0);
+        
+        Mat mapx, mapy, valid;
+        projectToCamera(s.R, K, dx, dy, dz, mapx, mapy, valid);
+        
+        Mat warped;
+        remap(img, warped, mapx, mapy, INTER_LINEAR, BORDER_CONSTANT, Scalar::all(0));
+        
+        // Feather weight: distance to valid edge
+        Mat w;
+        distanceTransform(valid, w, DIST_L2, 3);
+        w.convertTo(w, CV_32F);
+        double maxD = 64.0 * 2.0;  // in SSAA space
+        w = min(w / maxD, 1.0f) + 1e-3f;
+        w.setTo(0, valid == 0);
+        
+        Mat w3;
+        merge(vector<Mat>{w, w, w}, w3);
+        
+        out.img += warped.mul(w3);
+        out.wsum += w;
+    }
+    
+    // Normalize
+    Mat wsum3;
+    merge(vector<Mat>{out.wsum, out.wsum, out.wsum}, wsum3);
+    Mat pano = out.img.mul(1.0f / (wsum3 + 1e-6f));
+    pano.setTo(Scalar::all(0), out.wsum < 1e-4f);
+    
+    // Downsample from SSAA
+    if (ssaa > 1) {
+        resize(pano, pano, Size(outW, outW/2), 0, 0, INTER_AREA);
+    }
+    
+    out.img = pano;
+    out.img.convertTo(out.img, CV_8UC3, 255.0);
+    
+    // Coverage stats
+    Mat dsWsum;
+    if (ssaa > 1) {
+        resize(out.wsum, dsWsum, Size(outW, outW/2), 0, 0, INTER_AREA);
+    } else {
+        dsWsum = out.wsum;
+    }
+    
+    out.coverage = countNonZero(dsWsum > 1e-4f) / double(dsWsum.total());
+    
+    // Per 10° latitude band
+    out.bandCoverage.resize(18);
+    for (int b = 0; b < 18; ++b) {
+        int y0 = b * outW / 36;
+        int y1 = (b + 1) * outW / 36;
+        Mat band = dsWsum.rowRange(y0, y1);
+        out.bandCoverage[b] = 100.0 * countNonZero(band > 1e-4f) / band.total();
+        LOGI("  Band %+4d..%+4d: %.2f%%", 90 - b * 10, 80 - b * 10, out.bandCoverage[b]);
+    }
+    
+    LOGI("Total coverage: %.4f%%", out.coverage * 100);
+    return out;
+}
+
+// ============================================================================
+// Optional SIFT pose refinement on overlapping edges
+// ============================================================================
+
+static double costFor(int i, const Vec3d& ypr,
+                      const vector<pair<int,int>>& edges,
+                      const vector<Mat>& descs,
+                      const vector<vector<KeyPoint>>& kps,
+                      vector<Matx33d>& R, const Matx33d& K) {
+    R[i] = R_from_ypr(ypr[0], ypr[1], ypr[2]);
+    double c = 0; int cnt = 0;
+    Ptr<SIFT> sift = SIFT::create(2000);
+    BFMatcher bf(NORM_L2);
+    
+    for (auto& e : edges) {
+        int a = e.first, b = e.second;
+        if (a != i && b != i) continue;
+        int other = (a == i) ? b : a;
+        
+        vector<DMatch> good;
+        vector<vector<DMatch>> knn;
+        bf.knnMatch(descs[a], descs[b], knn, 2);
+        for (auto& v : knn) if (v.size() == 2 && v[0].distance < 0.8f * v[1].distance)
+            good.push_back(v[0]);
+        if (good.size() < 20) continue;
+        
+        vector<Point2f> pa, pb;
+        for (auto& g : good) {
+            pa.push_back(kps[a][g.queryIdx].pt);
+            pb.push_back(kps[b][g.trainIdx].pt);
+        }
+        
+        for (size_t k = 0; k < pa.size(); ++k) {
+            Vec3d da = R[a] * Vec3d((pa[k].x - K(0,2))/K(0,0), (pa[k].y - K(1,2))/K(1,1), 1.0);
+            Vec3d db = R[b] * Vec3d((pb[k].x - K(0,2))/K(0,0), (pb[k].y - K(1,2))/K(1,1), 1.0);
+            double cang = (da.dot(db)) / (norm(da) * norm(db));
+            c += acos(clamp(cang, -1.0, 1.0)) * 180.0 / CV_PI;
+            ++cnt;
+        }
+    }
+    return cnt ? c / cnt : 1e9;
+}
+
+static void refinePoses(vector<Shot>& shots, const vector<pair<int,int>>& edges,
+                        const Matx33d& K, int iters = 4, double step = 0.2) {
+    LOGI("Refining poses with SIFT on %zu edges...", edges.size());
+    
+    int n = shots.size();
+    vector<Mat> descs(n);
+    vector<vector<KeyPoint>> kps(n);
+    Ptr<SIFT> sift = SIFT::create(2000);
+    
+    for (int i = 0; i < n; ++i) {
+        Mat img = imread(shots[i].file, IMREAD_GRAYSCALE);
+        sift->detectAndCompute(img, noArray(), kps[i], descs[i]);
+    }
+    
+    vector<Matx33d> R(n);
+    for (int i = 0; i < n; ++i) R[i] = shots[i].R;
+    
+    for (int it = 0; it < iters; ++it) {
+        int moved = 0;
+        for (int i = 0; i < n; ++i) {
+            Vec3d best(shots[i].yawDeg, shots[i].pitchDeg, shots[i].rollDeg);
+            double bc = costFor(i, best, edges, descs, kps, R, K);
+            for (int ax = 0; ax < 3; ++ax) {
+                for (double d : {+step, -step}) {
+                    Vec3d cand = best; cand[ax] += d;
+                    double c = costFor(i, cand, edges, descs, kps, R, K);
+                    if (c < bc) { bc = c; best = cand; ++moved; }
+                }
+            }
+            shots[i].yawDeg = best[0]; shots[i].pitchDeg = best[1]; shots[i].rollDeg = best[2];
+            R[i] = R_from_ypr(best[0], best[1], best[2]);
+        }
+        if (!moved) break;
+        LOGI("  Iteration %d: %d poses moved", it+1, moved);
+    }
+    
+    for (int i = 0; i < n; ++i) shots[i].R = R[i];
+}
+
+// ============================================================================
+// JNI Interface
+// ============================================================================
+
 extern "C" {
+
+struct StitchConfig {
+    int outWidth = 1024;
+    int ssaa = 2;
+    double hfovDeg = 65.0;
+    bool doGain = true;
+    bool doRefine = true;
+    int refineIters = 4;
+    string jsonPath;
+    string outputPath;
+};
 
 JNIEXPORT jboolean JNICALL
 Java_com_n30dyn4m1c_photosphere_stitching_OpenCv360Stitcher_nativeStitch360(
     JNIEnv* env, jobject thiz,
-    jobjectArray image_paths,
-    jstring output_path,
-    jint work_megapix,
-    jint seam_megapix,
-    jint compose_megapix,
-    jfloat match_conf,
-    jfloat blend_strength,
-    jboolean try_cuda) {
+    jstring jsonPath,
+    jstring outputPath,
+    jint outWidth,
+    jint ssaa,
+    jfloat hfovDeg,
+    jboolean doGain,
+    jboolean doRefine,
+    jint refineIters) {
     
-    // Convert Java strings to C++
-    jsize count = env->GetArrayLength(image_paths);
-    vector<string> paths;
-    paths.reserve(count);
+    const char* jsonC = env->GetStringUTFChars(jsonPath, nullptr);
+    const char* outC = env->GetStringUTFChars(outputPath, nullptr);
     
-    for (jsize i = 0; i < count; ++i) {
-        jstring jstr = (jstring)env->GetObjectArrayElement(image_paths, i);
-        const char* cstr = env->GetStringUTFChars(jstr, nullptr);
-        paths.emplace_back(cstr);
-        env->ReleaseStringUTFChars(jstr, cstr);
-        env->DeleteLocalRef(jstr);
+    StitchConfig cfg;
+    cfg.jsonPath = jsonC;
+    cfg.outputPath = outC;
+    cfg.outWidth = outWidth;
+    cfg.ssaa = ssaa;
+    cfg.hfovDeg = hfovDeg;
+    cfg.doGain = doGain;
+    cfg.doRefine = doRefine;
+    cfg.refineIters = refineIters;
+    
+    env->ReleaseStringUTFChars(jsonPath, jsonC);
+    env->ReleaseStringUTFChars(outputPath, outC);
+    
+    LOGI("Starting 360° C++ stitcher: json=%s out=%s W=%d ssaa=%d hfov=%.1f gain=%d refine=%d iters=%d",
+         cfg.jsonPath.c_str(), cfg.outputPath.c_str(), cfg.outWidth, cfg.ssaa, cfg.hfovDeg,
+         cfg.doGain, cfg.doRefine, cfg.refineIters);
+    
+    try {
+        // 1. Load poses from sidecar JSON
+        vector<Shot> shots;
+        int imgW = 0, imgH = 0;
+        double hfov = cfg.hfovDeg;
+        if (!loadPoses(cfg.jsonPath, shots, imgW, imgH, hfov)) {
+            LOGE("Failed to load poses from %s", cfg.jsonPath.c_str());
+            return JNI_FALSE;
+        }
+        
+        if (shots.size() < 2) {
+            LOGE("Need at least 2 shots, got %zu", shots.size());
+            return JNI_FALSE;
+        }
+        
+        // Read first image to get dimensions if not in JSON
+        Mat first = imread(shots[0].file, IMREAD_UNCHANGED);
+        if (!first.empty()) {
+            imgW = first.cols;
+            imgH = first.rows;
+        }
+        
+        if (imgW == 0 || imgH == 0) {
+            LOGE("Could not determine image dimensions");
+            return JNI_FALSE;
+        }
+        
+        // Intrinsics
+        Matx33d K = K_from_hfov(imgW, imgH, hfov);
+        LOGI("Image: %dx%d, K: f=%.2f, hfov=%.1f", imgW, imgH, K(0,0), hfov);
+        
+        // 2. Gain compensation
+        if (cfg.doGain) {
+            equalizeGains(shots, K);
+        }
+        
+        // 3. Optional SIFT pose refinement (uses known poses as initialization)
+        if (cfg.doRefine && shots.size() >= 2) {
+            // Build edges between neighboring frames in capture order + spatial neighbors
+            vector<pair<int,int>> edges;
+            for (size_t i = 0; i < shots.size(); ++i) {
+                if (i + 1 < shots.size()) edges.emplace_back(i, i+1);
+            }
+            // Add ring neighbors (same pitch ring)
+            for (size_t i = 0; i < shots.size(); ++i) {
+                for (size_t j = i+1; j < shots.size(); ++j) {
+                    if (abs(shots[i].pitchDeg - shots[j].pitchDeg) < 1.0 &&
+                        abs(shots[i].yawDeg - shots[j].yawDeg) > 10 &&
+                        abs(shots[i].yawDeg - shots[j].yawDeg) < 80) {
+                        edges.emplace_back(i, j);
+                    }
+                }
+            }
+            refinePoses(shots, edges, K, cfg.refineIters);
+        }
+        
+        // 4. Render equirectangular
+        PanoResult result = renderEquirect(shots, K, cfg.outWidth, 2);
+        
+        if (result.coverage < 0.95) {
+            LOGW("Low coverage: %.2f%%", result.coverage * 100);
+        }
+        
+        // 5. Save output
+        if (!imwrite(cfg.outputPath, result.img)) {
+            LOGE("Failed to write output to %s", cfg.outputPath.c_str());
+            return JNI_FALSE;
+        }
+        
+        LOGI("360° C++ stitching completed: %s (%dx%d) coverage=%.2f%%",
+             cfg.outputPath.c_str(), result.img.cols, result.img.rows, result.coverage * 100);
+        
+        return JNI_TRUE;
+        
+    } catch (const cv::Exception& e) {
+        LOGE("OpenCV error: %s", e.what());
+        return JNI_FALSE;
+    } catch (const exception& e) {
+        LOGE("Std error: %s", e.what());
+        return JNI_FALSE;
+    } catch (...) {
+        LOGE("Unknown error");
+        return JNI_FALSE;
     }
-    
-    const char* out_cstr = env->GetStringUTFChars(output_path, nullptr);
-    string out_path(out_cstr);
-    env->ReleaseStringUTFChars(output_path, out_cstr);
-    
-    // Configure stitcher
-    StitchConfig360 config;
-    config.work_megapix = work_megapix;
-    config.seam_megapix = seam_megapix;
-    config.compose_megapix = compose_megapix;
-    config.match_conf = match_conf;
-    config.blend_strength = blend_strength;
-    config.try_cuda = try_cuda;
-    config.warp_type = "spherical";  // Force spherical for 360°
-    config.features_type = "orb";    // Fast and good for 360°
-    config.result_name = out_path;
-    
-    // Run stitching
-    EquirectangularStitcher360 stitcher(config);
-    StitchResult360 result = stitcher.stitch(paths, out_path);
-    
-    return result.success ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jstring JNICALL
 Java_com_n30dyn4m1c_photosphere_stitching_OpenCv360Stitcher_nativeGetError(
     JNIEnv* env, jobject thiz) {
-    // In a real implementation, you'd store the last error
-    return env->NewStringUTF("No error");
+    return env->NewStringUTF("See logcat for details");
 }
 
 } // extern "C"

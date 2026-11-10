@@ -9,10 +9,21 @@ import kotlinx.coroutines.withContext
 /**
  * OpenCV 360° Equirectangular Stitcher - JNI Wrapper
  * 
- * Debug-only wrapper for the native OpenCV stitching pipeline.
- * Provides high-quality 360° equirectangular panorama stitching
- * using OpenCV's full stitching pipeline (feature detection, matching,
- * camera estimation, bundle adjustment, warping, blending).
+ * Debug-only wrapper for the native OpenCV stitching pipeline that implements
+ * the EXACT pipeline from sphere-100-percent-cpp-kotlin.md:
+ * - Uses KNOWN poses from gyroscope (sidecar poses.json) — NO feature matching for pose estimation
+ * - Direct equirectangular 2:1 rendering via cv::remap with known poses
+ * - Gain compensation (exposure equalization) on equirect grid
+ * - Feather blending via distance transform on valid masks
+ * - Optional SIFT pose refinement on overlapping edges
+ * - Coverage validation per 10° latitude band
+ * 
+ * Coordinate convention (from sphere-100-percent-cpp-kotlin.md §1):
+ *   World: X right, Y down, Z forward
+ *   yaw   : rotation around Y, positive = right
+ *   pitch : rotation around X, positive = UP (camera tilted up)
+ *   roll  : rotation around Z, positive = clockwise from behind
+ *   R = Ry(yaw) * Rx(pitch) * Rz(roll)  -- camera -> world
  * 
  * This is a DEBUG-ONLY module. It loads the native library
  * 'opencv_360_stitcher' which must be built via CMake.
@@ -21,14 +32,14 @@ import kotlinx.coroutines.withContext
  * ```kotlin
  * val stitcher = OpenCv360Stitcher()
  * val result = stitcher.stitch360(
- *     imagePaths = listOf("/path/img1.jpg", "/path/img2.jpg", ...),
+ *     jsonPath = "/path/poses.json",  // sidecar with poses from Kotlin
  *     outputPath = "/path/output_pano.jpg",
- *     workMegapix = 0.6,
- *     seamMegapix = 0.1,
- *     composeMegapix = -1.0,  // -1 = original resolution
- *     matchConf = 0.3f,
- *     blendStrength = 5.0f,
- *     tryCuda = false
+ *     outWidth = 1024,
+ *     ssaa = 2,
+ *     hfovDeg = 65.0f,
+ *     doGain = true,
+ *     doRefine = true,
+ *     refineIters = 4
  * )
  * ```
  * 
@@ -75,92 +86,102 @@ class OpenCv360Stitcher private constructor() {
     }
     
     /**
-     * Stitches a 360° equirectangular panorama from multiple images.
+     * Stitches a 360° equirectangular panorama from images with known poses.
      * 
-     * @param imagePaths List of absolute paths to input images (JPEG/PNG)
-     * @param outputPath Absolute path for output equirectangular panorama
-     * @param workMegapix Resolution for feature detection (default: 0.6 Mpx)
-     * @param seamMegapix Resolution for seam estimation (default: 0.1 Mpx)
-     * @param composeMegapix Resolution for final composition, -1 for original (default: -1)
-     * @param matchConf Feature matching confidence threshold (default: 0.3 for ORB)
-     * @param blendStrength Blending strength 0-100 (default: 5)
-     * @param tryCuda Attempt to use CUDA if available (default: false)
-     * @return Result with success status, output path, dimensions, and error message
+     * The poses MUST be provided in a sidecar JSON file (poses.json) written by Kotlin
+     * with the exact format expected by the C++ implementation:
+     * ```json
+     * {
+     *   "hfov_deg": 65.0,
+     *   "shots": [
+     *     {"file": "/abs/path/img0.jpg", "index": 0, "yaw_deg": 0.0, "pitch_deg": 0.0, "roll_deg": 0.0},
+     *     ...
+     *   ]
+     * }
+     * ```
+     * 
+     * Coordinate convention (from sphere-100-percent-cpp-kotlin.md §1):
+     * - World: X right, Y down, Z forward
+     * - yaw: rotation around Y, positive = right
+     * - pitch: rotation around X, positive = UP (camera tilted up)
+     * - roll: rotation around Z, positive = clockwise from behind
+     * - R = Ry(yaw) * Rx(pitch) * Rz(roll)  -- camera -> world
+     * 
+     * @param jsonPath Absolute path to poses.json sidecar file
+     * @param outputPath Absolute path for output equirectangular panorama (2:1 JPEG)
+     * @param outWidth Output width in pixels (height = width/2)
+     * @param ssaa Super-sampling anti-aliasing factor (2 = 2x, recommended for poles)
+     * @param hfovDeg Horizontal FOV in degrees (must match capture)
+     * @param doGain Apply gain compensation (exposure equalization) on equirect grid
+     * @param doRefine Run optional SIFT pose refinement on overlapping edges
+     * @param refineIters Number of SIFT refinement iterations
+     * @return Result with success status, output path, dimensions, coverage stats
      */
     suspend fun stitch360(
-        imagePaths: List<String>,
+        jsonPath: String,
         outputPath: String,
-        workMegapix: Double = 0.6,
-        seamMegapix: Double = 0.1,
-        composeMegapix: Double = -1.0,
-        matchConf: Float = 0.3f,
-        blendStrength: Float = 5.0f,
-        tryCuda: Boolean = false
+        outWidth: Int = 1024,
+        ssaa: Int = 2,
+        hfovDeg: Float = 65.0f,
+        doGain: Boolean = true,
+        doRefine: Boolean = true,
+        refineIters: Int = 4
     ): Stitch360Result = withContext(Dispatchers.IO) {
-        if (imagePaths.size < 2) {
-            Stitch360Result(
-                success = false,
-                errorMessage = "Need at least 2 images for 360° stitching"
-            )
-        } else {
-            val result = nativeStitch360(
-                imagePaths = imagePaths.toTypedArray(),
-                outputPath = outputPath,
-                workMegapix = workMegapix.toFloat(),
-                seamMegapix = seamMegapix.toFloat(),
-                composeMegapix = composeMegapix.toFloat(),
-                matchConf = matchConf,
-                blendStrength = blendStrength,
-                tryCuda = tryCuda
-            )
-            
-            Stitch360Result(
-                success = result.success,
-                outputPath = if (result.success) outputPath else "",
-                width = result.width,
-                height = result.height,
-                errorMessage = if (!result.success) nativeGetError() else null
-            )
-        }
+        val result = nativeStitch360(
+            jsonPath = jsonPath,
+            outputPath = outputPath,
+            outWidth = outWidth,
+            ssaa = ssaa,
+            hfovDeg = hfovDeg,
+            doGain = doGain,
+            doRefine = doRefine,
+            refineIters = refineIters
+        )
+        
+        Stitch360Result(
+            success = result.success,
+            outputPath = if (result.success) outputPath else "",
+            width = result.width,
+            height = result.height,
+            coverage = result.coverage,
+            bandCoverage = result.bandCoverage,
+            errorMessage = if (!result.success) nativeGetError() else null
+        )
     }
     
     /**
-     * Stitches with default settings optimized for 360° phone panoramas.
+     * Convenience method with auto settings.
      */
     suspend fun stitch360Auto(
-        imagePaths: List<String>,
+        jsonPath: String,
         outputPath: String
     ): Stitch360Result = stitch360(
-        imagePaths = imagePaths,
+        jsonPath = jsonPath,
         outputPath = outputPath,
-        workMegapix = 0.6,
-        seamMegapix = 0.1,
-        composeMegapix = -1.0,
-        matchConf = 0.3f,
-        blendStrength = 5.0f,
-        tryCuda = false
+        outWidth = 1024,
+        ssaa = 2,
+        hfovDeg = 65.0f,
+        doGain = true,
+        doRefine = true,
+        refineIters = 4
     )
     
-    // Native methods
+    // Native methods (match the C++ JNI signatures exactly)
     private external fun nativeStitch360(
-        imagePaths: Array<String>,
+        jsonPath: String,
         outputPath: String,
-        workMegapix: Float,
-        seamMegapix: Float,
-        composeMegapix: Float,
-        matchConf: Float,
-        blendStrength: Float,
-        tryCuda: Boolean
+        outWidth: Int,
+        ssaa: Int,
+        hfovDeg: Float,
+        doGain: Boolean,
+        doRefine: Boolean,
+        refineIters: Int
     ): NativeStitchResult
     
     private external fun nativeGetError(): String
     
-    /**
-     * Loads the native library statically.
-     * Called automatically by companion object.
-     */
     private companion object {
-        // Library loading is handled by the public companion object
+        // Library loading handled by public companion object
     }
 }
 
@@ -172,11 +193,13 @@ data class Stitch360Result(
     val outputPath: String = "",
     val width: Int = 0,
     val height: Int = 0,
+    val coverage: Double = 0.0,
+    val bandCoverage: List<Double> = emptyList(),
     val errorMessage: String? = null
 ) {
     override fun toString(): String {
         return if (success) {
-            "Stitch360Result(success=true, output=$outputPath, ${width}x$height)"
+            "Stitch360Result(success=true, output=$outputPath, ${width}x$height, coverage=${String.format("%.2f", coverage * 100)}%)"
         } else {
             "Stitch360Result(success=false, error=$errorMessage)"
         }
@@ -189,5 +212,7 @@ data class Stitch360Result(
 private data class NativeStitchResult(
     val success: Boolean,
     val width: Int,
-    val height: Int
+    val height: Int,
+    val coverage: Double,
+    val bandCoverage: List<Double>
 )

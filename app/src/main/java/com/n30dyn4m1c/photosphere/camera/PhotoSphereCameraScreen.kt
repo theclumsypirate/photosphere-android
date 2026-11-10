@@ -1166,18 +1166,44 @@ fun PhotoSphereCameraScreen(
         val backend = StitcherBackend.getSelectedBackend(context)
         val useCppStitcher = backend == StitcherBackend.Backend.CPP_OPENCV
 
+        // Write poses.json for C++ stitcher if using C++ backend
+        if (useCppStitcher) {
+            val sessionId = buffer.sessionId.value
+            val horizontalFovDegrees = buffer.debugCaptureFovDegrees?.firstOrNull() ?: fieldOfView.horizontalDegrees
+            val shotRecords = frames.map { frame ->
+                SphereImageStore.ShotRecord(
+                    file = frame.file,
+                    index = frame.index,
+                    yawDegrees = frame.yawDegrees,
+                    pitchDegrees = frame.pitchDegrees,
+                    rollDegrees = frame.rollDegrees,
+                )
+            }
+            SphereImageStore.writePosesJsonForCppStitcher(
+                context = context,
+                sessionId = sessionId,
+                shots = shotRecords,
+                horizontalFovDegrees = horizontalFovDegrees,
+            )
+        }
+
         try {
             val stitchResult = if (useCppStitcher) {
                 // C++ OpenCV native stitcher (debug only)
                 OpenCv360Stitcher.create()?.let { stitcher ->
-                    val framePaths = frames.map { it.file.absolutePath }
                     val outputFile = File(context.filesDir, "temp_stitch_${System.currentTimeMillis()}.jpg")
                     val result = stitcher.stitch360Auto(
-                        imagePaths = framePaths,
-                        outputPath = outputFile.absolutePath
+                        jsonPath = SphereImageStore.sessionDirectory(context, buffer.sessionId.value)
+                            .resolve("poses.json").absolutePath,
+                        outputPath = outputFile.absolutePath,
+                        outWidth = 1024,
+                        ssaa = 2,
+                        hfovDeg = (buffer.debugCaptureFovDegrees?.firstOrNull() ?: fieldOfView.horizontalDegrees),
+                        doGain = true,
+                        doRefine = true,
+                        refineIters = 4
                     )
                     if (result.success) {
-                        // Load the stitched bitmap
                         android.graphics.BitmapFactory.decodeFile(result.outputPath)
                     } else {
                         null
