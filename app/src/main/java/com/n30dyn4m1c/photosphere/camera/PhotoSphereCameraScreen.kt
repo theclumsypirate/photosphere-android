@@ -223,6 +223,16 @@ private const val THREE_A_LOCK_TIMEOUT_MS = 6_000L
  */
 private const val RING_LATITUDE_SPAN_FACTOR = 1.3f
 
+/** How far (in degrees of rotation) a shot may sit from its dwell's mean pose and
+ * still be stamped with that mean.
+ *
+ * Inside it, the shot is where the dwell said it was, and the mean of twenty
+ * samples is a quieter estimate than the one sample at the shutter. Past it the
+ * phone has genuinely moved, and the shutter's own sample is the only honest
+ * answer.
+ */
+private const val SHOT_POSE_TOLERANCE_DEGREES = 0.4
+
 /**
  * Guided capture: viewfinder, alignment overlay, and an automatic shutter.
  *
@@ -2742,17 +2752,6 @@ suspend fun Camera.focusAt(
     return true
 }
 
-/**
- * How far (in degrees of rotation) a shot may sit from its dwell's mean pose and
- * still be stamped with that mean.
- *
- * Inside it, the shot is where the dwell said it was, and the mean of twenty
- * samples is a quieter estimate than the one sample at the shutter. Past it the
- * phone has genuinely moved, and the shutter's own sample is the only honest
- * answer.
- */
-const val SHOT_POSE_TOLERANCE_DEGREES = 0.4
-
 /** The pose to stamp on a shot: see [SHOT_POSE_TOLERANCE_DEGREES]. */
 fun shotPose(dwell: OrientationData, atShutter: OrientationData): OrientationData {
     if (!atShutter.hasFix) return dwell
@@ -2860,4 +2859,5 @@ fun Context.targetPhrase(relation: TargetRelation): String {
         }
     }
     return parts.joinToString(", ")
+}
 }
