@@ -179,10 +179,6 @@ class OpenCv360Stitcher private constructor() {
     ): NativeStitchResult
     
     private external fun nativeGetError(): String
-    
-    private companion object {
-        // Library loading handled by public companion object
-    }
 }
 
 /**

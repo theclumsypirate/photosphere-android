@@ -146,6 +146,8 @@ data class StitchProgress(
 data class SphereFrame(
     val file: File,
     val pose: CameraPose,
+    /** Position in the capture sequence; also the file's sequence number. */
+    val index: Int = 0,
 )
 
 /**

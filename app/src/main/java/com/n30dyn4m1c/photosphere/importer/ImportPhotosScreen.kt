@@ -161,6 +161,7 @@ fun ImportPhotosScreen(
                             pitchDegrees = pose.pitchDegrees,
                             rollDegrees = pose.rollDegrees,
                         ),
+                        index = index,
                     )
                 }
                 // Select stitcher backend based on debug preference
