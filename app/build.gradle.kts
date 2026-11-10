@@ -22,7 +22,7 @@ android {
         // CMake for native OpenCV 360° stitcher (debug only)
         externalNativeBuild {
             cmake {
-                arguments.set(listOf("-DANDROID_STL=c++_shared"))
+                arguments += listOf("-DANDROID_STL=c++_shared")
             }
         }
     }
@@ -108,11 +108,11 @@ android {
     // CMake for native OpenCV 360° stitcher (debug only)
     externalNativeBuild {
         cmake {
-            path.set(file("src/main/cpp/CMakeLists.txt"))
-            version.set("3.22.1")
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
         }
     }
-    }
+}
 
 /**
  * The person and object detection, kept as source but kept out of the build.
