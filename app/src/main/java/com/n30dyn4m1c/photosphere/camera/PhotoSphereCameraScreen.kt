@@ -64,7 +64,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.VolumeOff
@@ -84,7 +86,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.RoundedCornerShape
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
@@ -127,7 +128,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.window.WindowInsets
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -1188,11 +1188,11 @@ fun PhotoSphereCameraScreen(
         }
 
         try {
-            val stitchResult = if (useCppStitcher) {
+            if (useCppStitcher) {
                 // C++ OpenCV native stitcher (debug only)
-                OpenCv360Stitcher.create()?.let { stitcher ->
+                val sphere = OpenCv360Stitcher.create()?.let { stitcher ->
                     val outputFile = File(context.filesDir, "temp_stitch_${System.currentTimeMillis()}.jpg")
-                    val result = stitcher.stitch360Auto(
+                    val result = stitcher.stitch360(
                         jsonPath = SphereImageStore.sessionDirectory(context, buffer.sessionId.value)
                             .resolve("poses.json").absolutePath,
                         outputPath = outputFile.absolutePath,
@@ -1206,7 +1206,44 @@ fun PhotoSphereCameraScreen(
                     if (result.success) {
                         android.graphics.BitmapFactory.decodeFile(result.outputPath)
                     } else {
+                        Logging.e("C++ stitch failed: ${result.errorMessage}")
                         null
+                    }
+                }
+                if (sphere == null) {
+                    snackbarHostState.showSnackbar(
+                        context.getString(
+                            R.string.stitch_failed,
+                            context.getString(R.string.stitch_error_write_failed),
+                        )
+                    )
+                } else {
+                    val stitched = try {
+                        withContext(Dispatchers.IO) {
+                            SphereImageStore.writeStitchedSphere(
+                                context = context,
+                                bitmap = sphere,
+                            )
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Logging.e("Could not write the stitched sphere", e)
+                        null
+                    } finally {
+                        sphere.recycle()
+                    }
+                    if (stitched == null) {
+                        snackbarHostState.showSnackbar(
+                            context.getString(
+                                R.string.stitch_failed,
+                                context.getString(R.string.stitch_error_write_failed),
+                            )
+                        )
+                    } else {
+                        resetGuidance()
+                        Logging.i("Sphere ready ${stitched.width}x${stitched.height} (C++)")
+                        onSphereReady(stitched, null)
                     }
                 }
             } else {
@@ -1345,6 +1382,7 @@ fun PhotoSphereCameraScreen(
                         // capture a few more and try again.
                         snackbarHostState.showSnackbar(context.stitchFailureMessage(error))
                     }
+                }
             } finally {
                 stitchJob = null
             }
@@ -1907,6 +1945,7 @@ fun CaptureHud(
                     }
                 }
             }
+        }
 
         Column(
             modifier = Modifier
@@ -2208,6 +2247,7 @@ fun CaptureScopeSelector(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(3.dp),
     ) {
+        @OptIn(kotlin.ExperimentalStdlibApi::class)
         SphereCaptureScope.entries.forEach { option ->
             val selected = option == scope
             Surface(
@@ -2909,5 +2949,4 @@ fun Context.targetPhrase(relation: TargetRelation): String {
         }
     }
     return parts.joinToString(", ")
-}
 }

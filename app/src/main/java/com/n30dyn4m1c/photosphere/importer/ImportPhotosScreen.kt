@@ -173,7 +173,6 @@ fun ImportPhotosScreen(
 
                 // Write poses.json for C++ stitcher if using C++ backend
                 if (useCppStitcher) {
-                    val horizontalFovDegrees = fieldOfView.horizontalDegrees
                     val shotRecords = frames.map { frame ->
                         SphereImageStore.ShotRecord(
                             file = frame.file,
@@ -193,9 +192,9 @@ fun ImportPhotosScreen(
 
                 val stitchResult = if (useCppStitcher) {
                     // C++ OpenCV native stitcher (debug only)
-                    OpenCv360Stitcher.create()?.let { stitcher ->
+                    val bitmap = OpenCv360Stitcher.create()?.let { stitcher ->
                         val outputFile = File(context.filesDir, "temp_import_stitch_${System.currentTimeMillis()}.jpg")
-                        val result = stitcher.stitch360Auto(
+                        val result = stitcher.stitch360(
                             jsonPath = SphereImageStore.sessionDirectory(context, cppSessionId!!)
                                 .resolve("poses.json").absolutePath,
                             outputPath = outputFile.absolutePath,
@@ -211,6 +210,11 @@ fun ImportPhotosScreen(
                         } else {
                             null
                         }
+                    }
+                    if (bitmap != null) {
+                        Result.success(bitmap)
+                    } else {
+                        Result.failure(IllegalStateException("C++ stitcher unavailable or failed"))
                     }
                 } else {
                     // Kotlin PhotoSphereStitcher (default)
@@ -228,7 +232,7 @@ fun ImportPhotosScreen(
                     )
                 }
 
-                stitchResult?.let { bitmap ->
+                stitchResult.onSuccess { bitmap ->
                     val stitched = try {
                         withContext(Dispatchers.IO) {
                             SphereImageStore.writeStitchedSphere(
@@ -255,7 +259,7 @@ fun ImportPhotosScreen(
                             R.string.stitch_failed,
                             context.getString(R.string.stitch_error_write_failed),
                         )
-                        return@let
+                        return@onSuccess
                     }
                     Logging.i("Import stitch done")
                     onSphereReady(stitched)

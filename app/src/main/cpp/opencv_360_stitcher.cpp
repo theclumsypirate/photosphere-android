@@ -541,12 +541,12 @@ Java_com_n30dyn4m1c_photosphere_stitching_OpenCv360Stitcher_nativeStitch360(
          cfg.doGain, cfg.doRefine, cfg.refineIters);
     
     // Prepare failure result class and constructor
-    jclass resultClass = env->FindClass("com/n30dyn4m1c/photosphere/stitching/OpenCv360Stitcher$NativeStitchResult");
+    jclass resultClass = env->FindClass("com/n30dyn4m1c/photosphere/stitching/NativeStitchResult");
     if (!resultClass) {
         LOGE("Cannot find NativeStitchResult class");
         return nullptr;
     }
-    jmethodID resultCtor = env->GetMethodID(resultClass, "<init>", "(ZIDLjava/util/List;)V");
+    jmethodID resultCtor = env->GetMethodID(resultClass, "<init>", "(ZIIDLjava/util/List;)V");
     if (!resultCtor) {
         LOGE("Cannot find NativeStitchResult constructor");
         return nullptr;
