@@ -508,7 +508,7 @@ struct StitchConfig {
     string outputPath;
 };
 
-JNIEXPORT jboolean JNICALL
+JNIEXPORT jobject JNICALL
 Java_com_n30dyn4m1c_photosphere_stitching_OpenCv360Stitcher_nativeStitch360(
     JNIEnv* env, jobject thiz,
     jstring jsonPath,
@@ -540,6 +540,25 @@ Java_com_n30dyn4m1c_photosphere_stitching_OpenCv360Stitcher_nativeStitch360(
          cfg.jsonPath.c_str(), cfg.outputPath.c_str(), cfg.outWidth, cfg.ssaa, cfg.hfovDeg,
          cfg.doGain, cfg.doRefine, cfg.refineIters);
     
+    // Prepare failure result class and constructor
+    jclass resultClass = env->FindClass("com/n30dyn4m1c/photosphere/stitching/OpenCv360Stitcher$NativeStitchResult");
+    if (!resultClass) {
+        LOGE("Cannot find NativeStitchResult class");
+        return nullptr;
+    }
+    jmethodID resultCtor = env->GetMethodID(resultClass, "<init>", "(ZIDLjava/util/List;)V");
+    if (!resultCtor) {
+        LOGE("Cannot find NativeStitchResult constructor");
+        return nullptr;
+    }
+    
+    // Empty list for failure case
+    jclass listClass = env->FindClass("java/util/ArrayList");
+    jmethodID listCtor = env->GetMethodID(listClass, "<init>", "()V");
+    jobject emptyList = env->NewObject(listClass, listCtor);
+    
+    jobject failureResult = env->NewObject(resultClass, resultCtor, JNI_FALSE, 0, 0, 0.0, emptyList);
+    
     try {
         // 1. Load poses from sidecar JSON
         vector<Shot> shots;
@@ -547,12 +566,12 @@ Java_com_n30dyn4m1c_photosphere_stitching_OpenCv360Stitcher_nativeStitch360(
         double hfov = cfg.hfovDeg;
         if (!loadPoses(cfg.jsonPath, shots, imgW, imgH, hfov)) {
             LOGE("Failed to load poses from %s", cfg.jsonPath.c_str());
-            return JNI_FALSE;
+            return failureResult;
         }
         
         if (shots.size() < 2) {
             LOGE("Need at least 2 shots, got %zu", shots.size());
-            return JNI_FALSE;
+            return failureResult;
         }
         
         // Read first image to get dimensions if not in JSON
@@ -564,7 +583,7 @@ Java_com_n30dyn4m1c_photosphere_stitching_OpenCv360Stitcher_nativeStitch360(
         
         if (imgW == 0 || imgH == 0) {
             LOGE("Could not determine image dimensions");
-            return JNI_FALSE;
+            return failureResult;
         }
         
         // Intrinsics
@@ -606,23 +625,42 @@ Java_com_n30dyn4m1c_photosphere_stitching_OpenCv360Stitcher_nativeStitch360(
         // 5. Save output
         if (!imwrite(cfg.outputPath, result.img)) {
             LOGE("Failed to write output to %s", cfg.outputPath.c_str());
-            return JNI_FALSE;
+            return failureResult;
         }
         
         LOGI("360° C++ stitching completed: %s (%dx%d) coverage=%.2f%%",
              cfg.outputPath.c_str(), result.img.cols, result.img.rows, result.coverage * 100);
         
-        return JNI_TRUE;
+        // Create success result with band coverage list
+        jobject bandCoverageList = env->NewObject(listClass, listCtor);
+        jmethodID listAdd = env->GetMethodID(listClass, "add", "(Ljava/lang/Object;)Z");
+        jclass doubleClass = env->FindClass("java/lang/Double");
+        jmethodID doubleCtor = env->GetMethodID(doubleClass, "<init>", "(D)V");
+        for (double val : result.bandCoverage) {
+            jobject doubleObj = env->NewObject(doubleClass, doubleCtor, val);
+            env->CallBooleanMethod(bandCoverageList, listAdd, doubleObj);
+        }
+        
+        jobject successResult = env->NewObject(
+            resultClass, resultCtor,
+            JNI_TRUE,
+            result.img.cols,
+            result.img.rows,
+            result.coverage,
+            bandCoverageList
+        );
+        
+        return successResult;
         
     } catch (const cv::Exception& e) {
         LOGE("OpenCV error: %s", e.what());
-        return JNI_FALSE;
+        return failureResult;
     } catch (const exception& e) {
         LOGE("Std error: %s", e.what());
-        return JNI_FALSE;
+        return failureResult;
     } catch (...) {
         LOGE("Unknown error");
-        return JNI_FALSE;
+        return failureResult;
     }
 }
 
