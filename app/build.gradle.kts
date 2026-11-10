@@ -22,10 +22,7 @@ android {
         // CMake for native OpenCV 360° stitcher (debug only)
         externalNativeBuild {
             cmake {
-                path = file("src/main/cpp/CMakeLists.txt")
-                version = "3.22.1"
-                // OpenCV prefab uses shared STL, so we must use c++_shared
-                arguments = listOf("-DANDROID_STL=c++_shared")
+                arguments.set(listOf("-DANDROID_STL=c++_shared"))
             }
         }
     }
@@ -108,6 +105,13 @@ android {
         }
     }
 
+    // CMake for native OpenCV 360° stitcher (debug only)
+    externalNativeBuild {
+        cmake {
+            path.set(file("src/main/cpp/CMakeLists.txt"))
+            version.set("3.22.1")
+        }
+    }
     }
 
 /**
