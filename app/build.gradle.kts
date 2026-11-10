@@ -103,6 +103,8 @@ android {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
             version = "3.22.1"
+            // OpenCV prefab uses shared STL, so we must use c++_shared
+            arguments += "-DANDROID_STL=c++_shared"
         }
     }
 }

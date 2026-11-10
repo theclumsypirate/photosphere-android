@@ -236,21 +236,6 @@ object DebugTargetPlans {
         );
     }
 
-    companion object {
-        private const val PREFS_KEY = "debug_target_plan_type"
-
-        fun getSavedType(context: Context): Type {
-            val name = context.getSharedPreferences("debug", Context.MODE_PRIVATE)
-                .getString(PREFS_KEY, FULL_SPHERE.name)
-            return Type.valueOf(name ?: FULL_SPHERE.name)
-        }
-
-        fun setSavedType(context: Context, type: Type) {
-            context.getSharedPreferences("debug", Context.MODE_PRIVATE)
-                .edit().putString(PREFS_KEY, type.name).apply()
-        }
-    }
-
     /**
      * Internal copy of [SphereTargetPlan.Companion.createUnchecked] for debug use.
      */

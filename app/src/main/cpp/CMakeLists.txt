@@ -14,6 +14,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # OpenCV via Prefab from Maven AAR (org.opencv:opencv:4.12.0)
 # The AAR provides prefab package "OpenCV" with module "opencv_java4"
 # Gradle's prefab support automatically exposes this as a CMake package
+# IMPORTANT: OpenCV prefab uses shared STL, so we must use c++_shared
 find_package(OpenCV REQUIRED CONFIG)
 
 if(NOT OpenCV_FOUND)
