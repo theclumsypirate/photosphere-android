@@ -18,6 +18,16 @@ android {
         versionName = "0.0.5-beta"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // CMake for native OpenCV 360° stitcher (debug only)
+        externalNativeBuild {
+            cmake {
+                path = file("src/main/cpp/CMakeLists.txt")
+                version = "3.22.1"
+                // OpenCV prefab uses shared STL, so we must use c++_shared
+                arguments = listOf("-DANDROID_STL=c++_shared")
+            }
+        }
     }
 
     // Release signing comes from CI secrets, never from the repo:
@@ -98,15 +108,7 @@ android {
         }
     }
 
-    externalNativeBuild {
-        cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.22.1"
-            // OpenCV prefab uses shared STL, so we must use c++_shared
-            arguments = listOf("-DANDROID_STL=c++_shared")
-        }
     }
-}
 
 /**
  * The person and object detection, kept as source but kept out of the build.
