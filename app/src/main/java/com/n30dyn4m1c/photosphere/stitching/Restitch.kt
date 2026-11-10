@@ -177,7 +177,7 @@ suspend fun restitchSphere(
  * JPEG upright via its `ORIENTATION` tag, and a frame that lost that tag
  * decodes landscape and lands rotated 90° against its pose.
  */
-internal fun stitchDiagnostics(
+fun stitchDiagnostics(
     frames: List<SphereFrame>,
     fieldOfView: FieldOfView,
     optics: SphereOptics,
