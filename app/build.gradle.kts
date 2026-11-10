@@ -84,6 +84,8 @@ android {
         // BuildConfig.DEBUG gates the orientation debug screen, so R8 can strip
         // it from release builds.
         buildConfig = true
+        // Enable prefab support for OpenCV AAR (provides CMake config via prefab)
+        prefab = true
     }
 
     packaging {

@@ -11,30 +11,13 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# OpenCV configuration
-# The OpenCV Android SDK provides CMake config files via the Maven artifact
-# org.opencv:opencv:4.12.0 which unpacks native libs and CMake config to:
-# ${CMAKE_SOURCE_DIR}/../../../build/intermediates/cmake/debug/obj/${ANDROID_ABI}/opencv
-
-# Try to find OpenCV from the Gradle-unpacked AAR
-set(OpenCV_DIR 
-    "${CMAKE_SOURCE_DIR}/../../../build/intermediates/cmake/debug/obj/${ANDROID_ABI}/opencv"
-    CACHE PATH "OpenCV config directory from Maven AAR"
-)
-
-# Find OpenCV - required components for 360° stitching pipeline
-find_package(OpenCV 4.12 REQUIRED COMPONENTS
-    core
-    imgcodecs
-    imgproc
-    stitching
-    features2d
-    calib3d
-    flann
-)
+# OpenCV via Prefab from Maven AAR (org.opencv:opencv:4.12.0)
+# The AAR provides prefab package "OpenCV" with module "opencv_java4"
+# Gradle's prefab support automatically exposes this as a CMake package
+find_package(OpenCV REQUIRED CONFIG)
 
 if(NOT OpenCV_FOUND)
-    message(FATAL_ERROR "OpenCV not found. Please ensure org.opencv:opencv:4.12.0 is in dependencies and the project has been synced.")
+    message(FATAL_ERROR "OpenCV prefab package not found. Ensure org.opencv:opencv:4.12.0 is in dependencies.")
 endif()
 
 # Android log library
@@ -55,12 +38,11 @@ add_library(
 # Include directories
 target_include_directories(opencv_360_stitcher PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${OpenCV_INCLUDE_DIRS}
 )
 
-# Link libraries
+# Link against OpenCV from prefab (provides OpenCV::opencv_java4 target)
 target_link_libraries(opencv_360_stitcher PRIVATE
-    ${OpenCV_LIBS}
+    OpenCV::opencv_java4
     ${android_log}
 )
 
