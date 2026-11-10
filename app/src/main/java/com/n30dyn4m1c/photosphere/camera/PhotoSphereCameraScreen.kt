@@ -142,6 +142,8 @@ import com.n30dyn4m1c.photosphere.sensor.rememberOrientationTracker
 import com.n30dyn4m1c.photosphere.stitching.CameraPose
 import com.n30dyn4m1c.photosphere.stitching.NightFrameMerger
 import com.n30dyn4m1c.photosphere.stitching.PhotoSphereStitcher
+import com.n30dyn4m1c.photosphere.stitching.OpenCv360Stitcher
+import com.n30dyn4m1c.photosphere.stitching.StitcherBackend
 import com.n30dyn4m1c.photosphere.stitching.RestitchOffer
 import com.n30dyn4m1c.photosphere.stitching.RestitchParams
 import com.n30dyn4m1c.photosphere.stitching.SeamMode
@@ -1160,7 +1162,29 @@ fun PhotoSphereCameraScreen(
         }
         stitchProgress.value = StitchProgress.Preparing
 
+        // Select stitcher backend based on debug preference
+        val backend = StitcherBackend.getSelectedBackend(context)
+        val useCppStitcher = backend == StitcherBackend.Backend.CPP_OPENCV
+
         try {
+            val stitchResult = if (useCppStitcher) {
+                // C++ OpenCV native stitcher (debug only)
+                OpenCv360Stitcher.create()?.let { stitcher ->
+                    val framePaths = frames.map { it.file.absolutePath }
+                    val outputFile = File(context.filesDir, "temp_stitch_${System.currentTimeMillis()}.jpg")
+                    val result = stitcher.stitch360Auto(
+                        imagePaths = framePaths,
+                        outputPath = outputFile.absolutePath
+                    )
+                    if (result.success) {
+                        // Load the stitched bitmap
+                        android.graphics.BitmapFactory.decodeFile(result.outputPath)
+                    } else {
+                        null
+                    }
+                }
+            } else {
+                // Kotlin PhotoSphereStitcher (default)
                 PhotoSphereStitcher.stitchPhotos(
                     frames = frames,
                     horizontalFovDegrees = fieldOfView.horizontalDegrees,

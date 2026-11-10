@@ -44,11 +44,13 @@ import com.n30dyn4m1c.photosphere.R
 import com.n30dyn4m1c.photosphere.camera.SphereDeviceProfile
 import com.n30dyn4m1c.photosphere.camera.rememberSphereOptics
 import com.n30dyn4m1c.photosphere.stitching.CameraPose
+import com.n30dyn4m1c.photosphere.stitching.OpenCv360Stitcher
 import com.n30dyn4m1c.photosphere.stitching.PhotoSphereStitcher
 import com.n30dyn4m1c.photosphere.stitching.SeamMode
 import com.n30dyn4m1c.photosphere.stitching.SphereFrame
 import com.n30dyn4m1c.photosphere.stitching.StitchProgress
 import com.n30dyn4m1c.photosphere.stitching.StitchStage
+import com.n30dyn4m1c.photosphere.stitching.StitcherBackend
 import com.n30dyn4m1c.photosphere.storage.SphereImageStore
 import com.n30dyn4m1c.photosphere.storage.SphereImageStore.StitchedSphere
 import com.n30dyn4m1c.photosphere.ui.theme.PillShape
@@ -161,18 +163,42 @@ fun ImportPhotosScreen(
                         ),
                     )
                 }
-                PhotoSphereStitcher.stitchPhotos(
-                    frames = frames,
-                    horizontalFovDegrees = fieldOfView.horizontalDegrees,
-                    verticalFovDegrees = fieldOfView.verticalDegrees,
-                    radialDistortion = null,
-                    maxInputDimension = deviceProfile.stitchMaxInputDimension,
-                    maxOutputWidth = deviceProfile.stitchMaxOutputWidth,
-                    unsharpAmount = deviceProfile.unsharpAmount,
-                    portraitRotationDegrees = optics.portraitRotationDegrees,
-                    seamMode = seamMode,
-                    onProgress = { stitchProgress.value = it },
-                ).onSuccess { bitmap ->
+                // Select stitcher backend based on debug preference
+                val backend = StitcherBackend.getSelectedBackend(context)
+                val useCppStitcher = backend == StitcherBackend.Backend.CPP_OPENCV
+
+                val stitchResult = if (useCppStitcher) {
+                    // C++ OpenCV native stitcher (debug only)
+                    OpenCv360Stitcher.create()?.let { stitcher ->
+                        val framePaths = frames.map { it.file.absolutePath }
+                        val outputFile = File(context.filesDir, "temp_import_stitch_${System.currentTimeMillis()}.jpg")
+                        val result = stitcher.stitch360Auto(
+                            imagePaths = framePaths,
+                            outputPath = outputFile.absolutePath
+                        )
+                        if (result.success) {
+                            android.graphics.BitmapFactory.decodeFile(result.outputPath)
+                        } else {
+                            null
+                        }
+                    }
+                } else {
+                    // Kotlin PhotoSphereStitcher (default)
+                    PhotoSphereStitcher.stitchPhotos(
+                        frames = frames,
+                        horizontalFovDegrees = fieldOfView.horizontalDegrees,
+                        verticalFovDegrees = fieldOfView.verticalDegrees,
+                        radialDistortion = null,
+                        maxInputDimension = deviceProfile.stitchMaxInputDimension,
+                        maxOutputWidth = deviceProfile.stitchMaxOutputWidth,
+                        unsharpAmount = deviceProfile.unsharpAmount,
+                        portraitRotationDegrees = optics.portraitRotationDegrees,
+                        seamMode = seamMode,
+                        onProgress = { stitchProgress.value = it },
+                    )
+                }
+
+                stitchResult?.let { bitmap ->
                     val stitched = try {
                         withContext(Dispatchers.IO) {
                             SphereImageStore.writeStitchedSphere(
@@ -199,7 +225,7 @@ fun ImportPhotosScreen(
                             R.string.stitch_failed,
                             context.getString(R.string.stitch_error_write_failed),
                         )
-                        return@onSuccess
+                        return@let
                     }
                     Logging.i("Import stitch done")
                     onSphereReady(stitched)
