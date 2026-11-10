@@ -22,7 +22,7 @@ android {
         // CMake for native OpenCV 360° stitcher (debug only)
         externalNativeBuild {
             cmake {
-                arguments += listOf("-DANDROID_STL=c++_shared")
+                arguments.add("-DANDROID_STL=c++_shared")
             }
         }
     }
