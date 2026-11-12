@@ -102,6 +102,8 @@ android {
         jniLibs {
             // OpenCV's .so files are loaded from the APK directly on API 23+.
             useLegacyPackaging = false
+            // OpenCV prefab and our CMake build both provide libc++_shared.so.
+            pickFirsts += "**/libc++_shared.so"
         }
     }
 
