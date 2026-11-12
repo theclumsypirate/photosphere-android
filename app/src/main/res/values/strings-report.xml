@@ -11,6 +11,6 @@
     <string name="send_report">Share Logs</string>
     <string name="report_preparing">Preparing logs…</string>
     <string name="report_failed">Could not prepare logs.</string>
-    <string name="send_report_note">What the app recorded: recent activity, crashes and how they ended. Emails and tokens taken out. Nothing is sent unless you send it.</string>
+    <string name="send_report_note">What the app recorded: recent activity, crashes and how they ended. Nothing is sent unless you send it.</string>
     <string name="report_back">Back</string>
 </resources>
