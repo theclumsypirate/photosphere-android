@@ -18,13 +18,6 @@ android {
         versionName = "0.0.6-beta"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
-        // CMake for native OpenCV 360° stitcher (debug only)
-        externalNativeBuild {
-            cmake {
-                arguments.add("-DANDROID_STL=c++_shared")
-            }
-        }
     }
 
     // Release signing comes from CI secrets, never from the repo:
@@ -91,8 +84,6 @@ android {
         // BuildConfig.DEBUG gates the orientation debug screen, so R8 can strip
         // it from release builds.
         buildConfig = true
-        // Enable prefab support for OpenCV AAR (provides CMake config via prefab)
-        prefab = true
     }
 
     packaging {
@@ -102,16 +93,6 @@ android {
         jniLibs {
             // OpenCV's .so files are loaded from the APK directly on API 23+.
             useLegacyPackaging = false
-            // OpenCV prefab and our CMake build both provide libc++_shared.so.
-            pickFirsts += "**/libc++_shared.so"
-        }
-    }
-
-    // CMake for native OpenCV 360° stitcher (debug only)
-    externalNativeBuild {
-        cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.22.1"
         }
     }
 }
