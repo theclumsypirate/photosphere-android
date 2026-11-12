@@ -93,12 +93,13 @@ fun SettingsScreen(
         if (BuildConfig.DEBUG && SamsungHighRes.isSamsung()) {
             SamsungRows(modifier = Modifier.padding(top = 20.dp))
         }
+        PanoramaToolsRows(
+            onLittlePlanetClick = { onLittlePlanetClick() },
+            onGpanoClick = { onGpanoClick() },
+            modifier = Modifier.padding(top = 28.dp),
+        )
         if (BuildConfig.DEBUG) {
-            AdvancedSettingsRows(
-                onLittlePlanetClick = { onLittlePlanetClick() },
-                onGpanoClick = { onGpanoClick() },
-                modifier = Modifier.padding(top = 28.dp),
-            )
+            StitcherBackendRows(modifier = Modifier.padding(top = 20.dp))
         }
 
         // Export section
@@ -513,30 +514,20 @@ private fun ExportRows(modifier: Modifier = Modifier) {
 }
 
 /**
- * Advanced settings — debug-only experimental features.
- * Currently: Little Planet converter (import 2:1 panorama → stereographic),
- * GPano metadata editor, and C++ OpenCV 360° stitcher toggle.
+ * Panorama tools available in all builds: Little Planet converter and GPano metadata editor.
  */
 @Composable
-private fun AdvancedSettingsRows(
+private fun PanoramaToolsRows(
     onLittlePlanetClick: () -> Unit,
     onGpanoClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
-    val useCppStitcher by remember {
-        mutableStateOf(
-            context.getSharedPreferences("debug_prefs", Context.MODE_PRIVATE)
-                .getBoolean("use_cpp_stitcher", false)
-        )
-    }
-    
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
-            text = "Advanced settings",
+            text = "Panorama tools",
             style = MaterialTheme.typography.titleMedium,
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth(),
@@ -567,16 +558,35 @@ private fun AdvancedSettingsRows(
                 style = MaterialTheme.typography.labelLarge,
             )
         }
-        
-        // C++ OpenCV 360° Stitcher toggle (Debug only)
-        androidx.compose.foundation.layout.Spacer(modifier = Modifier.padding(top = 16.dp))
-        androidx.compose.material3.Text(
+    }
+}
+
+/**
+ * Debug-only stitcher backend toggle (C++ OpenCV native stitcher).
+ */
+@Composable
+private fun StitcherBackendRows(
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val useCppStitcher by remember {
+        mutableStateOf(
+            context.getSharedPreferences("debug_prefs", Context.MODE_PRIVATE)
+                .getBoolean("use_cpp_stitcher", false)
+        )
+    }
+
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
             text = "Stitcher Backend",
             style = MaterialTheme.typography.titleMedium,
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth(),
         )
-        androidx.compose.material3.Text(
+        Text(
             text = "Choose between Kotlin (default) and C++ OpenCV native stitcher",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -590,7 +600,7 @@ private fun AdvancedSettingsRows(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            androidx.compose.material3.Text(
+            Text(
                 text = "Use C++ OpenCV Stitcher",
                 style = MaterialTheme.typography.bodyLarge,
             )
@@ -603,7 +613,7 @@ private fun AdvancedSettingsRows(
                 modifier = Modifier.padding(end = 16.dp),
             )
         }
-        androidx.compose.material3.Text(
+        Text(
             text = if (useCppStitcher) {
                 "C++ OpenCV: Full native pipeline (spherical warp, multiband blend, bundle adjustment). Requires native library built via CMake."
             } else {

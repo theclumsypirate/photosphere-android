@@ -380,16 +380,12 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
             showSettings -> SettingsScreen(
                 onBack = { showSettings = false },
                 onLittlePlanetClick = {
-                    if (BuildConfig.DEBUG) {
-                        showSettings = false
-                        showLittlePlanet = true
-                    }
+                    showSettings = false
+                    showLittlePlanet = true
                 },
                 onGpanoClick = {
-                    if (BuildConfig.DEBUG) {
-                        showSettings = false
-                        showGpano = true
-                    }
+                    showSettings = false
+                    showGpano = true
                 },
             )
 
