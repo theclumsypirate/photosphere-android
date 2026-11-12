@@ -1185,6 +1185,7 @@ fun PhotoSphereCameraScreen(
         try {
             if (useCppStitcher) {
                 // C++ OpenCV native stitcher (debug only)
+                var cppErrorMessage: String? = null
                 val sphere = OpenCv360Stitcher.create()?.let { stitcher ->
                     val outputFile = File(context.filesDir, "temp_stitch_${System.currentTimeMillis()}.jpg")
                     val result = stitcher.stitch360(
@@ -1202,6 +1203,7 @@ fun PhotoSphereCameraScreen(
                         android.graphics.BitmapFactory.decodeFile(result.outputPath)
                     } else {
                         Logging.e("C++ stitch failed: ${result.errorMessage}")
+                        cppErrorMessage = result.errorMessage?.takeUnless { it == "See logcat for details" }
                         null
                     }
                 }
@@ -1209,7 +1211,7 @@ fun PhotoSphereCameraScreen(
                     snackbarHostState.showSnackbar(
                         context.getString(
                             R.string.stitch_failed,
-                            context.getString(R.string.stitch_error_write_failed),
+                            cppErrorMessage ?: "Native stitcher failed",
                         )
                     )
                 } else {
@@ -1884,6 +1886,8 @@ fun CaptureHud(
                         expanded = debugMenuExpanded,
                         onDismissRequest = { debugMenuExpanded = false },
                         // Cap the dropdown width so it never overwhelms smaller screens.
+                        // Offset centers the 280dp menu relative to the 48dp trigger.
+                        offset = androidx.compose.ui.unit.DpOffset(x = (-116).dp, y = 0.dp),
                         modifier = Modifier.background(MaterialTheme.colorScheme.surface).width(280.dp),
                     ) {
                         // Night mode item - check both config and device support

@@ -192,6 +192,7 @@ fun ImportPhotosScreen(
 
                 val stitchResult = if (useCppStitcher) {
                     // C++ OpenCV native stitcher (debug only)
+                    var cppError: String? = null
                     val bitmap = OpenCv360Stitcher.create()?.let { stitcher ->
                         val outputFile = File(context.filesDir, "temp_import_stitch_${System.currentTimeMillis()}.jpg")
                         val result = stitcher.stitch360(
@@ -208,13 +209,18 @@ fun ImportPhotosScreen(
                         if (result.success) {
                             android.graphics.BitmapFactory.decodeFile(result.outputPath)
                         } else {
+                            cppError = result.errorMessage?.takeUnless { it == "See logcat for details" }
+                                ?: "Native stitcher failed"
                             null
                         }
+                    } ?: run {
+                        cppError = "C++ stitcher unavailable"
+                        null
                     }
                     if (bitmap != null) {
                         Result.success(bitmap)
                     } else {
-                        Result.failure(IllegalStateException("C++ stitcher unavailable or failed"))
+                        Result.failure(IllegalStateException(cppError ?: "C++ stitcher unavailable or failed"))
                     }
                 } else {
                     // Kotlin PhotoSphereStitcher (default)
