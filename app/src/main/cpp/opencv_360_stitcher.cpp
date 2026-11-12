@@ -309,9 +309,10 @@ static void equalizeGains(vector<Shot>& shots, const Matx33d& K, int W = 512, in
     meanLog /= n;
     for (auto& s : shots) s.gain /= exp(meanLog);
     
-    LOGI("Gains computed: min=%.3f max=%.3f", 
-         *min_element(shots.begin(), shots.end(), [](auto& a, auto& b){ return a.gain < b.gain; }),
-         *max_element(shots.begin(), shots.end(), [](auto& a, auto& b){ return a.gain < b.gain; }));
+    auto minIt = min_element(shots.begin(), shots.end(), [](auto& a, auto& b){ return a.gain < b.gain; });
+    auto maxIt = max_element(shots.begin(), shots.end(), [](auto& a, auto& b){ return a.gain < b.gain; });
+    LOGI("Gains computed: min=%.3f max=%.3f",
+         minIt->gain, maxIt->gain);
 }
 
 // ============================================================================
@@ -426,7 +427,6 @@ static double costFor(int i, const Vec3d& ypr,
     for (auto& e : edges) {
         int a = e.first, b = e.second;
         if (a != i && b != i) continue;
-        int other = (a == i) ? b : a;
         
         vector<DMatch> good;
         vector<vector<DMatch>> knn;

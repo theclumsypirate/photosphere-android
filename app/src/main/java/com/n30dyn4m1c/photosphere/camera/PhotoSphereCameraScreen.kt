@@ -954,12 +954,7 @@ fun PhotoSphereCameraScreen(
                         if (planStartYawDegrees.isNaN()) yawNow else planStartYawDegrees
                     planStartYawDegrees = startYaw
                     val plan = if (BuildConfig.DEBUG) {
-                        val planType = DebugTargetPlans.getSavedType(context)
-                        DebugTargetPlans.create(
-                            planType,
-                            fov = currentFieldOfView,
-                            startYaw = startYaw,
-                        )
+                        DebugTargetPlans.fullSphere(currentFieldOfView, startYaw = startYaw)
                     } else {
                         SphereTargetPlan.createForFieldOfView(
                             startYawDegrees = startYaw,
@@ -1174,9 +1169,9 @@ fun PhotoSphereCameraScreen(
                 SphereImageStore.ShotRecord(
                     file = frame.file,
                     index = frame.index,
-                    yawDegrees = frame.yawDegrees,
-                    pitchDegrees = frame.pitchDegrees,
-                    rollDegrees = frame.rollDegrees,
+                    yawDegrees = frame.pose.yawDegrees,
+                    pitchDegrees = frame.pose.pitchDegrees,
+                    rollDegrees = frame.pose.rollDegrees,
                 )
             }
             SphereImageStore.writePosesJsonForCppStitcher(
