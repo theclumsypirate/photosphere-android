@@ -226,6 +226,16 @@ data class FrameIntrinsics(
      * null when the camera does not describe its distortion.
      */
     val radial: DoubleArray? = null,
+    /**
+     * Debug/R&D lens projection. Default keeps pinhole + optional radial
+     * distortion, which preserves release behavior.
+     */
+    val projection: LensProjection = PinholeLensProjection,
+    /**
+     * Max accepted angle from optical axis, degrees. Used by fisheye/debug
+     * projections to reject rays outside lens coverage.
+     */
+    val maxFovDegrees: Double = 179.0,
 ) {
     init {
         require(widthPx > 0 && heightPx > 0) { "frame must have positive extent" }
@@ -270,11 +280,12 @@ data class FrameIntrinsics(
             }
             out
         }
-        return copy(
+        val scaled = copy(
             focalXPx = focalXPx * focalScale,
             focalYPx = focalYPx * focalScale,
             radial = scaledRadial,
         )
+        return scaled.copy(projection = projection.scaledBy(focalScale, scaled))
     }
 
     companion object {
@@ -317,6 +328,8 @@ data class FrameIntrinsics(
             horizontalFovDegrees: Float,
             verticalFovDegrees: Float,
             distortion: RadialDistortion?,
+            projection: LensProjection = PinholeLensProjection,
+            maxFovDegrees: Double = 179.0,
         ): FrameIntrinsics {
             val pinhole = fromFieldOfView(
                 widthPx = widthPx,
@@ -324,8 +337,8 @@ data class FrameIntrinsics(
                 horizontalFovDegrees = horizontalFovDegrees,
                 verticalFovDegrees = verticalFovDegrees,
             )
-            val radial = distortion?.pixelCoefficientsFor(pinhole.focalPx) ?: return pinhole
-            return pinhole.copy(radial = radial)
+            val radial = distortion?.pixelCoefficientsFor(pinhole.focalPx)
+            return pinhole.copy(radial = radial, projection = projection, maxFovDegrees = maxFovDegrees)
         }
 
         private fun tanHalf(degrees: Float): Double = tan(Math.toRadians(degrees / 2.0))
@@ -603,21 +616,12 @@ object FrameFootprint {
     ) {
         val lastColumn = intrinsics.widthPx - 1.0
         val lastRow = intrinsics.heightPx - 1.0
-        val radial = intrinsics.radial
-
-        // The border walked is the captured image's, whose pixels have passed
-        // through the lens. Before a pixel can be turned into a ray it has to
-        // be un-distorted back to where the pinhole model put it, or a
-        // barrel-distorted frame would report a footprint narrower than the
-        // true extent it reaches — exactly the kind of cropped edge that
-        // becomes a seam gap.
+        // The border walked is the captured image's. Unproject through the lens
+        // model so footprint covers the true extent for fisheye/radial lenses.
         val border = { column: Double, row: Double ->
-            val ideal = if (radial != null) {
-                undistortPixel(column, row, intrinsics.centerXPx, intrinsics.centerYPx, radial)
-            } else {
-                doubleArrayOf(column, row)
-            }
-            block(cameraXOf(ideal[0], intrinsics), cameraYOf(ideal[1], intrinsics))
+            val dir = intrinsics.projection.unproject(column, row, intrinsics)
+            val invZ = if (abs(dir[2]) > 1e-6) 1.0 / dir[2] else 1.0
+            block(dir[0] * invZ, dir[1] * invZ)
         }
 
         for (step in 0..SAMPLES_PER_EDGE) {
@@ -689,23 +693,12 @@ internal fun pivotDirection(
  * The pixel of a frame that looked in a given world direction, or null when the
  * direction falls outside the frame or behind the camera.
  *
- * This is the whole of the camera model in five lines: rotate into the camera's
- * axes, divide through by depth, scale by the focal length, then push the ideal
- * pixel through the lens's radial distortion to find where it was captured. The
- * renderer inlines it over millions of pixels rather than calling it, so any
- * change here has to be made in both places — which is why the footprint code
- * and the tests share this one, keeping an independent statement of the same
- * geometry.
+ * The renderer inlines this over millions of pixels for performance, so any
+ * change here must be reflected in EquirectangularRenderer as well. This
+ * function is the shared reference used by footprint/tests.
  *
- * [x], [y], [z] is a direction from the *pivot*, which is the lens only when
- * [pivotRatio] is zero. Everywhere else the lens sits `pivotRatio` of the way
- * out towards the scene along its own optical axis, and correcting for that
- * costs exactly one subtraction: the lever arm is parallel to the forward axis,
- * so it cancels out of the lateral and vertical components and shortens the
- * depth alone. The direction must be a *unit* vector for that to hold.
- *
- * The returned array is `[column, row]` in the frame's pixel coordinates, where
- * rows increase downwards while the camera's "up" axis points the other way.
+ * [x], [y], [z] is a direction from the *pivot*. With pivotRatio != 0 the lens
+ * sits along forward axis and depth is shortened by pivotRatio.
  */
 internal fun projectDirection(
     basis: CameraBasis,
@@ -716,23 +709,11 @@ internal fun projectDirection(
     pivotRatio: Double = 0.0,
 ): DoubleArray? {
     val depth = basis.depthOf(x, y, z) - pivotRatio
-    if (depth <= MIN_DEPTH) return null
-    val centreX = intrinsics.centerXPx
-    val centreY = intrinsics.centerYPx
-    val idealColumn = centreX + intrinsics.focalXPx * basis.lateralOf(x, y, z) / depth
-    val idealRow = centreY - intrinsics.focalYPx * basis.verticalOf(x, y, z) / depth
-
-    val radial = intrinsics.radial
-    val column: Double
-    val row: Double
-    if (radial != null) {
-        val distorted = distortPixel(idealColumn, idealRow, centreX, centreY, radial)
-        column = distorted[0]
-        row = distorted[1]
-    } else {
-        column = idealColumn
-        row = idealRow
-    }
+    val lateral = basis.lateralOf(x, y, z)
+    val vertical = basis.verticalOf(x, y, z)
+    val projected = intrinsics.projection.project(lateral, vertical, depth, intrinsics) ?: return null
+    val column = projected[0]
+    val row = projected[1]
     if (column < 0.0 || column > intrinsics.widthPx - 1.0) return null
     if (row < 0.0 || row > intrinsics.heightPx - 1.0) return null
     return doubleArrayOf(column, row)
