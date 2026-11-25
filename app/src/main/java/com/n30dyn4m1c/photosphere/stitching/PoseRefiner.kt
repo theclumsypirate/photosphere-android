@@ -370,6 +370,11 @@ internal object PoseRefiner {
             val scaleX = width.toDouble() / targetWidth
             val scaleY = height.toDouble() / targetHeight
             val intrinsics = frame.intrinsics
+            val radial = intrinsics.radial
+            val cx = intrinsics.centerXPx
+            val cy = intrinsics.centerYPx
+            val fx = intrinsics.focalXPx
+            val fy = intrinsics.focalYPx
 
             val basis = frame.sensorBasis
             val bearings = ArrayList<DoubleArray>(keypoints.rows())
@@ -377,16 +382,18 @@ internal object PoseRefiner {
             for (kp in keypoints.toArray()) {
                 val u = kp.pt.x * scaleX
                 val v = kp.pt.y * scaleY
-                val dir = intrinsics.projection.unproject(u, v, intrinsics)
-                val ideal = if (intrinsics.radial != null) {
-                    undistortPixel(u, v, intrinsics.centerXPx, intrinsics.centerYPx, intrinsics.radial)
+                val ideal = if (radial != null) {
+                    undistortPixel(u, v, cx, cy, radial)
                 } else {
                     doubleArrayOf(u, v)
                 }
                 idealPixels += ideal
-                val x = dir[0]
-                val y = dir[1]
-                val z = dir[2]
+                var x = (ideal[0] - cx) / fx
+                var y = -(ideal[1] - cy) / fy
+                val length = Math.sqrt(x * x + y * y + 1.0)
+                x /= length
+                y /= length
+                val z = 1.0 / length
                 bearings += if (pivotRatio > 0.0) {
                     pivotReferredBearing(basis, pivotRatio, x, y, z)
                 } else {

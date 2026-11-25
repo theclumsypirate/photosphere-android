@@ -549,16 +549,21 @@ internal object SeamFinder {
         val basis = frame.basis
         val intrinsics = frame.intrinsics
         val depth = basis.depthOf(x, y, z) - pivotRatio
-        val projected = intrinsics.projection.project(
-            basis.lateralOf(x, y, z),
-            basis.verticalOf(x, y, z),
-            depth,
-            intrinsics,
-        ) ?: return false
-        var column = projected[0]
-        var row = projected[1]
-        val idealColumn = projected[2]
-        val idealRow = projected[3]
+        if (depth <= MIN_DEPTH) return false
+        val centreX = intrinsics.centerXPx
+        val centreY = intrinsics.centerYPx
+        val idealColumn = centreX + intrinsics.focalXPx * basis.lateralOf(x, y, z) / depth
+        val idealRow = centreY - intrinsics.focalYPx * basis.verticalOf(x, y, z) / depth
+        var column = idealColumn
+        var row = idealRow
+        val radial = intrinsics.radial
+        if (radial != null) {
+            val dx = idealColumn - centreX
+            val dy = idealRow - centreY
+            val factor = radialFactor(radial, dx * dx + dy * dy)
+            column = centreX + dx * factor
+            row = centreY + dy * factor
+        }
         val col = (column / scale).roundToInt()
         val rowInt = (row / scale).roundToInt()
         if (col < 0 || col >= width || rowInt < 0 || rowInt >= height) return false

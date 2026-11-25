@@ -3,152 +3,6 @@ package com.n30dyn4m1c.photosphere.stitching
 import kotlin.math.abs
 
 /**
- * Lens projection model used by stitching and R&D pipelines.
- *
- * The default behavior for normal captures remains pinhole projection with
- * optional Brown-Conrady radial distortion. Debug/R&D code can provide other
- * projections (for example fisheye) through this interface, but release capture
- * and stitch defaults must keep the existing behavior.
- */
-interface LensProjection {
-    /** Projects a camera-frame direction to a distorted/source pixel, or null if invalid. */
-    fun project(
-        lateral: Double,
-        vertical: Double,
-        depth: Double,
-        intrinsics: FrameIntrinsics,
-    ): DoubleArray?
-
-    /** Unprojects a source pixel to an ideal camera-frame direction. */
-    fun unproject(
-        column: Double,
-        row: Double,
-        intrinsics: FrameIntrinsics,
-    ): DoubleArray
-
-    /** Returns the same projection scaled for focal refinement. */
-    fun scaledBy(focalScale: Double, intrinsics: FrameIntrinsics): LensProjection = this
-}
-
-/** Default pinhole projection with optional Brown-Conrady radial distortion. */
-object PinholeLensProjection : LensProjection {
-    override fun project(
-        lateral: Double,
-        vertical: Double,
-        depth: Double,
-        intrinsics: FrameIntrinsics,
-    ): DoubleArray? {
-        if (depth <= MIN_DEPTH) return null
-        val centreX = intrinsics.centerXPx
-        val centreY = intrinsics.centerYPx
-        val idealColumn = centreX + intrinsics.focalXPx * lateral / depth
-        val idealRow = centreY - intrinsics.focalYPx * vertical / depth
-        val radial = intrinsics.radial
-        var sourceColumn = idealColumn
-        var sourceRow = idealRow
-        if (radial != null) {
-            val x = idealColumn - centreX
-            val y = idealRow - centreY
-            val factor = radialFactor(radial, x * x + y * y)
-            sourceColumn = centreX + x * factor
-            sourceRow = centreY + y * factor
-        }
-        return doubleArrayOf(sourceColumn, sourceRow, idealColumn, idealRow)
-    }
-
-    override fun unproject(column: Double, row: Double, intrinsics: FrameIntrinsics): DoubleArray {
-        val cx = intrinsics.centerXPx
-        val cy = intrinsics.centerYPx
-        val radial = intrinsics.radial
-        val ideal = if (radial != null) {
-            undistortPixel(column, row, cx, cy, radial)
-        } else {
-            doubleArrayOf(column, row)
-        }
-        val cameraX = (ideal[0] - cx) / intrinsics.focalXPx
-        val cameraY = (cy - ideal[1]) / intrinsics.focalYPx
-        val invLen = 1.0 / sqrt(cameraX * cameraX + cameraY * cameraY + 1.0)
-        return doubleArrayOf(cameraX * invLen, cameraY * invLen, invLen)
-    }
-}
-
-/**
- * Debug/R&D equidistant fisheye projection.
- *
- * r = f * theta, where theta is the angle between optical axis and ray.
- * Intended for experimental fisheye imports/captures only.
- */
-class EquidistantFisheyeProjection(
-    val coefficients: DoubleArray = doubleArrayOf(0.0, 0.0, 0.0, 0.0),
-) : LensProjection {
-    override fun project(
-        lateral: Double,
-        vertical: Double,
-        depth: Double,
-        intrinsics: FrameIntrinsics,
-    ): DoubleArray? {
-        val norm = sqrt(lateral * lateral + vertical * vertical + depth * depth)
-        if (norm <= 0.0) return null
-        val x = lateral / norm
-        val y = vertical / norm
-        val z = depth / norm
-        val theta = kotlin.math.acos(z.coerceIn(-1.0, 1.0))
-        val maxTheta = Math.toRadians(intrinsics.maxFovDegrees / 2.0)
-        if (theta > maxTheta) return null
-        val f = intrinsics.focalPx
-        val rIdeal = f * theta
-        val phi = atan2(y, x)
-        val idealColumn = intrinsics.centerXPx + cos(phi) * rIdeal
-        val idealRow = intrinsics.centerYPx - sin(phi) * rIdeal
-        val distortedR = applyDistortion(rIdeal / max(1e-6, f), coefficients) * f
-        val sourceColumn = intrinsics.centerXPx + cos(phi) * distortedR
-        val sourceRow = intrinsics.centerYPx - sin(phi) * distortedR
-        return doubleArrayOf(sourceColumn, sourceRow, idealColumn, idealRow)
-    }
-
-    override fun unproject(column: Double, row: Double, intrinsics: FrameIntrinsics): DoubleArray {
-        val dx = column - intrinsics.centerXPx
-        val dy = intrinsics.centerYPx - row
-        val rDist = sqrt(dx * dx + dy * dy)
-        val f = max(1e-6, intrinsics.focalPx)
-        val rIdeal = removeDistortion(rDist / f, coefficients) * f
-        val theta = rIdeal / f
-        val phi = atan2(dy, dx)
-        val sinTheta = sin(theta)
-        val x = sinTheta * cos(phi)
-        val y = sinTheta * sin(phi)
-        val z = cos(theta)
-        return doubleArrayOf(x, y, z)
-    }
-
-    private fun applyDistortion(r: Double, k: DoubleArray): Double {
-        val r2 = r * r
-        val r4 = r2 * r2
-        val r6 = r4 * r2
-        val r8 = r4 * r4
-        val k1 = k.getOrElse(0) { 0.0 }
-        val k2 = k.getOrElse(1) { 0.0 }
-        val k3 = k.getOrElse(2) { 0.0 }
-        val k4 = k.getOrElse(3) { 0.0 }
-        return r * (1.0 + k1 * r2 + k2 * r4 + k3 * r6 + k4 * r8)
-    }
-
-    private fun removeDistortion(rDist: Double, k: DoubleArray): Double {
-        var r = rDist
-        repeat(12) {
-            val fn = applyDistortion(r, k) - rDist
-            val dr = max(1e-6, r * 1e-4)
-            val df = (applyDistortion(r + dr, k) - applyDistortion(r - dr, k)) / (2.0 * dr)
-            if (abs(df) < 1e-9) return@repeat
-            val next = r - fn / df
-            if (abs(next - r) < 1e-6) { r = next; return@repeat }
-            r = next
-        }
-        return max(0.0, r)
-    }
-}
-
-/**
  * Brown-Conrady radial lens distortion, in the convention the camera reports it.
  *
  * The camera2 API describes a lens's distortion with the coefficients that map
@@ -161,14 +15,30 @@ class EquidistantFisheyeProjection(
  * y_c = y_i * (1 + k1 r^2 + k2 r^4 + k3 r^6)
  * ```
  *
- * with `r^2 = x_i^2 + y_i^2`. The coefficients are unitless and the
- * coordinates they act on are normalized by the focal length: the origin is
- * the optical centre and `x_i = (column - c_x) / f_x`, with `f_x`/`c_x` taken
- * from `LENS_INTRINSIC_CALIBRATION`. This is the OpenCV convention.
+ * with `r^2 = x_i^2 + y_i^2`. The coefficients are **unitless** and the
+ * coordinates they act on are normalized *by the focal length*: the origin is
+ * the optical centre and `x_i = (column − c_x) / f_x`, with `f_x`/`c_x` taken
+ * from `LENS_INTRINSIC_CALIBRATION`. This is the OpenCV convention, and it is
+ * the whole difference between `LENS_DISTORTION` and the `LENS_RADIAL_DISTORTION`
+ * key it replaced — the older key normalized so that the *farthest array edge*
+ * sat at ±1, which Android itself describes as "inconsistently defined". The two
+ * differ by `(f / halfEdge)^(2n)` per term, a factor of well over two on `k1`
+ * for a typical phone lens and more than ten on `k3`, so reading one key through
+ * the other's normalization does not merely blur the correction — it multiplies
+ * it.
  *
  * The tangential terms of the full model are dropped: they are tiny on phone
  * lenses, and the radial terms carry almost all of the seam error at frame
  * borders.
+ *
+ * Every pipeline stage applies the same model in the same pixel space as the
+ * frame it is looking at — the renderer samples through it, the footprint walks
+ * the distorted border, and pose refinement undistorts keypoints — so a
+ * direction, its ideal pixel and its distorted pixel always agree.
+ * [pixelCoefficientsFor] is what converts the unitless polynomial into that
+ * pixel space, and because the conversion is driven by the focal length *of the
+ * frame being worked on*, it is automatically right for a frame decoded at any
+ * subsampling factor.
  */
 class RadialDistortion(
     /** Unitless `[k1, k2, k3]`, applied to focal-length-normalized coordinates. */

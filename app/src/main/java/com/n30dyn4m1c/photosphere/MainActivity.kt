@@ -70,7 +70,6 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.n30dyn4m1c.photosphere.camera.PhotoSphereCameraScreen
 import com.n30dyn4m1c.photosphere.diagnostics.LagTracker
 import com.n30dyn4m1c.photosphere.importer.ImportPhotosScreen
-import com.n30dyn4m1c.photosphere.fisheye.DebugFisheyeCaptureScreen
 import com.n30dyn4m1c.photosphere.storage.rememberImageBufferManager
 import com.n30dyn4m1c.photosphere.result.PanoramaResultScreen
 import com.n30dyn4m1c.photosphere.result.PanoramaSphereView
@@ -221,7 +220,6 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showLittlePlanet by rememberSaveable { mutableStateOf(false) }
     var showGpano by rememberSaveable { mutableStateOf(false) }
-    var showFisheyeCapture by rememberSaveable { mutableStateOf(false) }
 
     // Deliberately not `rememberSaveable`: on a configuration change the file is
     // still in the cache, but a File is not something to smuggle through a
@@ -355,7 +353,6 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
             showSettings -> "settings"
             showLittlePlanet -> "little planet editor"
             showGpano -> "gpano metadata editor"
-            showFisheyeCapture -> "fisheye capture"
             finished != null -> "result"
             currentEntry == null -> "entry"
             else -> currentEntry.name.lowercase()
@@ -406,14 +403,6 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
                 },
             )
 
-            showFisheyeCapture -> if (BuildConfig.DEBUG) {
-                DebugFisheyeCaptureScreen(
-                    onBack = { showFisheyeCapture = false },
-                )
-            } else {
-                showFisheyeCapture = false
-            }
-
             finished != null -> PanoramaResultScreen(
                 sphere = finished,
                 frameFiles = frameFiles,
@@ -433,14 +422,6 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
                 onImport = {
                     Logging.i("Entry: Import")
                     entry = Entry.Import
-                },
-                onFisheyeCapture = if (BuildConfig.DEBUG) {
-                    {
-                        Logging.i("Entry: Capture fisheye")
-                        showFisheyeCapture = true
-                    }
-                } else {
-                    null
                 },
                 onExtendedCapture = if (BuildConfig.DEBUG) {
                     {
@@ -498,7 +479,6 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
 private fun EntryChooser(
     onCapture: () -> Unit,
     onImport: () -> Unit,
-    onFisheyeCapture: (() -> Unit)?,
     onExtendedCapture: (() -> Unit)?,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
@@ -534,27 +514,6 @@ private fun EntryChooser(
                 text = stringResource(R.string.entry_capture),
                 style = MaterialTheme.typography.titleMedium,
             )
-        }
-        if (onFisheyeCapture != null) {
-            FilledTonalButton(
-                onClick = onFisheyeCapture,
-                shape = PillShape,
-                modifier = Modifier
-                    .padding(top = 12.dp)
-                    .fillMaxWidth()
-                    .height(54.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.PhotoCamera,
-                    contentDescription = null,
-                    modifier = Modifier.size(22.dp),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = stringResource(R.string.entry_fisheye_capture),
-                    style = MaterialTheme.typography.titleMedium,
-                )
-            }
         }
         FilledTonalButton(
             onClick = onImport,

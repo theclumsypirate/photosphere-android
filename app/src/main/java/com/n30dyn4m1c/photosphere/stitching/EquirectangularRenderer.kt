@@ -684,11 +684,14 @@ internal object EquirectangularRenderer {
                 // lens sits `pivotRatio` of the way out along its own optical
                 // axis (see PivotModel). The lever arm is parallel to forward, so
                 // it drops out of the two lateral components and shortens the
-                // depth alone.
+                // depth alone — the whole parallax correction is this subtraction.
                 val depth = cosLatitude * forwardHorizontal[columnOffset] +
                     sinLatitude * basis.forwardZ - pivotRatio
                 val index = rowBase + columnOffset
                 if (depth <= MIN_DEPTH) {
+                    // Behind the camera. A map coordinate outside the source
+                    // makes remap emit the border colour, and the zero weight
+                    // keeps it out of the blend regardless.
                     mapX[index] = -1f
                     mapY[index] = -1f
                     weights[index] = 0f
@@ -699,19 +702,19 @@ internal object EquirectangularRenderer {
                     sinLatitude * basis.rightZ
                 val vertical = cosLatitude * upHorizontal[columnOffset] + sinLatitude * basis.upZ
 
-                val projected = intrinsics.projection.project(lateral, vertical, depth, intrinsics)
-                if (projected == null) {
-                    mapX[index] = -1f
-                    mapY[index] = -1f
-                    weights[index] = 0f
-                    continue
-                }
-                var sourceColumn = projected[0]
-                var sourceRow = projected[1]
-                var idealColumn = projected[2]
-                var idealRow = projected[3]
-                if (localWarp != null && intrinsics.projection === PinholeLensProjection) {
-                    // Debug local warp: parallax residual added in ideal pixel space.
+                // The lens model in two steps: the ideal pinhole pixel, then the
+                // radial push to where the lens actually recorded it. The ideal
+                // pixel is what the feather measures against — it is proportional
+                // to the angle off the optical axis — while the distorted pixel
+                // is what `remap` samples.
+                var idealColumn = centreX + intrinsics.focalXPx * lateral / depth
+                var idealRow = centreY - intrinsics.focalYPx * vertical / depth
+                if (localWarp != null) {
+                    // Debug local warp: the parallax residual the global pose
+                    // could not absorb, added to the ideal pixel before the
+                    // lens model. The mesh was solved in exactly these
+                    // scaled ideal pixels, so the lookup is the correction
+                    // itself, not a mapping between coordinate systems.
                     val correction = localWarp.correctionAt(
                         idealColumn,
                         idealRow,
@@ -720,16 +723,15 @@ internal object EquirectangularRenderer {
                     )
                     idealColumn += correction[0]
                     idealRow += correction[1]
-                    val radial = intrinsics.radial
-                    sourceColumn = idealColumn
-                    sourceRow = idealRow
-                    if (radial != null) {
-                        val x = idealColumn - centreX
-                        val y = idealRow - centreY
-                        val factor = radialFactor(radial, x * x + y * y)
-                        sourceColumn = centreX + x * factor
-                        sourceRow = centreY + y * factor
-                    }
+                }
+                var sourceColumn = idealColumn
+                var sourceRow = idealRow
+                if (radial != null) {
+                    val x = idealColumn - centreX
+                    val y = idealRow - centreY
+                    val factor = radialFactor(radial, x * x + y * y)
+                    sourceColumn = centreX + x * factor
+                    sourceRow = centreY + y * factor
                 }
                 if (sourceColumn < 0.0 || sourceColumn > maxColumn ||
                     sourceRow < 0.0 || sourceRow > maxRow

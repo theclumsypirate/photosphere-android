@@ -62,7 +62,6 @@
     <!-- Entry choice: capture with the camera or stitch imported photos. -->
     <string name="entry_title">Make a 360° photo</string>
     <string name="entry_capture">Capture with camera</string>
-    <string name="entry_fisheye_capture">Capture fisheye</string>
     <string name="entry_import">Import photos</string>
     <string name="entry_extended_capture">Extended capture</string>
     <string name="orbit_finish">Done</string>
