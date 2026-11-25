@@ -443,6 +443,26 @@ private fun PhotoSphereApp(modifier: Modifier = Modifier) {
                 } else {
                     null
                 },
+                onHarnessTests = if (BuildConfig.DEBUG) {
+                    {
+                        Logging.i("Entry: Harness tests")
+                        runCatching {
+                            appContext.startActivity(
+                                Intent()
+                                    .setClassName(
+                                        appContext,
+                                        "com.n30dyn4m1c.photosphere.harness" +
+                                            ".DebugHarnessActivity",
+                                    )
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                            )
+                        }.onFailure { error ->
+                            Logging.w("Harness tests entry failed", error)
+                        }
+                    }
+                } else {
+                    null
+                },
                 onOpenSettings = { showSettings = true },
             )
 
@@ -480,6 +500,7 @@ private fun EntryChooser(
     onCapture: () -> Unit,
     onImport: () -> Unit,
     onExtendedCapture: (() -> Unit)?,
+    onHarnessTests: (() -> Unit)?,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -536,6 +557,27 @@ private fun EntryChooser(
         }
         // Experimental: the extra entries only show in debug builds. Release
         // keeps Capture and Import until the walks are proven on device.
+        if (onHarnessTests != null) {
+            FilledTonalButton(
+                onClick = onHarnessTests,
+                shape = PillShape,
+                modifier = Modifier
+                    .padding(top = 12.dp)
+                    .fillMaxWidth()
+                    .height(54.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.PhotoCamera,
+                    contentDescription = null,
+                    modifier = Modifier.size(22.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = stringResource(R.string.entry_harness_tests),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+            }
+        }
         if (onExtendedCapture != null) {
             FilledTonalButton(
                 onClick = onExtendedCapture,

@@ -24,6 +24,13 @@
             android:screenOrientation="portrait"
             android:theme="@style/Theme.PhotoSphere" />
 
+        <activity
+            android:name=".harness.DebugHarnessActivity"
+            android:exported="false"
+            android:label="Harness tests"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.PhotoSphere" />
+
     </application>
 
 </manifest>
