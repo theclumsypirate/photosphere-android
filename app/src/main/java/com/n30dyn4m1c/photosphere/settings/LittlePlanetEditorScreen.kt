@@ -312,15 +312,17 @@ private fun generatePreview(
     spin: Float,
 ) {
     scope.launch {
-        val preview = withContext(Dispatchers.IO) {
-            LittlePlanetConverter.convert(
-                source,
-                512,
-                zoom,
-                tilt,
-                pan,
-                spin,
-            )
+        val preview = withContext(Dispatchers.Default) {
+            runCatching {
+                LittlePlanetConverter.convert(
+                    source,
+                    512,
+                    zoom,
+                    tilt,
+                    pan,
+                    spin,
+                )
+            }.onFailure { Logging.w("Little Planet preview failed", it) }.getOrNull()
         }
         previewBitmap.value = preview
     }
@@ -339,23 +341,25 @@ private suspend fun saveLittlePlanet(
     snackbarHostState: SnackbarHostState,
 ) {
     val bmp = sourceBitmap.value ?: return
-    val result = withContext(Dispatchers.IO) {
-        val fullRes = LittlePlanetConverter.convert(
-            bmp,
-            outputSize = 2048,
-            fovDegrees = zoom,
-            tiltDegrees = tilt,
-            panDegrees = pan,
-            spinDegrees = spin,
-        )
-        val name = "little_planet_${System.currentTimeMillis()}.jpg"
-        MediaExporter.exportBitmap(context, fullRes, name, fullRes.width, fullRes.height)
+    val result = withContext(Dispatchers.Default) {
+        runCatching {
+            val fullRes = LittlePlanetConverter.convert(
+                bmp,
+                outputSize = 2048,
+                fovDegrees = zoom,
+                tiltDegrees = tilt,
+                panDegrees = pan,
+                spinDegrees = spin,
+            )
+            val name = "little_planet_${System.currentTimeMillis()}.jpg"
+            MediaExporter.exportBitmap(context, fullRes, name, fullRes.width, fullRes.height).getOrThrow()
+        }
     }
     result.onSuccess { exported: ExportedPanorama ->
         snackbarHostState.showSnackbar("Saved as ${exported.displayName}")
     }.onFailure { error ->
         Logging.w("Little Planet save failed", error)
-        snackbarHostState.showSnackbar("Save failed: ${error.message}")
+        snackbarHostState.showSnackbar("Save failed: ${error.message ?: "unknown error"}")
     }
 }
 
@@ -392,11 +396,14 @@ private suspend fun loadAndDecodeLittlePlanet(
     }
     if (decoded != null) {
         val ratio = decoded.width.toFloat() / decoded.height.toFloat()
-        notEquirect.value = ratio < 1.8f || ratio > 2.2f
-        if (notEquirect.value) {
+        val bad = ratio < 1.8f || ratio > 2.2f
+        notEquirect.value = bad
+        if (bad) {
             Logging.w("Little Planet import: ${decoded.width}x${decoded.height} is not 2:1 equirectangular")
+            target.value = null
+        } else {
+            target.value = decoded
         }
-        target.value = decoded
     }
 }
 
