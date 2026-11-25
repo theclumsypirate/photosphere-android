@@ -29,9 +29,11 @@ internal object DebugHarnessRunner {
         fun add(
             label: String, seam: SeamMode, refine: Boolean, dist: Boolean,
             block: Boolean, graph: Boolean, warp: Boolean, perceptual: Boolean, mask: Boolean,
-            maxIn: Int = 1280, maxOut: Int = 4096, unsharp: Float = 0f,
+            colorDebug: Boolean = false, maxIn: Int = 1280, maxOut: Int = 4096, unsharp: Float = 0f,
         ) {
-            configs += HarnessConfig((id++).toString(), label, seam, refine, dist, block, graph, warp, perceptual, mask, maxIn, maxOut, unsharp)
+            configs += HarnessConfig(
+                (id++).toString(), label, seam, refine, dist, block, graph, warp, perceptual, mask, colorDebug, maxIn, maxOut, unsharp
+            )
         }
 
         // Baselines
@@ -70,11 +72,16 @@ internal object DebugHarnessRunner {
         add("Blend/all-debug", SeamMode.Blend, true, true, true, true, true, true, true)
 
         // Resolution/unsharp sensitivity (common practical variants)
-        add("Carve/refine/1024in", SeamMode.Carve, true, true, false, false, false, false, false, 1024, 4096, 0f)
-        add("Carve/refine/1536in", SeamMode.Carve, true, true, false, false, false, false, false, 1536, 4096, 0f)
-        add("Carve/refine/6k", SeamMode.Carve, true, true, false, false, false, false, false, 1280, 6144, 0f)
-        add("Carve/refine/unsharp", SeamMode.Carve, true, true, false, false, false, false, false, 1280, 4096, 0.35f)
-        add("Winner/refine/6k", SeamMode.WinnerTakeAll, true, true, false, false, false, false, false, 1280, 6144, 0f)
+        add("Carve/refine/1024in", SeamMode.Carve, true, true, false, false, false, false, false, false, 1024, 4096, 0f)
+        add("Carve/refine/1536in", SeamMode.Carve, true, true, false, false, false, false, false, false, 1536, 4096, 0f)
+        add("Carve/refine/6k", SeamMode.Carve, true, true, false, false, false, false, false, false, 1280, 6144, 0f)
+        add("Carve/refine/unsharp", SeamMode.Carve, true, true, false, false, false, false, false, false, 1280, 4096, 0.35f)
+        add("Winner/refine/6k", SeamMode.WinnerTakeAll, true, true, false, false, false, false, false, false, 1280, 6144, 0f)
+
+        // Debug color-frame visualization (placement/alignment sanity)
+        add("Color/Blend", SeamMode.Blend, true, true, false, false, false, false, false, true)
+        add("Color/Carve", SeamMode.Carve, true, true, false, false, false, false, false, true)
+        add("Color/Winner", SeamMode.WinnerTakeAll, true, true, false, false, false, false, false, true)
 
         return configs
     }
@@ -110,7 +117,7 @@ internal object DebugHarnessRunner {
                 portraitRotationDegrees = optics.portraitRotationDegrees,
                 useRefinement = cfg.useRefinement,
                 seamMode = cfg.seamMode,
-                debugColorFrames = false,
+                debugColorFrames = cfg.debugColorFrames,
                 movingObjectSeamMask = cfg.movingObjectSeamMask,
                 perBlockExposure = cfg.perBlockExposure,
                 graphSubsetSelection = cfg.graphSubsetSelection,
@@ -123,7 +130,7 @@ internal object DebugHarnessRunner {
                     val metrics = analyze(bmp, runtime)
                     val file = File(outDir, "${cfg.id}_${cfg.label.replace(Regex("[^A-Za-z0-9_-]"), "_")}.jpg")
                     FileOutputStream(file).use { bmp.compress(Bitmap.CompressFormat.JPEG, 92, it) }
-                    val r = HarnessResult(cfg, metrics, score(metrics), file, bmp.width, bmp.height)
+                    val r = HarnessResult(cfg, metrics, score(metrics, cfg), file, bmp.width, bmp.height)
                     bmp.safeRecycle()
                     r
                 },
@@ -139,8 +146,9 @@ internal object DebugHarnessRunner {
         state.copy(running = false, currentLabel = "Done", message = "Best: #${state.bestId}")
     }
 
-    private fun score(m: HarnessMetrics): Float {
-        // Weighted score 0..100; higher is better.
+    private fun score(m: HarnessMetrics, config: HarnessConfig): Float {
+        // Weighted score 0..100; higher is better. Debug color frames are diagnostic only.
+        if (config.debugColorFrames) return 0f
         val coverage = m.coverage.coerceIn(0f, 1f)
         val sharp = (m.sharpness / 120f).coerceIn(0f, 1f)
         val seam = (1f - m.seamPenalty.coerceIn(0f, 1f))

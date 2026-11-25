@@ -15,6 +15,7 @@ internal data class HarnessConfig(
     val localWarpAlignment: Boolean,
     val perceptualSeamCost: Boolean,
     val movingObjectSeamMask: Boolean,
+    val debugColorFrames: Boolean,
     val maxInputDimension: Int,
     val maxOutputWidth: Int,
     val unsharpAmount: Float,

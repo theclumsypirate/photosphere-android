@@ -112,19 +112,23 @@ fun DebugHarnessScreen(onBack: () -> Unit) {
         }
     }
 
-    fun runHarness() {
-        if (pickedFiles.size < 3 || state.running) return
+    fun runHarnessOn(files: List<File>) {
+        if (files.size < 3 || state.running) return
         scope.launch {
-            val frames = withContext(Dispatchers.IO) { buildFrames(pickedFiles, optics) }
-            state = state.copy(running = true, message = "Running tests...", results = emptyList(), bestId = null)
+            val frames = withContext(Dispatchers.IO) { buildFrames(files, optics) }
+            state = state.copy(running = true, message = "Running all harness tests...", results = emptyList(), bestId = null)
             val final = DebugHarnessRunner.run(context, frames, optics.fieldOfView, optics) { state = it }
             state = final
         }
     }
 
+    fun runHarness() {
+        runHarnessOn(pickedFiles)
+    }
+
     if (showCamera) {
         DebugHarnessCameraScreen(
-            onSphereReady = { sphere, _ ->
+            onSphereReady = { _, _ ->
                 scope.launch(Dispatchers.IO) {
                     // Use frames from latest session for harness; stitched sphere is debug artifact.
                     val sessionsRoot = File(context.cacheDir, "sphere_sessions")
@@ -135,12 +139,17 @@ fun DebugHarnessScreen(onBack: () -> Unit) {
                     withContext(Dispatchers.Main) {
                         showCamera = false
                         pickedFiles = files
-                        state = HarnessRunState(
-                            message = if (files.isNotEmpty())
-                                "Captured session loaded (${files.size} frames). Ready to run harness tests."
-                            else "Capture finished, but no session frames found."
-                        )
                         compare = false
+                        if (files.size >= 3) {
+                            state = HarnessRunState(
+                                message = "Captured ${files.size} frames. Auto-running all harness tests..."
+                            )
+                            runHarnessOn(files)
+                        } else {
+                            state = HarnessRunState(
+                                message = "Capture finished, but not enough session frames found."
+                            )
+                        }
                     }
                 }
             },
@@ -175,7 +184,7 @@ fun DebugHarnessScreen(onBack: () -> Unit) {
             ) {
                 item {
                     Text(
-                        "Debug-only stitch harness. Pick your manual 38-photo set (or load last capture session), run all stitch test configs, auto-score them, and swipe compare equirectangular 2:1 results.",
+                        "Debug-only stitch harness. Pick photos or capture with camera; after camera capture it auto-runs all stitch tests (seams, refinement, distortion, block exposure, warp, graph, perceptual seam, moving mask, color debug, resolution/unsharp). Scores and swipe-compares equirectangular results.",
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
@@ -244,7 +253,7 @@ private fun ResultCard(r: HarnessResult, best: Boolean) {
                 style = MaterialTheme.typography.bodySmall
             )
             Text(
-                "seam=${r.config.seamMode} refine=${r.config.useRefinement} dist=${r.config.distortionEnabled} block=${r.config.perBlockExposure} warp=${r.config.localWarpAlignment} graph=${r.config.graphSubsetSelection} percept=${r.config.perceptualSeamCost} mask=${r.config.movingObjectSeamMask}",
+                "seam=${r.config.seamMode} refine=${r.config.useRefinement} dist=${r.config.distortionEnabled} block=${r.config.perBlockExposure} warp=${r.config.localWarpAlignment} graph=${r.config.graphSubsetSelection} percept=${r.config.perceptualSeamCost} mask=${r.config.movingObjectSeamMask} color=${r.config.debugColorFrames}",
                 style = MaterialTheme.typography.bodySmall
             )
         }
