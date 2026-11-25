@@ -49,6 +49,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.exifinterface.media.ExifInterface
+import com.n30dyn4m1c.photosphere.camera.DebugHarnessCameraScreen
 import com.n30dyn4m1c.photosphere.camera.rememberSphereOptics
 import com.n30dyn4m1c.photosphere.stitching.CameraPose
 import com.n30dyn4m1c.photosphere.stitching.SphereFrame
@@ -67,6 +68,7 @@ fun DebugHarnessScreen(onBack: () -> Unit) {
     var importDir by remember { mutableStateOf<File?>(null) }
     var state by remember { mutableStateOf(HarnessRunState()) }
     var compare by remember { mutableStateOf(false) }
+    var showCamera by remember { mutableStateOf(false) }
 
     val picker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(100)
@@ -120,6 +122,33 @@ fun DebugHarnessScreen(onBack: () -> Unit) {
         }
     }
 
+    if (showCamera) {
+        DebugHarnessCameraScreen(
+            onSphereReady = { sphere, _ ->
+                scope.launch(Dispatchers.IO) {
+                    // Use frames from latest session for harness; stitched sphere is debug artifact.
+                    val sessionsRoot = File(context.cacheDir, "sphere_sessions")
+                    val latest = sessionsRoot.listFiles()?.filter { it.isDirectory }?.maxByOrNull { it.lastModified() }
+                    val files = latest?.listFiles()?.filter { it.isFile && it.name.endsWith(".jpg") && !it.name.contains("_t") }
+                        ?.sortedBy { it.name }
+                        ?: emptyList()
+                    withContext(Dispatchers.Main) {
+                        showCamera = false
+                        pickedFiles = files
+                        state = HarnessRunState(
+                            message = if (files.isNotEmpty())
+                                "Captured session loaded (${files.size} frames). Ready to run harness tests."
+                            else "Capture finished, but no session frames found."
+                        )
+                        compare = false
+                    }
+                }
+            },
+            onBack = { showCamera = false },
+        )
+        return
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -158,8 +187,13 @@ fun DebugHarnessScreen(onBack: () -> Unit) {
                             }) { Text("Pick photos (${pickedFiles.size})") }
                             OutlinedButton(onClick = { loadLatestSession() }) { Text("Use last session") }
                         }
-                        Button(onClick = { runHarness() }, enabled = pickedFiles.size >= 3 && !state.running) {
-                            Text(if (state.running) "Running..." else "Run harness tests")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = { showCamera = true }, enabled = !state.running) {
+                                Text("Capture with camera")
+                            }
+                            Button(onClick = { runHarness() }, enabled = pickedFiles.size >= 3 && !state.running) {
+                                Text(if (state.running) "Running..." else "Run harness tests")
+                            }
                         }
                     }
                 }
