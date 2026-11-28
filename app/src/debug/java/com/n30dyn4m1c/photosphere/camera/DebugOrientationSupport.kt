@@ -10,10 +10,10 @@ import com.n30dyn4m1c.photosphere.util.Logging
  *
  * A phone without a gyroscope has no game rotation vector, so the tracker falls
  * back to the full rotation vector. Its yaw is compass-based and jitters by a
- * few degrees per sample, which the default smoother's snap threshold reads as
- * real motion and passes straight to the markers. The debug wrapper holds the
- * displayed pose still until the change is sustained, so the live target stops
- * wandering on those devices. Capture poses are untouched.
+ * few degrees per sample, which no amount of filtering can turn into both a
+ * steady and a responsive overlay. The debug wrapper pins the displayed pose
+ * to the first fix, so the live target never moves on those devices. Capture
+ * poses are untouched.
  */
 object DebugOrientationSupport {
     fun isNoGyro(context: Context): Boolean {
