@@ -31,7 +31,7 @@ import kotlin.math.abs
 class OrientationSmoother(
     private val alpha: Float = SMOOTHING_ALPHA,
     private val snapDegrees: Float = SNAP_DEGREES,
-) {
+) : OrientationStabilizer {
     private var haveFix = false
     private var yawDegrees = 0f
     private var pitchDegrees = 0f
@@ -48,7 +48,7 @@ class OrientationSmoother(
     private var rawFilled = 0
 
     /** Folds [sample] into the running average and returns the steadied pose. */
-    fun update(sample: OrientationData): OrientationData {
+    override fun update(sample: OrientationData): OrientationData {
         if (!sample.hasFix) {
             haveFix = false
             rawFilled = 0
@@ -95,7 +95,7 @@ class OrientationSmoother(
     }
 
     /** Forgets the running average; the next fix starts it over. */
-    fun reset() {
+    override fun reset() {
         haveFix = false
         rawFilled = 0
         rawIndex = 0

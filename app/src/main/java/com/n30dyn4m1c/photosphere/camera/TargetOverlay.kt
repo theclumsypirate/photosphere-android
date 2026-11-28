@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.n30dyn4m1c.photosphere.sensor.OrientationData
@@ -131,7 +132,12 @@ fun TargetOverlay(
     // fullscreen wash on every capture read as an annoying flicker on slow
     // HALs (burst + preview stall); the shutter sound and haptic tick confirm
     // the frame instead.
-    val smoother = remember { OrientationSmoother() }
+    // Debug builds on phones without a gyroscope hold the marker still until
+    // the attitude change is sustained. Release builds get the plain smoother.
+    val context = LocalContext.current
+    val smoother = remember(context) {
+        DebugOrientationSupport.wrap(context, OrientationSmoother())
+    }
 
     Canvas(modifier = modifier.fillMaxSize()) {
         val currentOrientation = smoother.update(orientation())

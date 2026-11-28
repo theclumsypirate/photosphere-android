@@ -50,6 +50,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.exifinterface.media.ExifInterface
 import com.n30dyn4m1c.photosphere.camera.DebugHarnessCameraScreen
+import com.n30dyn4m1c.photosphere.camera.DebugOrientationSupport
 import com.n30dyn4m1c.photosphere.camera.rememberSphereOptics
 import com.n30dyn4m1c.photosphere.stitching.CameraPose
 import com.n30dyn4m1c.photosphere.stitching.SphereFrame
@@ -69,6 +70,7 @@ fun DebugHarnessScreen(onBack: () -> Unit) {
     var state by remember { mutableStateOf(HarnessRunState()) }
     var compare by remember { mutableStateOf(false) }
     var showCamera by remember { mutableStateOf(false) }
+    var coverageReport by remember { mutableStateOf<String?>(null) }
 
     val picker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(100)
@@ -116,9 +118,26 @@ fun DebugHarnessScreen(onBack: () -> Unit) {
         if (files.size < 3 || state.running) return
         scope.launch {
             val frames = withContext(Dispatchers.IO) { buildFrames(files, optics) }
-            state = state.copy(running = true, message = "Running all harness tests...", results = emptyList(), bestId = null)
+            val coverage = withContext(Dispatchers.IO) {
+                runCatching {
+                    DebugCoverageDiagnostics.analyze(
+                        context = context,
+                        frames = frames,
+                        horizontalFovDegrees = optics.fieldOfView.horizontalDegrees,
+                        verticalFovDegrees = optics.fieldOfView.verticalDegrees,
+                        distortion = optics.radialDistortion,
+                    )
+                }.getOrNull()
+            }
+            coverageReport = coverage?.summary
+            state = state.copy(
+                running = true,
+                message = "Coverage ${coverage?.let { "${(it.coverage * 100).toInt()}%" } ?: "unknown"}. Running all harness tests...",
+                results = emptyList(),
+                bestId = null,
+            )
             val final = DebugHarnessRunner.run(context, frames, optics.fieldOfView, optics) { state = it }
-            state = final
+            state = final.copy(message = final.message + " | " + (coverageReport ?: "No coverage report"))
         }
     }
 
@@ -189,6 +208,14 @@ fun DebugHarnessScreen(onBack: () -> Unit) {
                     )
                 }
                 item {
+                    Text(
+                        if (DebugOrientationSupport.isNoGyro(context))
+                            "No gyroscope detected: the debug viewfinder keeps the yellow target dot static."
+                        else "Gyroscope detected: the shipped viewfinder smoothing is active.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton(onClick = {
@@ -219,6 +246,14 @@ fun DebugHarnessScreen(onBack: () -> Unit) {
                 }
                 state.message?.let { msg ->
                     item { Text(msg, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold) }
+                }
+                coverageReport?.let { report ->
+                    item {
+                        Text(
+                            "Coverage mask (debug): $report",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                 }
                 if (state.results.any { it.error == null }) {
                     item {

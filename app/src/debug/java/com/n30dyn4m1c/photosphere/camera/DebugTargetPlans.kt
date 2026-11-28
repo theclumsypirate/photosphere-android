@@ -5,6 +5,7 @@ import com.n30dyn4m1c.photosphere.camera.SphereTargetPlan.Companion.DEFAULT_EQUA
 import com.n30dyn4m1c.photosphere.camera.SphereTargetPlan.Companion.DEFAULT_RING_ELEVATIONS
 import com.n30dyn4m1c.photosphere.camera.SphereTargetPlan.Companion.DEFAULT_TARGET_OVERLAP_FRACTION
 import com.n30dyn4m1c.photosphere.camera.SphereTargetPlan.Companion.FIELD_OF_VIEW_SAFETY_FACTOR
+import com.n30dyn4m1c.photosphere.camera.SphereTargetPlan.Companion.MAX_RING_ELEVATION_DEGREES
 import com.n30dyn4m1c.photosphere.camera.SphereCaptureScope
 import com.n30dyn4m1c.photosphere.camera.FieldOfView
 import com.n30dyn4m1c.photosphere.camera.SphereTarget
@@ -12,6 +13,8 @@ import com.n30dyn4m1c.photosphere.camera.SphereTargetPlan
 import com.n30dyn4m1c.photosphere.sensor.normalizeDegrees
 import com.n30dyn4m1c.photosphere.util.Logging
 import kotlin.math.cos
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
@@ -42,15 +45,62 @@ object DebugTargetPlans {
     }
 
     /**
-     * Standard full sphere: horizon ring, then up to zenith, then down to nadir.
-     * Matches the production [SphereTargetPlan.createForFieldOfView].
+     * Debug full sphere with a coverage-safe ring layout.
+     *
+     * The shipped layout drops an intermediate ring whenever it sits within
+     * half a step of the pole cap. On a phone with a roughly 92 degree vertical
+     * field of view that leaves only two frames at 75 degrees, whose footprints
+     * do not meet at the 55 to 65 degree band. The resulting gaps show up as
+     * black crescents under the ceiling. Debug capture keeps the intermediate
+     * ring so the bands overlap, and release keeps the shipped plan unchanged.
      */
     fun fullSphere(fov: FieldOfView, startYaw: Float = 0f): SphereTargetPlan =
-        SphereTargetPlan.createForFieldOfView(
-            startYawDegrees = startYaw,
-            fieldOfView = fov,
-            scope = SphereCaptureScope.Sphere,
+        coverageSafeSphere(fov, startYaw)
+
+    /**
+     * Lays out the same sphere with every useful intermediate ring kept.
+     */
+    fun coverageSafeSphere(fov: FieldOfView, startYaw: Float = 0f): SphereTargetPlan {
+        val planned = FieldOfView(
+            horizontalDegrees = fov.horizontalDegrees * FIELD_OF_VIEW_SAFETY_FACTOR,
+            verticalDegrees = fov.verticalDegrees * FIELD_OF_VIEW_SAFETY_FACTOR,
         )
+        val spacing = planned.horizontalDegrees * (1f - DEFAULT_TARGET_OVERLAP_FRACTION)
+        val elevations = coverageSafeElevations(
+            verticalFovDegrees = planned.verticalDegrees,
+            overlapFraction = DEFAULT_TARGET_OVERLAP_FRACTION,
+        )
+        Logging.i(
+            "Debug coverage-safe plan: FOV ${fov.horizontalDegrees}x${fov.verticalDegrees} " +
+                "elevations=$elevations spacing=$spacing",
+        )
+        return createUnchecked(startYaw, elevations, spacing)
+    }
+
+    /**
+     * Ring elevations that keep intermediate rings and only add the pole cap
+     * when the last real ring is not close enough to cover it.
+     */
+    private fun coverageSafeElevations(
+        verticalFovDegrees: Float,
+        overlapFraction: Float,
+    ): List<Float> {
+        val step = verticalFovDegrees * (1f - overlapFraction)
+        val cap = min(
+            MAX_RING_ELEVATION_DEGREES,
+            max(step, 90f - verticalFovDegrees / 2f + step / 2f),
+        )
+        val upward = mutableListOf<Float>()
+        var elevation = step
+        while (elevation < cap - 0.5f) {
+            upward += elevation
+            elevation += step
+        }
+        if (upward.isEmpty() || cap - upward.last() > step * 0.35f) {
+            upward += cap
+        }
+        return listOf(0f) + upward + upward.map { -it }
+    }
 
     /**
      * Single horizon ring only (no zenith/nadir).
