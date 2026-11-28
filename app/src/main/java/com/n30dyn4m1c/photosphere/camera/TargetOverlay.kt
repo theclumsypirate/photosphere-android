@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.n30dyn4m1c.photosphere.BuildConfig
 import com.n30dyn4m1c.photosphere.sensor.OrientationData
 import com.n30dyn4m1c.photosphere.ui.theme.SphereAccent
 import com.n30dyn4m1c.photosphere.ui.theme.SphereActive
@@ -132,18 +133,36 @@ fun TargetOverlay(
     // fullscreen wash on every capture read as an annoying flicker on slow
     // HALs (burst + preview stall); the shutter sound and haptic tick confirm
     // the frame instead.
-    // Debug builds on phones without a gyroscope hold the marker still until
-    // the attitude change is sustained. Release builds get the plain smoother.
+    // On a debug build without a gyroscope the targets are pinned, but the
+    // reticle still follows the live pose so it can be moved onto them.
     val context = LocalContext.current
+    val staticNoGyro = BuildConfig.DEBUG && DebugOrientationSupport.isNoGyro(context)
     val smoother = remember(context) {
         DebugOrientationSupport.wrap(context, OrientationSmoother())
     }
+    // The pinned path needs its own steady attitude for the movable reticle.
+    // The raw compass stream jitters, so drawing the reticle from it would make
+    // the green circle vibrate instead of following an ordinary pan.
+    val reticleSmoother = remember(context, staticNoGyro) {
+        if (staticNoGyro) OrientationSmoother(alpha = 0.15f, snapDegrees = 10f) else null
+    }
 
     Canvas(modifier = modifier.fillMaxSize()) {
-        val currentOrientation = smoother.update(orientation())
+        val liveOrientation = orientation()
+        val currentOrientation = smoother.update(liveOrientation)
         val currentAlignment = alignment()
         val focalPx = SphereProjection.focalLengthPx(size.width, size.height, fieldOfView)
         val targets = plan?.targets.orEmpty()
+        val reticleCenter = if (staticNoGyro && reticleSmoother != null) {
+            DebugOrientationSupport.reticleCenter(
+                center = center,
+                frozen = currentOrientation,
+                live = reticleSmoother.update(liveOrientation),
+                focalPx = focalPx,
+                widthPx = size.width,
+                heightPx = size.height,
+            )
+        } else center
 
         drawTargets(
             targets = targets,
@@ -157,6 +176,7 @@ fun TargetOverlay(
             colors = palette,
             focus = focus.value,
             pulse = pulse.value,
+            reticleCenter = reticleCenter,
         )
 
         drawReticle(
@@ -165,6 +185,7 @@ fun TargetOverlay(
                 target = plan?.targets?.getOrNull(activeIndex)?.takeIf { activeIndex !in captured },
             ),
             colors = palette,
+            reticleCenter = reticleCenter,
         )
     }
 }
@@ -305,6 +326,7 @@ private fun DrawScope.drawTargets(
     colors: TargetOverlayColors,
     focus: Float,
     pulse: Float,
+    reticleCenter: Offset,
 ) {
     if (targets.isEmpty()) return
 
@@ -337,6 +359,7 @@ private fun DrawScope.drawTargets(
         focalPx = focalPx,
         focus = focus,
         pulse = pulse,
+        reticleCenter = reticleCenter,
     )
 }
 
@@ -376,6 +399,7 @@ private fun DrawScope.drawActiveTarget(
     focalPx: Float,
     focus: Float,
     pulse: Float,
+    reticleCenter: Offset,
 ) {
     val margin = EDGE_MARGIN.toPx()
     val view = camera.project(target)
@@ -420,11 +444,11 @@ private fun DrawScope.drawActiveTarget(
     // "move this way", and it disappears once the two are on top of each other.
     // The cutoff tracks the reticle's size, so the line never draws inside the
     // ring while the target is already (nearly) centred.
-    val separation = (pinned - center).getDistance()
+    val separation = (pinned - reticleCenter).getDistance()
     if (separation > min(size.width, size.height) * RETICLE_RADIUS_FRACTION + 24.dp.toPx()) {
         drawLine(
             color = colors.guide.copy(alpha = colors.guide.alpha * focus),
-            start = center,
+            start = reticleCenter,
             end = pinned,
             strokeWidth = 1.dp.toPx(),
             pathEffect = PathEffect.dashPathEffect(
@@ -462,6 +486,7 @@ private fun DrawScope.drawActiveTarget(
 private fun DrawScope.drawReticle(
     alignment: AlignmentState,
     colors: TargetOverlayColors,
+    reticleCenter: Offset,
 ) {
     // Sized to the viewport rather than fixed so the reticle reads as a large
     // thing to aim rather than a fine crosshair to finesse, and stays
@@ -484,20 +509,28 @@ private fun DrawScope.drawReticle(
     drawCircle(
         color = colors.reticleAligned.copy(alpha = 0.10f + 0.18f * closeness),
         radius = radius + 8.dp.toPx(),
-        center = center,
+        center = reticleCenter,
         style = Stroke(width = 1.5.dp.toPx()),
     )
 
-    drawCircle(color = color, radius = radius, center = center, style = Stroke(width = strokeWidth))
-    drawCircle(color = color, radius = 2.5.dp.toPx(), center = center)
+    drawCircle(
+        color = color,
+        radius = radius,
+        center = reticleCenter,
+        style = Stroke(width = strokeWidth),
+    )
+    drawCircle(color = color, radius = 2.5.dp.toPx(), center = reticleCenter)
 
     // Four ticks reaching outward, so the centre stays readable over busy scenes.
     listOf(0f, 90f, 180f, 270f).forEach { angle ->
-        rotate(degrees = angle, pivot = center) {
+        rotate(degrees = angle, pivot = reticleCenter) {
             drawLine(
                 color = color,
-                start = Offset(center.x, center.y - radius - 2.dp.toPx()),
-                end = Offset(center.x, center.y - radius - 2.dp.toPx() - tickLength),
+                start = Offset(reticleCenter.x, reticleCenter.y - radius - 2.dp.toPx()),
+                end = Offset(
+                    reticleCenter.x,
+                    reticleCenter.y - radius - 2.dp.toPx() - tickLength,
+                ),
                 strokeWidth = strokeWidth,
                 cap = StrokeCap.Round,
             )
@@ -513,7 +546,7 @@ private fun DrawScope.drawReticle(
             startAngle = -90f,
             sweepAngle = 360f * alignment.dwellProgress,
             useCenter = false,
-            topLeft = Offset(center.x - radius, center.y - radius),
+            topLeft = Offset(reticleCenter.x - radius, reticleCenter.y - radius),
             size = Size(radius * 2f, radius * 2f),
             style = Stroke(width = strokeWidth * 1.5f, cap = StrokeCap.Round),
         )
